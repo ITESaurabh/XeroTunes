@@ -38,8 +38,23 @@ const config: ForgeConfig = {
       loadingGif: './src/assets/meowding.gif',
     }),
     new MakerZIP({}, ['darwin']),
-    new MakerDeb({ options: { name: 'xero-music-player' } }),
-    new MakerRpm({ options: { name: 'xero-music-player' } }),
+    new MakerDeb({
+      options: {
+        name: 'xero-music-player',
+        section: 'sound',
+        genericName: 'Music Player',
+        categories: ['Audio'],
+        icon: './src/assets/logo/XeroTunesLogo.png',
+      },
+    }),
+    new MakerRpm({
+      options: {
+        name: 'xero-music-player',
+        genericName: 'Music Player',
+        categories: ['Audio'],
+        icon: './src/assets/logo/XeroTunesLogo.png',
+      },
+    }),
     new MakerDMG({
       name: 'Xero Music Player',
       background: './src/assets/dmg-bg/background.tiff',
