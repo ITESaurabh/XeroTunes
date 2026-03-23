@@ -106,7 +106,14 @@ function focusExistingWindow() {
       : miniWin && !miniWin.isDestroyed()
         ? miniWin
         : BrowserWindow.getAllWindows()[0];
-  if (!win) return;
+
+  if (!win || win.isDestroyed()) {
+    // If there is no window at all, recreate it (macOS dock or second-instance behavior)
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+    return;
+  }
 
   if (win.isMinimized()) {
     win.restore();
@@ -192,6 +199,9 @@ const createWindow = () => {
           loadingWin!.hide();
           loadingWin!.close();
         });
+        miniWin!.on('closed', () => {
+          miniWin = null;
+        });
         miniWin!.webContents.on('before-input-event', (event, input) => {
           if (
             (input.control && input.shift && input.key.toLowerCase() === 'i') ||
@@ -250,6 +260,9 @@ const createWindow = () => {
       },
     });
     mainWin!.setMenu(null);
+    mainWin!.on('closed', () => {
+      mainWin = null;
+    });
     if (currOS === OS_WINDOWS) {
       mainWin!.setAppDetails({
         appId: 'com.itesaurabh.xmp',
