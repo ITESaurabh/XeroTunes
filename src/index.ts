@@ -99,7 +99,27 @@ if (!isSingleInstance) {
   app.quit();
 }
 
+function focusExistingWindow() {
+  const win =
+    mainWin && !mainWin.isDestroyed()
+      ? mainWin
+      : miniWin && !miniWin.isDestroyed()
+        ? miniWin
+        : BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+
+  if (win.isMinimized()) {
+    win.restore();
+  }
+
+  win.show();
+  win.focus();
+}
+
 app.on('second-instance', (_event, commandLine) => {
+  // Bring existing window to front when a second instance is attempted
+  focusExistingWindow();
+
   if (process.platform !== 'darwin') {
     const args = commandLine.slice(1);
     if (args.length > 1) {
@@ -259,5 +279,9 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+    return;
   }
+
+  // Focus the existing window when clicking the app icon (macOS dock, etc.)
+  focusExistingWindow();
 });
