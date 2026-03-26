@@ -279,14 +279,33 @@ export default function PlayBar() {
   }, [volume, muteVolume]);
 
   const handleVolumeChange = (_, value) => {
-    setVolume(value);
-    setVolumeLevel(value);
-    if (value === 0) {
+    const resolved = Array.isArray(value) ? value[0] : value;
+    setVolume(resolved);
+    setVolumeLevel(resolved);
+    if (resolved === 0) {
       setMuteVolume(true);
     } else {
       setMuteVolume(false);
-      setLastVolume(value);
+      setLastVolume(resolved);
     }
+  };
+
+  const setVolumeValue = (nextValue: number) => {
+    const clamped = Math.max(0, Math.min(100, nextValue));
+    setVolume(clamped);
+    setVolumeLevel(clamped);
+    if (clamped === 0) {
+      setMuteVolume(true);
+    } else {
+      setMuteVolume(false);
+      setLastVolume(clamped);
+    }
+  };
+
+  const handleVolumeWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const delta = event.deltaY < 0 ? 1 : -1; // wheel up -> increase, down -> decrease
+    setVolumeValue(volume + delta);
   };
 
   const handleMuteClick = () => {
@@ -1020,6 +1039,7 @@ export default function PlayBar() {
                 )}
               </IconButton>
               <Slider
+                onWheel={handleVolumeWheel}
                 aria-label="Volume"
                 value={muteVolume ? 0 : volume}
                 min={0}

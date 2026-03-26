@@ -613,6 +613,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Track.AlbumArt,
           Track.Duration,
           Artist.Name AS ArtistName,
+          Album.Id AS AlbumId,
           Album.Title AS AlbumTitle,
           Genre.Name AS GenreName
         FROM Track
@@ -751,6 +752,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       // Playlists would need a separate table - returning empty for now
       const playlists = [];
 
+      const normalizeTrackNumber = (trackNumber: any) => {
+        if (trackNumber === null || trackNumber === undefined || trackNumber === '') return null;
+        const str = String(trackNumber);
+        const num = parseInt(str.split('/')[0], 10);
+        return Number.isNaN(num) ? null : num;
+      };
+
       const results = {
         songs: songs.map(s => ({
           Id: s.Id,
@@ -758,10 +766,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Uri: s.Uri,
           Extension: s.Extension,
           Year: s.Year,
-          TrackNumber: s.TrackNumber,
+          TrackNumber: normalizeTrackNumber(s.TrackNumber),
           AlbumArt: s.AlbumArt,
           Duration: s.Duration,
           ArtistName: s.ArtistName,
+          AlbumId: s.AlbumId,
           AlbumTitle: s.AlbumTitle,
           GenreName: s.GenreName,
         })),

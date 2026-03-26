@@ -42,6 +42,13 @@ function totalDuration(songs: AlbumSong[]): string {
   return `${m} min`;
 }
 
+function formatTrackNumber(trackNumber?: string | number | null): number | null {
+  if (trackNumber === null || trackNumber === undefined || trackNumber === '') return null;
+  const num = typeof trackNumber === 'number' ? trackNumber : Number(trackNumber);
+  if (Number.isNaN(num)) return null;
+  return Math.trunc(num);
+}
+
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
   const navigate = useNavigate();
@@ -116,7 +123,11 @@ const AlbumDetail: React.FC = () => {
               flexShrink: 0,
             }}
           >
-            {isActive ? '▶' : song.TrackNumber || index + 1}
+            {isActive
+              ? '▶'
+              : formatTrackNumber(song.TrackNumber) !== null
+              ? formatTrackNumber(song.TrackNumber)
+              : index + 1}
           </Typography>
 
           {/* Title + Artist */}

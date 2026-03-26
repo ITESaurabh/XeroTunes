@@ -11,11 +11,23 @@ function getMM() {
   if (!mmPromise) {
     mmPromise = import('music-metadata').catch(err => {
       console.error('[worker] Failed to import music-metadata:', err);
-      process.send({ type: 'file-error', file: 'music-metadata import', error: String(err?.message || err) });
+      process.send({
+        type: 'file-error',
+        file: 'music-metadata import',
+        error: String(err?.message || err),
+      });
       throw err;
     });
   }
   return mmPromise;
+}
+
+function normalizeTrackNumber(track) {
+  if (track === null || track === undefined || track === '') return null;
+  const trackStr = String(track);
+  const numPart = trackStr.split('/')[0];
+  const parsed = parseInt(numPart, 10);
+  return Number.isNaN(parsed) ? null : parsed;
 }
 
 async function parseMusicWorker(filePath) {
@@ -36,7 +48,7 @@ async function parseMusicWorker(filePath) {
       title: metadata.common.title || '',
       artist: metadata.common.artist || '',
       album: metadata.common.album || '',
-      track: metadata.common.track?.no ?? null,
+      track: normalizeTrackNumber(metadata.common.track?.no ?? null),
       genre: metadata.common.genre?.length ? metadata.common.genre.join(', ') : '',
       year: metadata.common.year ? String(metadata.common.year) : '',
       albumArt: '',
@@ -200,9 +212,15 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
 }
 
 function cleanupOrphans(db) {
-  db.prepare('DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)').run();
-  db.prepare('DELETE FROM Artist WHERE Id NOT IN (SELECT ArtistId FROM Track WHERE ArtistId IS NOT NULL)').run();
-  db.prepare('DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)').run();
+  db.prepare(
+    'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
+  ).run();
+  db.prepare(
+    'DELETE FROM Artist WHERE Id NOT IN (SELECT ArtistId FROM Track WHERE ArtistId IS NOT NULL)'
+  ).run();
+  db.prepare(
+    'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
+  ).run();
 }
 
 // ─── Basic (optimistic) scan ─────────────────────────────────────────────────
@@ -294,7 +312,9 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
       processed++;
       process.send({ type: 'progress', scanned, total, processed });
     }
-    console.log(`[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`);
+    console.log(
+      `[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`
+    );
   }
 
   // Remove tracks whose files no longer exist
