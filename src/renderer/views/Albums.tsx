@@ -10,6 +10,7 @@ import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../utils/useScrollRestoration';
 
 export interface Album {
   Id: number;
@@ -204,9 +205,17 @@ ScrollContainer.displayName = 'ScrollContainer';
 const Albums: React.FC = () => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
+  const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
+  const { initialScrollTop, saveScrollPosition } = useScrollRestoration('albums');
   const navigate = useNavigate();
 
-  const handleGridScroll = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
+  const handleGridScroll = React.useCallback(
+    (args: { scrollTop: number }) => {
+      saveScrollPosition(args.scrollTop);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
 
   const {
     data: albums = [] as Album[],
@@ -289,6 +298,7 @@ const Albums: React.FC = () => {
                 rowHeight={rowHeight}
                 height={height}
                 width={width}
+                initialScrollTop={initialScrollTop}
                 overscanRowCount={4}
                 onScroll={handleGridScroll}
                 itemData={itemData}

@@ -8,7 +8,7 @@ import {
   Theme,
   Button,
 } from '@mui/material';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useLocation } from 'react-router';
 import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
@@ -17,6 +17,7 @@ import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../utils/useScrollRestoration';
 
 interface AlbumSong extends Track {
   TrackNumber?: string | number;
@@ -51,10 +52,12 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
 
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration(location.pathname);
 
   const {
     data: songs = [] as AlbumSong[],
@@ -90,7 +93,14 @@ const AlbumDetail: React.FC = () => {
   const releaseYear = songs[0]?.['Year'] ?? null;
 
   const ROW_HEIGHT = 60;
-  const handleScroll = useScrollHidePlayerBar();
+  const scrollHide = useScrollHidePlayerBar();
+  const handleScroll = React.useCallback(
+    (args: { scrollOffset: number }) => {
+      saveScrollPosition(args.scrollOffset);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -300,6 +310,7 @@ const AlbumDetail: React.FC = () => {
                 width={width}
                 itemCount={songs.length}
                 itemSize={ROW_HEIGHT}
+                initialScrollOffset={initialScrollOffset}
                 overscanCount={20}
                 onScroll={handleScroll}
               >

@@ -22,6 +22,7 @@ import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../utils/useScrollRestoration';
 
 interface Column {
   label: string;
@@ -119,7 +120,15 @@ const AllSongs: React.FC = () => {
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
-  const handleScroll = useScrollHidePlayerBar();
+  const scrollHide = useScrollHidePlayerBar();
+  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration('all_songs');
+  const handleScroll = React.useCallback(
+    (args: { scrollOffset: number }) => {
+      saveScrollPosition(args.scrollOffset);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
   const navigate = useNavigate();
 
   const {
@@ -271,6 +280,7 @@ const AllSongs: React.FC = () => {
                 itemCount={songs.length}
                 itemSize={43}
                 width={width}
+                initialScrollOffset={initialScrollOffset}
                 onScroll={handleScroll}
                 outerElementType={ScrollContainer}
               >

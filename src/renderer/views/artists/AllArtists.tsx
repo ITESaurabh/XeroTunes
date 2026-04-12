@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
 import { Box, Typography, LinearProgress, Avatar } from '@mui/material';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { FixedSizeGrid, GridChildComponentProps, GridOnItemsRenderedProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
@@ -10,6 +10,7 @@ import { useIpc } from '../../state/ipc';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { store } from '../../utils/store';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../../utils/useScrollRestoration';
 import { artistImageService } from '../../utils/artistImageService';
 
 export interface Artist {
@@ -167,8 +168,18 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
   const queryClient = useQueryClient();
+  const location = useLocation();
+  const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
+  const { initialScrollTop, saveScrollPosition } = useScrollRestoration(location.pathname);
   const navigate = useNavigate();
-  const handleGridScroll = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
+
+  const handleGridScroll = React.useCallback(
+    (args: { scrollTop: number }) => {
+      saveScrollPosition(args.scrollTop);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
 
   const enqueueArtistImageFetch = useCallback(
     (artist: Artist) => {
@@ -280,6 +291,7 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
                 rowHeight={rowHeight}
                 height={height}
                 width={width}
+                initialScrollTop={initialScrollTop}
                 overscanRowCount={4}
                 onItemsRendered={handleItemsRendered}
                 onScroll={handleGridScroll}

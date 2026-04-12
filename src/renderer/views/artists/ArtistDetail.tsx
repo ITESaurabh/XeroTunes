@@ -7,7 +7,7 @@ import {
   useMediaQuery,
   Theme,
 } from '@mui/material';
-import { useParams } from 'react-router';
+import { useParams, useLocation } from 'react-router';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
@@ -15,6 +15,7 @@ import { useIpc } from '../../state/ipc';
 import { store, Track } from '../../utils/store';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../../utils/useScrollRestoration';
 
 interface ArtistDetailData {
   Id: number;
@@ -81,9 +82,11 @@ const resolveImageSrc = (uri: string | null | undefined) => {
 
 const ArtistDetail: React.FC = () => {
   const { artistId } = useParams<{ artistId: string }>();
+  const location = useLocation();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const { scrollRef, saveScrollPosition } = useScrollRestoration(location.pathname);
 
   const {
     data: artist,
@@ -235,6 +238,7 @@ const ArtistDetail: React.FC = () => {
     if (condensed !== isHeaderCondensed) {
       setIsHeaderCondensed(condensed);
     }
+    saveScrollPosition(y);
     handleScroll({ scrollTop: y });
   };
 
@@ -344,6 +348,7 @@ const ArtistDetail: React.FC = () => {
       </Box>
 
       <Box
+        ref={scrollRef}
         sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}
         onScroll={onContentScroll}
       >
