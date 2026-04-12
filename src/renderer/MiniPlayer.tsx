@@ -1,7 +1,7 @@
 import React, { useContext, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StateProvider, store } from './utils/store';
-import { getTheme } from './utils/LocStoreUtil';
+import { getThemeSettings } from './utils/LocStoreUtil';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 // import '@fontsource/open-sans/300.css';
 // import '@fontsource/open-sans/400.css';
@@ -18,18 +18,21 @@ const App = () => {
   const isDarkThemePreferred = window.matchMedia('(prefers-color-scheme: dark)').matches;
 
   const { dispatch } = useContext(store);
-  const currTheme = getTheme();
-  const themePref: 'light' | 'dark' = !isDarkThemePreferred ? 'light' : 'dark';
+  const themeSettings = getThemeSettings();
+  const themePref: 'light' | 'dark' =
+    themeSettings.mode === 1
+      ? 'light'
+      : themeSettings.mode === 2
+        ? 'dark'
+        : isDarkThemePreferred
+          ? 'dark'
+          : 'light';
   const darkModeTheme = createTheme(getBaseTheme(themePref));
   const theme = responsiveFontSizes(darkModeTheme);
 
   useEffect(() => {
-    if (currTheme === undefined) {
-      dispatch({ type: 'SET_THEME', payload: true });
-    } else {
-      dispatch({ type: 'SET_THEME', payload: currTheme });
-    }
-  }, [currTheme, dispatch]);
+    dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
+  }, [themeSettings.mode, dispatch]);
 
   return (
     <ThemeProvider theme={theme}>

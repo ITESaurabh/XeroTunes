@@ -6,6 +6,8 @@ import { Box, CircularProgress } from '@mui/material';
 const AllSongs = lazy(() => import('../views/AllSongs'));
 const Albums = lazy(() => import('../views/Albums'));
 const AlbumDetail = lazy(() => import('../views/AlbumDetail'));
+const AllArtists = lazy(() => import('../views/artists/AllArtists'));
+const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
 const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
 
@@ -73,7 +75,15 @@ const routes = [
         path: 'artists',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <AllArtists />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'artists/:artistId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <ArtistDetail />
           </React.Suspense>
         ),
       },
@@ -81,7 +91,7 @@ const routes = [
         path: 'album-artists',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <AllArtists showAlbumsOnly />
           </React.Suspense>
         ),
       },
