@@ -5,6 +5,19 @@ const fs = require('fs');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
 
+let multiArtistSeparators = [',', '&'];
+let multiArtistExceptions = ['AC/DC', '+/-'];
+
+function applyLibrarySettings(librarySettings) {
+  if (!librarySettings) return;
+  if (Array.isArray(librarySettings.multiArtistSeparators)) {
+    multiArtistSeparators = librarySettings.multiArtistSeparators;
+  }
+  if (Array.isArray(librarySettings.multiArtistExceptions)) {
+    multiArtistExceptions = librarySettings.multiArtistExceptions;
+  }
+}
+
 // Cache the ESM import so it's resolved once for all files
 let mmPromise = null;
 function getMM() {
@@ -30,6 +43,72 @@ function normalizeTrackNumber(track) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeArtistName(raw) {
+  if (!raw) return '';
+
+  if (typeof raw === 'object') {
+    if (typeof raw.name === 'string' && raw.name.trim()) {
+      return raw.name.trim().replace(/\s+/g, ' ');
+    }
+    if (typeof raw.artist === 'string' && raw.artist.trim()) {
+      return raw.artist.trim().replace(/\s+/g, ' ');
+    }
+    return String(raw).trim().replace(/\s+/g, ' ');
+  }
+
+  return String(raw).trim().replace(/\s+/g, ' ');
+}
+
+function splitArtists(rawArtist) {
+  const artistList = [];
+
+  if (!rawArtist) return artistList;
+
+  if (Array.isArray(rawArtist)) {
+    rawArtist.forEach(item => {
+      const normalized = normalizeArtistName(item);
+      if (normalized) artistList.push(normalized);
+    });
+  } else {
+    artistList.push(normalizeArtistName(rawArtist));
+  }
+
+  // Flatten comma/ampersand separators but preserve exceptions (AC/DC, +/- etc.)
+  const result = [];
+
+  artistList.forEach(raw => {
+    const normalized = normalizeArtistName(raw);
+    if (!normalized) return;
+
+    if (multiArtistExceptions.some(exc => exc.toLowerCase() === normalized.toLowerCase())) {
+      result.push(normalized);
+      return;
+    }
+
+    const sepPattern = multiArtistSeparators.map(escapeRegex).join('|');
+    const pieces = normalized.split(new RegExp(`\\s*(?:${sepPattern})\\s*`, 'g'));
+
+    if (pieces.length > 1) {
+      pieces.forEach(piece => {
+        const p = normalizeArtistName(piece);
+        if (p && !multiArtistExceptions.some(exc => exc.toLowerCase() === p.toLowerCase())) {
+          result.push(p);
+        } else if (p) {
+          result.push(p);
+        }
+      });
+    } else {
+      result.push(normalized);
+    }
+  });
+
+  return [...new Set(result.filter(Boolean))];
+}
+
 async function parseMusicWorker(filePath) {
   const mm = await getMM();
   const metadata = await mm.parseFile(filePath);
@@ -46,7 +125,12 @@ async function parseMusicWorker(filePath) {
     },
     tags: {
       title: metadata.common.title || '',
-      artist: metadata.common.artist || '',
+      artist: metadata.common.artist || metadata.common.artists || '',
+      albumArtist:
+        metadata.common.albumartist ||
+        metadata.common.albumArtist ||
+        metadata.common.albumartists ||
+        '',
       album: metadata.common.album || '',
       track: normalizeTrackNumber(metadata.common.track?.no ?? null),
       genre: metadata.common.genre?.length ? metadata.common.genre.join(', ') : '',
@@ -64,12 +148,42 @@ async function parseMusicWorker(filePath) {
 }
 
 function getOrCreate(db, table, column, value, extra = {}) {
-  let row = db.prepare(`SELECT Id FROM ${table} WHERE ${column} = ?`).get(value);
-  if (row) return row.Id;
+  const selectCols = extra.ReleaseYear != null ? 'Id, ReleaseYear' : 'Id';
+  let row = db
+    .prepare(`SELECT ${selectCols} FROM ${table} WHERE ${column} = ? COLLATE NOCASE`)
+    .get(value);
+  if (row) {
+    if (extra.ReleaseYear != null && row.ReleaseYear == null) {
+      db.prepare(`UPDATE ${table} SET ReleaseYear = ? WHERE Id = ?`).run(extra.ReleaseYear, row.Id);
+    }
+    return row.Id;
+  }
   const cols = [column, ...Object.keys(extra)].join(', ');
   const vals = [value, ...Object.values(extra)];
   const placeholders = vals.map(() => '?').join(', ');
   const stmt = db.prepare(`INSERT INTO ${table} (${cols}) VALUES (${placeholders})`);
+  const info = stmt.run(...vals);
+  return info.lastInsertRowid;
+}
+
+function getOrCreateAlbum(db, title, artistId, extra = {}) {
+  if (!title) return null;
+  const selectCols = extra.ReleaseYear != null ? 'Id, ReleaseYear' : 'Id';
+  const row = db
+    .prepare(
+      `SELECT ${selectCols} FROM Album WHERE Title = ? COLLATE NOCASE AND ((ArtistId = ?) OR (ArtistId IS NULL AND ? IS NULL))`
+    )
+    .get(title, artistId, artistId);
+  if (row) {
+    if (extra.ReleaseYear != null && row.ReleaseYear == null) {
+      db.prepare('UPDATE Album SET ReleaseYear = ? WHERE Id = ?').run(extra.ReleaseYear, row.Id);
+    }
+    return row.Id;
+  }
+  const cols = ['Title', ...Object.keys(extra)].join(', ');
+  const vals = [title, ...Object.values(extra)];
+  const placeholders = vals.map(() => '?').join(', ');
+  const stmt = db.prepare(`INSERT INTO Album (${cols}) VALUES (${placeholders})`);
   const info = stmt.run(...vals);
   return info.lastInsertRowid;
 }
@@ -104,16 +218,48 @@ function getAllSupportedFiles(dir, supportedFileTypes) {
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
 function insertTrack(db, config, filePath, musicInfo, fileHash) {
-  const artistId = musicInfo.tags.artist
-    ? getOrCreate(db, 'Artist', 'Name', musicInfo.tags.artist)
+  const allArtistNames = splitArtists(musicInfo.tags.artist);
+  const primaryArtistName = allArtistNames[0] || '';
+  const primaryArtistId = primaryArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
     : null;
+
+  const artistIds = new Set();
+  if (allArtistNames.length > 0) {
+    allArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      artistIds.add(id);
+    });
+  } else if (primaryArtistId) {
+    artistIds.add(primaryArtistId);
+  }
+
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
+
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
+  const primaryAlbumArtistId = primaryAlbumArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
+    : null;
+
+  const albumArtistIds = new Set();
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
+
   let albumId = null;
   if (musicInfo.tags.album) {
-    albumId = getOrCreate(db, 'Album', 'Title', musicInfo.tags.album, {
-      ArtistId: artistId,
+    albumId = getOrCreateAlbum(db, musicInfo.tags.album, primaryAlbumArtistId, {
+      ArtistId: primaryAlbumArtistId,
       GenreId: genreId,
     });
   }
@@ -131,44 +277,105 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
       ? musicInfo.tags.title
       : musicInfo.fileInfo.fileName;
 
-  db.prepare(
-    `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, BitRate, SampleRate, Channels, DiscNumber, ReleaseYear, DateAdded, Version, FolderPath)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    filePath,
-    musicInfo.fileInfo.fileExt,
-    trackTitle,
-    artistId,
+  const trackInfo = db
+    .prepare(
+      `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, BitRate, SampleRate, Channels, DiscNumber, ReleaseYear, DateAdded, Version, FolderPath)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      filePath,
+      musicInfo.fileInfo.fileExt,
+      trackTitle,
+      primaryArtistId,
+      albumId,
+      genreId,
+      musicInfo.tags.track,
+      musicInfo.tags.year,
+      albumArt,
+      fileHash,
+      musicInfo.tags.duration || null,
+      musicInfo.tags.bitrate,
+      musicInfo.tags.sampleRate,
+      musicInfo.tags.channels,
+      musicInfo.tags.discNumber,
+      musicInfo.tags.releaseYear,
+      Date.now(),
+      1,
+      folderpath
+    );
+
+  const trackId = trackInfo.lastInsertRowid;
+
+  if (trackId && artistIds.size > 0) {
+    const insertTrackArtist = db.prepare(
+      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of artistIds) {
+      insertTrackArtist.run(trackId, aid);
+    }
+  }
+
+  if (albumId && albumArtistIds.size > 0) {
+    const insertAlbumArtist = db.prepare(
+      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of albumArtistIds) {
+      insertAlbumArtist.run(albumId, aid);
+    }
+  }
+
+  return {
+    artistId: primaryArtistId,
     albumId,
     genreId,
-    musicInfo.tags.track,
-    musicInfo.tags.year,
     albumArt,
-    fileHash,
-    musicInfo.tags.duration || null,
-    musicInfo.tags.bitrate,
-    musicInfo.tags.sampleRate,
-    musicInfo.tags.channels,
-    musicInfo.tags.discNumber,
-    musicInfo.tags.releaseYear,
-    Date.now(),
-    1,
-    folderpath
-  );
-  return { artistId, albumId, genreId, albumArt, trackTitle };
+    trackTitle,
+  };
 }
 
 function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
-  const artistId = musicInfo.tags.artist
-    ? getOrCreate(db, 'Artist', 'Name', musicInfo.tags.artist)
+  const allArtistNames = splitArtists(musicInfo.tags.artist);
+  const primaryArtistName = allArtistNames[0] || '';
+  const primaryArtistId = primaryArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
     : null;
+
+  const artistIds = new Set();
+  if (allArtistNames.length > 0) {
+    allArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      artistIds.add(id);
+    });
+  } else if (primaryArtistId) {
+    artistIds.add(primaryArtistId);
+  }
+
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
+
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
+  const primaryAlbumArtistId = primaryAlbumArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
+    : null;
+
+  const albumArtistIds = new Set();
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
+
   let albumId = null;
   if (musicInfo.tags.album) {
-    albumId = getOrCreate(db, 'Album', 'Title', musicInfo.tags.album, {
-      ArtistId: artistId,
+    albumId = getOrCreateAlbum(db, musicInfo.tags.album, primaryAlbumArtistId, {
+      ArtistId: primaryAlbumArtistId,
       GenreId: genreId,
     });
   }
@@ -191,7 +398,7 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
   ).run(
     musicInfo.fileInfo.fileExt,
     trackTitle,
-    artistId,
+    primaryArtistId,
     albumId,
     genreId,
     musicInfo.tags.track,
@@ -209,14 +416,42 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     folderpath,
     trackId
   );
+
+  if (trackId) {
+    db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
+    const insertTrackArtist = db.prepare(
+      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of artistIds) {
+      insertTrackArtist.run(trackId, aid);
+    }
+  }
+
+  if (albumId) {
+    db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
+    const insertAlbumArtist = db.prepare(
+      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of albumArtistIds) {
+      insertAlbumArtist.run(albumId, aid);
+    }
+  }
 }
 
 function cleanupOrphans(db) {
   db.prepare(
     'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
   ).run();
+  db.prepare('DELETE FROM TrackArtist WHERE TrackId NOT IN (SELECT Id FROM Track)').run();
+  db.prepare('DELETE FROM AlbumArtist WHERE AlbumId NOT IN (SELECT Id FROM Album)').run();
+  db.prepare('DELETE FROM AlbumArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
   db.prepare(
-    'DELETE FROM Artist WHERE Id NOT IN (SELECT ArtistId FROM Track WHERE ArtistId IS NOT NULL)'
+    `DELETE FROM Artist
+     WHERE Id NOT IN (
+       SELECT ArtistId FROM TrackArtist WHERE ArtistId IS NOT NULL
+       UNION
+       SELECT ArtistId FROM AlbumArtist WHERE ArtistId IS NOT NULL
+     )`
   ).run();
   db.prepare(
     'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
@@ -281,6 +516,10 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
 // Hashes + parses every file, inserts new and updates changed, removes stale.
 
 async function runFullScan(db, folders, config, supportedFileTypes) {
+  // Rebuild album artist relationships from current file metadata.
+  // This clears stale associations that may have been created by older scan logic.
+  db.prepare('DELETE FROM AlbumArtist').run();
+
   let allFiles = [];
   for (const folder of folders) {
     allFiles = allFiles.concat(getAllSupportedFiles(folder.Uri, supportedFileTypes));
@@ -341,7 +580,9 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-process.on('message', async ({ folders, config, mode }) => {
+process.on('message', async ({ folders, config, mode, librarySettings }) => {
+  applyLibrarySettings(librarySettings);
+
   const isFullScan = mode === 'full';
   console.log(`Starting music scan worker (mode: ${isFullScan ? 'full' : 'basic'})...`);
 

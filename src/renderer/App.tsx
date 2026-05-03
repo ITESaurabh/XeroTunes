@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
-import { getTheme } from './utils/LocStoreUtil';
+import { getThemeSettings } from './utils/LocStoreUtil';
 import { useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
@@ -28,10 +28,14 @@ const queryClient = new QueryClient({
 const App = () => {
   const { state, dispatch } = useContext(store);
   const [systemIsDark, setSystemIsDark] = useState(true);
-  const currTheme = getTheme();
+  const themeSettings = getThemeSettings();
 
   // console.log('Re Render Core');
-  const themePref = useMemo(() => (systemIsDark ? 'dark' : 'light'), [systemIsDark]);
+  const themePref = useMemo(() => {
+    if (themeSettings.mode === 1) return 'light';
+    if (themeSettings.mode === 2) return 'dark';
+    return systemIsDark ? 'dark' : 'light';
+  }, [themeSettings.mode, systemIsDark]);
   const finalRoutes = useMemo(() => routes, []);
 
   const element = useRoutes(finalRoutes);
@@ -59,12 +63,8 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (currTheme === undefined) {
-      dispatch({ type: 'SET_THEME', payload: false });
-    } else {
-      dispatch({ type: 'SET_THEME', payload: currTheme });
-    }
-  }, [currTheme, dispatch]);
+    dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
+  }, [themeSettings.mode, dispatch]);
 
   // Register keyboard shortcuts
   useKeyboardShortcuts(

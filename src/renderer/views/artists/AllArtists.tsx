@@ -1,34 +1,31 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
-import { Box, LinearProgress, Typography, useTheme } from '@mui/material';
-import { useNavigate } from 'react-router';
-import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
+import { Box, Typography, LinearProgress, Avatar } from '@mui/material';
+import { useNavigate, useLocation } from 'react-router';
+import { FixedSizeGrid, GridChildComponentProps, GridOnItemsRenderedProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
-import { useQuery } from '@tanstack/react-query';
-import PageToolbar from '../components/PageToolbar';
-import { useIpc } from '../state/ipc';
-import { QUERY_KEYS } from '../constants/queryKeys';
-import { store } from '../utils/store';
-import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
-import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import PageToolbar from '../../components/PageToolbar';
+import { useIpc } from '../../state/ipc';
+import { QUERY_KEYS } from '../../constants/queryKeys';
+import { store } from '../../utils/store';
+import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../../utils/useScrollRestoration';
+import { artistImageService } from '../../utils/artistImageService';
 
-export interface Album {
+export interface Artist {
   Id: number;
-  Title: string;
-  CoverUri: string | null;
-  ReleaseYear: number | null;
-  ArtistName: string | null;
+  Name: string;
+  ProfileImgUri?: string | null;
+  ProfileImg?: string | null;
   SongCount: number;
+  AlbumCount: number;
 }
 
 const CARD_MIN_WIDTH = 148;
 const GAP = 14;
 const PADDING = 16;
-const TEXT_AREA_HEIGHT = 56;
-
-// AutoSizer already gives the inner content width (Box padding is excluded),
-// so we use containerWidth directly. We distribute ALL gaps (colCount of them)
-// so total grid width = colCount * (colWidth + GAP) = containerWidth exactly.
+const TEXT_AREA_HEIGHT = 70;
 function calcLayout(containerWidth: number): {
   colCount: number;
   colWidth: number;
@@ -36,31 +33,31 @@ function calcLayout(containerWidth: number): {
 } {
   const colCount = Math.max(2, Math.floor((containerWidth + GAP) / (CARD_MIN_WIDTH + GAP)));
   const colWidth = Math.floor((containerWidth - colCount * GAP) / colCount);
-  const rowHeight = colWidth + TEXT_AREA_HEIGHT + GAP; // art + text + top-gap padding
+  const rowHeight = colWidth + TEXT_AREA_HEIGHT + GAP;
   return { colCount, colWidth, rowHeight };
 }
 
-interface AlbumCardProps {
-  album: Album;
+interface ArtistCardProps {
+  artist: Artist;
   width: number;
-  onClick: (_album: Album) => void;
+  onClick: (_artist: Artist) => void;
 }
 
-const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick }) => {
-  const artSize = width;
-  const theme = useTheme();
-  const [mouse, setMouse] = React.useState<{ x: number; y: number } | null>(null);
+const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onClick }) => {
+  const [mouse, setMouse] = useState<{ x: number; y: number } | null>(null);
 
-  const handleMouseMove = React.useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setMouse({ x: e.clientX - rect.left, y: e.clientY - rect.top });
   }, []);
 
-  const handleMouseLeave = React.useCallback(() => setMouse(null), []);
+  const handleMouseLeave = useCallback(() => setMouse(null), []);
+
+  const imageSrc = artist.ProfileImgUri ? artist.ProfileImgUri : null;
 
   return (
     <Box
-      onClick={() => onClick(album)}
+      onClick={() => onClick(artist)}
       onMouseMove={handleMouseMove}
       onMouseLeave={handleMouseLeave}
       sx={{
@@ -69,14 +66,10 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',
-        backgroundColor: theme.palette.background.default,
-        // Fluent-style border glow on hover
         outline: mouse ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
-        // boxShadow: mouse ? '0 2px 10px rgba(0,0,0,0.55)' : 'none',
-        transition: 'box-shadow 0.2s ease, outline-color 0.15s ease',
+        transition: 'outline-color 0.15s ease',
       }}
     >
-      {/* Fluent Reveal: radial light spotlight that follows the cursor */}
       <Box
         sx={{
           position: 'absolute',
@@ -89,104 +82,69 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
         }}
       />
 
-      {/* Album Art */}
       <Box
         sx={{
-          width: artSize,
-          height: artSize,
+          width: width,
+          height: width,
           position: 'relative',
-          borderRadius: 0.5,
           overflow: 'hidden',
-          backgroundColor: '#1a1a2e',
           flexShrink: 0,
         }}
       >
-        {album.CoverUri ? (
-          <img
-            src={`file://${album.CoverUri}`}
-            alt={album.Title}
-            loading="lazy"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
-        ) : (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: artSize * 0.38,
-                opacity: 0.25,
-                userSelect: 'none',
-                lineHeight: 1,
-              }}
-            >
-              ♪
-            </Typography>
-          </Box>
-        )}
+        <Avatar
+          sx={{ width: '100%', height: '100%' }}
+          alt={artist.Name}
+          src={imageSrc}
+          variant="circular"
+        />
       </Box>
 
-      {/* Text */}
-      <Box display={'flex'} py={0.75} px={1} gap={0.7} flexDirection={'column'}>
+      <Box display="flex" py={0.75} px={1} gap={0.7} flexDirection="column">
         <Typography
           variant="body2"
           noWrap
           sx={{ fontSize: 14, fontWeight: 600, color: 'text.primary', lineHeight: 1 }}
         >
-          {album.Title || 'Unknown Album'}
+          {artist.Name || 'Unknown Artist'}
         </Typography>
         <Typography
           variant="caption"
           noWrap
           sx={{ fontSize: 12, color: 'text.secondary', lineHeight: 1 }}
         >
-          {album.ArtistName || 'Unknown Artist'}
+          {artist.AlbumCount} album{artist.AlbumCount === 1 ? '' : 's'} • {artist.SongCount} track
+          {artist.SongCount === 1 ? '' : 's'}
         </Typography>
       </Box>
     </Box>
   );
 });
 
-AlbumCard.displayName = 'AlbumCard';
+ArtistCard.displayName = 'ArtistCard';
 
 interface CellData {
-  albums: Album[];
+  artists: Artist[];
   colCount: number;
   colWidth: number;
-  onClick: (_album: Album) => void;
+  onClick: (_artist: Artist) => void;
 }
 
 const Cell = React.memo(
   ({ columnIndex, rowIndex, style, data }: GridChildComponentProps<CellData>) => {
-    const { albums, colCount, colWidth, onClick } = data;
+    const { artists, colCount, colWidth, onClick } = data;
     const idx = rowIndex * colCount + columnIndex;
-    if (idx >= albums.length) return null;
-    const album = albums[idx];
+    if (idx >= artists.length) return null;
+    const artist = artists[idx];
 
     return (
-      <div
-        style={{
-          ...style,
-          paddingRight: GAP,
-          boxSizing: 'border-box',
-        }}
-      >
-        <AlbumCard album={album} width={colWidth} onClick={onClick} />
+      <div style={{ ...style, paddingRight: GAP, boxSizing: 'border-box' }}>
+        <ArtistCard artist={artist} width={colWidth} onClick={onClick} />
       </div>
     );
   }
 );
 Cell.displayName = 'Cell';
 
-// Overlay scrollbar so the scrollbar doesn't steal width from the grid,
-// keeping all columns fully visible without clipping the right edge.
 const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   ({ style, ...rest }, ref) => (
     <div
@@ -202,11 +160,17 @@ const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDiv
 );
 ScrollContainer.displayName = 'ScrollContainer';
 
-const Albums: React.FC = () => {
+interface AllArtistsProps {
+  showAlbumsOnly?: boolean;
+}
+
+const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
+  const queryClient = useQueryClient();
+  const location = useLocation();
   const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
-  const { initialScrollTop, saveScrollPosition } = useScrollRestoration('albums');
+  const { initialScrollTop, saveScrollPosition } = useScrollRestoration(location.pathname);
   const navigate = useNavigate();
 
   const handleGridScroll = React.useCallback(
@@ -217,24 +181,44 @@ const Albums: React.FC = () => {
     [saveScrollPosition, scrollHide]
   );
 
+  const enqueueArtistImageFetch = useCallback(
+    (artist: Artist) => {
+      if (!artist.Id || artist.ProfileImgUri) return;
+      artistImageService.enqueue(artist.Id, queryClient, [QUERY_KEYS.ALL_ARTISTS, showAlbumsOnly]);
+    },
+    [queryClient, showAlbumsOnly]
+  );
+
   const {
-    data: albums = [] as Album[],
+    data: artists = [] as Artist[],
     isLoading,
     error,
   } = useQuery({
-    queryKey: [QUERY_KEYS.ALL_ALBUMS],
-    queryFn: () => invokeEventToMainProcess('get-all-albums', undefined) as Promise<Album[]>,
+    queryKey: [QUERY_KEYS.ALL_ARTISTS, showAlbumsOnly],
+    queryFn: () =>
+      invokeEventToMainProcess(
+        showAlbumsOnly ? 'get-all-album-artists' : 'get-all-artists',
+        undefined
+      ) as Promise<Artist[]>,
   });
 
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
   }, [dispatch]);
 
-  const handleAlbumClick = useCallback(
-    (album: Album) => {
-      navigate(`/main_window/albums/${album.Id}`);
+  const filtered = useMemo(() => {
+    if (!showAlbumsOnly) return artists;
+    return artists.filter(a => a.AlbumCount > 0);
+  }, [artists, showAlbumsOnly]);
+
+  const handleArtistClick = useCallback(
+    (artist: Artist) => {
+      const path = showAlbumsOnly
+        ? `/main_window/album-artists/${artist.Id}`
+        : `/main_window/artists/${artist.Id}`;
+      navigate(path);
     },
-    [navigate]
+    [navigate, showAlbumsOnly]
   );
 
   const [gridLayout, setGridLayout] = useState(() => calcLayout(800));
@@ -249,18 +233,18 @@ const Albums: React.FC = () => {
 
   const itemData = useMemo<CellData>(
     () => ({
-      albums,
+      artists: filtered,
       colCount: gridLayout.colCount,
       colWidth: gridLayout.colWidth,
-      onClick: handleAlbumClick,
+      onClick: handleArtistClick,
     }),
-    [albums, gridLayout, handleAlbumClick]
+    [filtered, gridLayout, handleArtistClick]
   );
 
   if (isLoading)
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <PageToolbar title="Albums" />
+        <PageToolbar title={showAlbumsOnly ? 'Album Artists' : 'Artists'} />
         <LinearProgress color="primary" sx={{ borderRadius: 1 }} />
       </Box>
     );
@@ -268,8 +252,8 @@ const Albums: React.FC = () => {
   if (error)
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <PageToolbar title="Albums" />
-        <Typography sx={{ p: 3, color: 'error.main' }}>Error loading albums</Typography>
+        <PageToolbar title={showAlbumsOnly ? 'Album Artists' : 'Artists'} />
+        <Typography sx={{ p: 3, color: 'error.main' }}>Error loading artists</Typography>
       </Box>
     );
 
@@ -282,16 +266,33 @@ const Albums: React.FC = () => {
       transition={{ duration: 0.3 }}
       sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
-      <PageToolbar title={`Albums (${albums.length})`} />
-
+      <PageToolbar title={`${showAlbumsOnly ? 'Album Artists' : 'Artists'} (${filtered.length})`} />
       <Box sx={{ flex: 1, minHeight: 0, px: `${PADDING}px` }}>
         <AutoSizer onResize={handleResize}>
           {({ height, width }: { height: number; width: number }) => {
             const { colCount, colWidth, rowHeight } = calcLayout(width);
-            const rowCount = Math.ceil(albums.length / colCount);
+            const rowCount = Math.ceil(filtered.length / colCount);
+
+            const handleItemsRendered = ({
+              visibleRowStartIndex,
+              visibleRowStopIndex,
+              visibleColumnStartIndex,
+              visibleColumnStopIndex,
+            }: GridOnItemsRenderedProps) => {
+              for (let row = visibleRowStartIndex; row <= visibleRowStopIndex; row += 1) {
+                for (let column = visibleColumnStartIndex; column <= visibleColumnStopIndex; column += 1) {
+                  const index = row * colCount + column;
+                  const artist = filtered[index];
+                  if (artist) {
+                    enqueueArtistImageFetch(artist);
+                  }
+                }
+              }
+            };
 
             return (
               <FixedSizeGrid
+                key={location.pathname}
                 columnCount={colCount}
                 columnWidth={colWidth + GAP}
                 rowCount={rowCount}
@@ -300,6 +301,7 @@ const Albums: React.FC = () => {
                 width={width}
                 initialScrollTop={initialScrollTop}
                 overscanRowCount={4}
+                onItemsRendered={handleItemsRendered}
                 onScroll={handleGridScroll}
                 itemData={itemData}
                 outerElementType={ScrollContainer}
@@ -314,4 +316,4 @@ const Albums: React.FC = () => {
   );
 };
 
-export default Albums;
+export default AllArtists;

@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, nativeTheme, screen } from 'electron';
+import { BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron';
 import { prevIcon, nextIcon, playIcon, pauseIcon } from '../thumbarIcons';
 import dbModule from '../../database';
 import {
@@ -18,6 +18,54 @@ import {
   ALBUM_ART_DIR,
   ARTIST_ART_DIR,
 } from '../../config/core_config';
+import { AppSettings, DEFAULT_APP_SETTINGS } from '../../config/app_settings';
+import { fetchArtistProfileImage } from '../modules/artistArts';
+
+const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
+
+function ensureAppConfFolder() {
+  if (!fs.existsSync(APP_CONF_FOLDER)) {
+    fs.mkdirSync(APP_CONF_FOLDER, { recursive: true });
+  }
+}
+
+function readSettingsFile(): AppSettings {
+  ensureAppConfFolder();
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_APP_SETTINGS, null, 2));
+    return DEFAULT_APP_SETTINGS;
+  }
+
+  try {
+    const raw = fs.readFileSync(SETTINGS_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<AppSettings>;
+    return {
+      ...DEFAULT_APP_SETTINGS,
+      ...parsed,
+      theme: {
+        ...DEFAULT_APP_SETTINGS.theme,
+        ...(parsed.theme ?? {}),
+      },
+      playback: {
+        ...DEFAULT_APP_SETTINGS.playback,
+        ...(parsed.playback ?? {}),
+      },
+      library: {
+        ...DEFAULT_APP_SETTINGS.library,
+        ...(parsed.library ?? {}),
+      },
+    };
+  } catch (error) {
+    console.warn('Failed to load settings.json, restoring defaults:', error);
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_APP_SETTINGS, null, 2));
+    return DEFAULT_APP_SETTINGS;
+  }
+}
+
+function writeSettingsFile(settings: AppSettings) {
+  ensureAppConfFolder();
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+}
 
 function sendMessageToRendererProcess(
   window: BrowserWindow,
@@ -26,6 +74,7 @@ function sendMessageToRendererProcess(
 ): void {
   window.webContents.send(message, payload);
 }
+
 export default function mainIpcs(mainWin, overlayEntry: string) {
   // ── Always-on-top overlay window ────────────────────────────────────────────
   let overlayWin: BrowserWindow | null = null;
@@ -139,6 +188,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('get-dark-mode', () => {
     return nativeTheme.shouldUseDarkColors;
   });
+  ipcMain.on('read-app-settings-sync', event => {
+    event.returnValue = readSettingsFile();
+  });
+  ipcMain.on('write-app-settings-sync', (event, settings) => {
+    writeSettingsFile(settings);
+    event.returnValue = settings;
+  });
   ipcMain.on('show-dialog', (e, payload) => {
     const { title } = payload;
     dialog.showMessageBox({
@@ -233,10 +289,14 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       const albums = (db.prepare('SELECT COUNT(*) AS count FROM Album').get() as { count: number })
         .count;
       const artists = (
-        db.prepare('SELECT COUNT(*) AS count FROM Artist').get() as { count: number }
+        db.prepare('SELECT COUNT(DISTINCT ArtistId) AS count FROM TrackArtist').get() as {
+          count: number;
+        }
       ).count;
       const albumArtists = (
-        db.prepare('SELECT COUNT(DISTINCT ArtistId) AS count FROM Album').get() as { count: number }
+        db.prepare('SELECT COUNT(DISTINCT ArtistId) AS count FROM AlbumArtist').get() as {
+          count: number;
+        }
       ).count;
       const genres = (db.prepare('SELECT COUNT(*) AS count FROM Genre').get() as { count: number })
         .count;
@@ -257,6 +317,16 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       // Favourites and Playlists tables don't exist yet — return 0
       const favourites = 0;
       const playlists = 0;
+      const recentlyAdded = Math.min(
+        200,
+        (
+          db
+            .prepare(
+              'SELECT COUNT(*) AS count FROM Track WHERE DateAdded IS NOT NULL AND DateAdded > 0'
+            )
+            .get() as { count: number }
+        ).count
+      );
       return {
         songs,
         albums,
@@ -267,6 +337,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         folders,
         favourites,
         playlists,
+        recentlyAdded,
       };
     } catch {
       return {
@@ -279,6 +350,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         folders: 0,
         favourites: 0,
         playlists: 0,
+        recentlyAdded: 0,
       };
     }
   });
@@ -291,10 +363,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (!folders.length) return Promise.resolve({ success: false, error: 'No folders to scan' });
 
     const config = { APP_CONF_FOLDER, MUSIC_DIR, ALBUM_ART_DIR, ARTIST_ART_DIR };
+    const settings = readSettingsFile();
     activeScanWorker = fork(
       path.resolve(process.cwd(), 'src', 'main', 'utils', 'musicScanWorker.js')
     );
-    activeScanWorker.send({ folders, config, mode });
+    activeScanWorker.send({ folders, config, mode, librarySettings: settings.library });
     sendMessageToRendererProcess(mainWin, 'scan-start', null);
 
     let resolvePromise: (v: unknown) => void;
@@ -359,16 +432,23 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   db.prepare(
     `CREATE TABLE IF NOT EXISTS Artist (
          Id INTEGER PRIMARY KEY AUTOINCREMENT,
-         Name TEXT,
+         Name TEXT COLLATE NOCASE,
          ProfileImgUri TEXT,
+         ArtistMetaJson TEXT,
          Version INTEGER
        )`
   ).run();
 
+  // Migration: add ArtistMetaJson once for existing DB versions
+  const artistColumns = db.prepare("PRAGMA table_info('Artist')").all() as Array<{ name: string }>;
+  if (!artistColumns.some(col => col.name === 'ArtistMetaJson')) {
+    db.prepare('ALTER TABLE Artist ADD COLUMN ArtistMetaJson TEXT').run();
+  }
+
   db.prepare(
     `CREATE TABLE IF NOT EXISTS Album (
          Id INTEGER PRIMARY KEY AUTOINCREMENT,
-         Title TEXT,
+         Title TEXT COLLATE NOCASE,
          CoverUri TEXT,
          ArtistId INTEGER,
          GenreId INTEGER,
@@ -419,6 +499,40 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   )
 `
   ).run();
+
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS TrackArtist (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    TrackId INTEGER NOT NULL,
+    ArtistId INTEGER NOT NULL,
+    UNIQUE(TrackId, ArtistId)
+  )
+`
+  ).run();
+
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS AlbumArtist (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    AlbumId INTEGER NOT NULL,
+    ArtistId INTEGER NOT NULL,
+    UNIQUE(AlbumId, ArtistId)
+  )
+`
+  ).run();
+
+  db.prepare(
+    `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId)
+     SELECT Id, ArtistId FROM Track WHERE ArtistId IS NOT NULL`
+  ).run();
+
+  if (db.prepare('SELECT COUNT(*) AS count FROM AlbumArtist').get().count === 0) {
+    db.prepare(
+      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId)
+       SELECT Id, ArtistId FROM Album WHERE ArtistId IS NOT NULL`
+    ).run();
+  }
 
   // ── Migrations for existing databases ────────────────────────────────────────
   const existingCols = (db.pragma('table_info(Track)') as { name: string }[]).map(c => c.name);
@@ -509,14 +623,47 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.AlbumArt,
         Track.Duration,
         Track.AlbumId,
-        Artist.Name AS ArtistName,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN Artist ON Track.ArtistId = Artist.Id
+      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      GROUP BY Track.Id
       ORDER BY Track.Title COLLATE NOCASE
+    `
+      )
+      .all();
+  });
+
+  ipcMain.handle('get-recently-added-songs', () => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        Track.AlbumId,
+        Track.DateAdded,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Genre.Name AS GenreName
+      FROM Track
+      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      GROUP BY Track.Id
+      ORDER BY Track.DateAdded DESC
+      LIMIT 200
     `
       )
       .all();
@@ -529,11 +676,16 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       SELECT
         Album.Id,
         Album.Title,
-        Album.ReleaseYear,
-        Artist.Name AS ArtistName,
+        COALESCE(
+          Album.ReleaseYear,
+          MIN(CAST(Track.ReleaseYear AS INTEGER)),
+          MIN(CAST(Track.Year AS INTEGER))
+        ) AS ReleaseYear,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
         COUNT(Track.Id) AS SongCount
       FROM Album
-      LEFT JOIN Artist ON Album.ArtistId = Artist.Id
+      LEFT JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
+      LEFT JOIN Artist AS Artist2 ON AlbumArtist.ArtistId = Artist2.Id
       LEFT JOIN Track ON Album.Id = Track.AlbumId
       GROUP BY Album.Id
       ORDER BY Album.Title COLLATE NOCASE
@@ -562,15 +714,20 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.TrackNumber,
         Track.AlbumArt,
         Track.Duration,
-        Artist.Name AS ArtistName,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        GROUP_CONCAT(DISTINCT AlbumArtist2.Name) AS AlbumArtistName,
         Album.Title AS AlbumTitle,
         Album.Id AS AlbumId,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN Artist ON Track.ArtistId = Artist.Id
+      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
+      LEFT JOIN Artist AS AlbumArtist2 ON AlbumArtist.ArtistId = AlbumArtist2.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       WHERE Track.AlbumId = ?
+      GROUP BY Track.Id
       ORDER BY CAST(Track.TrackNumber AS INTEGER), Track.Title COLLATE NOCASE
     `
       )
@@ -578,6 +735,387 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     const coverPath = path.join(ALBUM_ART_DIR, `${albumId}.jpg`);
     const coverUri = fs.existsSync(coverPath) ? coverPath : null;
     return rows.map(row => ({ ...row, AlbumCoverUri: coverUri }));
+  });
+
+  ipcMain.handle('get-all-artists', () => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Artist.Id,
+        Artist.Name,
+        Artist.ProfileImgUri,
+        COUNT(DISTINCT TrackArtist.TrackId) AS SongCount,
+        COUNT(DISTINCT Track.AlbumId) AS AlbumCount
+      FROM Artist
+      LEFT JOIN TrackArtist ON Artist.Id = TrackArtist.ArtistId
+      LEFT JOIN Track ON TrackArtist.TrackId = Track.Id
+      GROUP BY Artist.Id
+      HAVING COUNT(DISTINCT TrackArtist.TrackId) > 0
+      ORDER BY Artist.Name COLLATE NOCASE
+    `
+      )
+      .all();
+
+    return rows.map(row => {
+      const localPath = path.join(ARTIST_ART_DIR, `${row.Id}.jpg`);
+      const profilePath = fs.existsSync(localPath) ? localPath : (row.ProfileImgUri ?? null);
+
+      return {
+        Id: row.Id,
+        Name: row.Name,
+        ProfileImgUri: profilePath,
+        ProfileImg: profilePath,
+        SongCount: row.SongCount,
+        AlbumCount: row.AlbumCount,
+      };
+    });
+  });
+
+  ipcMain.handle('get-all-album-artists', () => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Artist.Id,
+        Artist.Name,
+        Artist.ProfileImgUri,
+        COUNT(DISTINCT AlbumArtist.AlbumId) AS AlbumCount,
+        COUNT(DISTINCT Track.Id) AS SongCount
+      FROM Artist
+      JOIN AlbumArtist ON Artist.Id = AlbumArtist.ArtistId
+      LEFT JOIN Album ON AlbumArtist.AlbumId = Album.Id
+      LEFT JOIN Track ON Album.Id = Track.AlbumId
+      GROUP BY Artist.Id
+      ORDER BY Artist.Name COLLATE NOCASE
+    `
+      )
+      .all();
+
+    return rows.map(row => {
+      const localPath = path.join(ARTIST_ART_DIR, `${row.Id}.jpg`);
+      const profilePath = fs.existsSync(localPath) ? localPath : (row.ProfileImgUri ?? null);
+
+      return {
+        Id: row.Id,
+        Name: row.Name,
+        ProfileImgUri: profilePath,
+        ProfileImg: profilePath,
+        SongCount: row.SongCount,
+        AlbumCount: row.AlbumCount,
+      };
+    });
+  });
+
+  ipcMain.handle('fetch-artist-profile-image', async (e, { artistId }) => {
+    if (!artistId || typeof artistId !== 'number') return null;
+
+    const row = db.prepare('SELECT Name, ProfileImgUri FROM Artist WHERE Id = ?').get(artistId);
+    if (!row || !row.Name) return null;
+
+    const existingUri =
+      typeof row.ProfileImgUri === 'string' && row.ProfileImgUri.trim().length > 0
+        ? row.ProfileImgUri
+        : null;
+    const localPath = path.join(ARTIST_ART_DIR, `${artistId}.jpg`);
+
+    if (existingUri) {
+      const isRemote = existingUri.startsWith('http://') || existingUri.startsWith('https://');
+      if (isRemote || fs.existsSync(existingUri)) {
+        return existingUri;
+      }
+    }
+
+    if (fs.existsSync(localPath)) {
+      return localPath;
+    }
+
+    return await fetchArtistProfileImage(row.Name, undefined, artistId);
+  });
+
+  ipcMain.handle('force-fetch-artist-profile-image', async (e, { artistId }) => {
+    if (!artistId || typeof artistId !== 'number') return null;
+
+    const row = db.prepare('SELECT Name FROM Artist WHERE Id = ?').get(artistId);
+    if (!row || !row.Name) return null;
+
+    // Clear local cache so fetchArtistProfileImage re-downloads
+    const localPath = path.join(ARTIST_ART_DIR, `${artistId}.jpg`);
+    if (fs.existsSync(localPath)) {
+      fs.unlinkSync(localPath);
+    }
+
+    // Clear DB cached URI
+    db.prepare('UPDATE Artist SET ProfileImgUri = NULL, ArtistMetaJson = NULL WHERE Id = ?').run(
+      artistId
+    );
+
+    return await fetchArtistProfileImage(row.Name, undefined, artistId);
+  });
+
+  ipcMain.handle('get-artist-meta', (e, { artistId }) => {
+    const artist = db
+      .prepare(
+        `
+      SELECT
+        ArtistMetaJson
+      FROM Artist
+      WHERE Id = ?
+    `
+      )
+      .get(artistId);
+
+    if (!artist || !artist.ArtistMetaJson) return null;
+
+    try {
+      return JSON.parse(artist.ArtistMetaJson);
+    } catch {
+      console.warn('Failed to parse ArtistMetaJson for artist', artistId);
+      return null;
+    }
+  });
+
+  ipcMain.handle('find-artist-by-name', (e, { name }) => {
+    if (!name || typeof name !== 'string') return null;
+    const row = db.prepare('SELECT Id FROM Artist WHERE LOWER(Name) = LOWER(?) LIMIT 1').get(name);
+    return row ? { id: row.Id } : null;
+  });
+
+  ipcMain.handle('open-dir', (e, { variant = 'appdata' }) => {
+    // open apps data folder in file manager
+    let targetPath: string;
+    if (variant === 'appdata') {
+      targetPath = APP_CONF_FOLDER;
+    } else if (variant === 'music') {
+      targetPath = MUSIC_DIR;
+    } else {
+      return { success: false, error: 'Invalid variant' };
+    }
+    if (!fs.existsSync(targetPath)) {
+      fs.mkdirSync(targetPath, { recursive: true });
+    }
+    shell.openPath(targetPath);
+    return { success: true };
+  });
+
+  ipcMain.handle('get-artist-detail', async (e, { artistId }) => {
+    const artist = db
+      .prepare(
+        `
+      SELECT
+        Id,
+        Name,
+        ProfileImgUri
+      FROM Artist
+      WHERE Id = ?
+    `
+      )
+      .get(artistId);
+
+    if (!artist) return null;
+
+    const profilePath = await fetchArtistProfileImage(artist.Name, undefined, artist.Id);
+
+    const songCount = db
+      .prepare('SELECT COUNT(*) AS count FROM TrackArtist WHERE ArtistId = ?')
+      .get(artistId).count;
+
+    const albumCount = db
+      .prepare('SELECT COUNT(*) AS count FROM AlbumArtist WHERE ArtistId = ?')
+      .get(artistId).count;
+
+    return {
+      Id: artist.Id,
+      Name: artist.Name,
+      ProfileImgUri: profilePath,
+      ProfileImg: profilePath,
+      SongCount: songCount,
+      AlbumCount: albumCount,
+    };
+  });
+
+  ipcMain.handle('get-artist-songs', (e, { artistId }) => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Album.Id AS AlbumId,
+        Genre.Name AS GenreName
+      FROM Track
+      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE Track.Id IN (
+        SELECT TrackId FROM TrackArtist WHERE ArtistId = ?
+        UNION
+        SELECT Id FROM Track WHERE ArtistId = ?
+      )
+      GROUP BY Track.Id
+      ORDER BY COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999), Track.Title COLLATE NOCASE
+    `
+      )
+      .all(artistId, artistId);
+
+    return rows;
+  });
+
+  ipcMain.handle('get-artist-albums', (e, { artistId }) => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Album.Id,
+        Album.Title,
+        COALESCE(
+          Album.ReleaseYear,
+          MIN(CAST(Track.ReleaseYear AS INTEGER)),
+          MIN(CAST(Track.Year AS INTEGER))
+        ) AS ReleaseYear,
+        Album.CoverUri,
+        COUNT(Track.Id) AS SongCount
+      FROM Album
+      JOIN Track ON Album.Id = Track.AlbumId
+      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      WHERE TrackArtist.ArtistId = ?
+      GROUP BY Album.Id
+      ORDER BY Album.Title COLLATE NOCASE
+    `
+      )
+      .all(artistId);
+
+    return rows.map(album => {
+      const coverPath = path.join(ALBUM_ART_DIR, `${album.Id}.jpg`);
+      return {
+        ...album,
+        coverUri: album.CoverUri || (fs.existsSync(coverPath) ? coverPath : null),
+      };
+    });
+  });
+
+  ipcMain.handle('get-album-artist-detail', async (e, { artistId }) => {
+    const artist = db
+      .prepare(
+        `
+      SELECT
+        Id,
+        Name,
+        ProfileImgUri
+      FROM Artist
+      WHERE Id = ?
+    `
+      )
+      .get(artistId);
+
+    if (!artist) return null;
+
+    const profilePath = await fetchArtistProfileImage(artist.Name, undefined, artist.Id);
+
+    const songCount = db
+      .prepare(
+        `
+      SELECT
+        COUNT(DISTINCT Track.Id) AS count
+      FROM Track
+      JOIN Album ON Track.AlbumId = Album.Id
+      JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
+      WHERE AlbumArtist.ArtistId = ?
+    `
+      )
+      .get(artistId).count;
+
+    const albumCount = db
+      .prepare('SELECT COUNT(DISTINCT AlbumId) AS count FROM AlbumArtist WHERE ArtistId = ?')
+      .get(artistId).count;
+
+    return {
+      Id: artist.Id,
+      Name: artist.Name,
+      ProfileImgUri: profilePath,
+      ProfileImg: profilePath,
+      SongCount: songCount,
+      AlbumCount: albumCount,
+    };
+  });
+
+  ipcMain.handle('get-album-artist-songs', (e, { artistId }) => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Album.Id AS AlbumId,
+        Genre.Name AS GenreName
+      FROM Track
+      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE Track.Id IN (
+        SELECT Track.Id FROM Track
+        JOIN Album ON Track.AlbumId = Album.Id
+        JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
+        WHERE AlbumArtist.ArtistId = ?
+      )
+      GROUP BY Track.Id
+      ORDER BY COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999), Track.Title COLLATE NOCASE
+    `
+      )
+      .all(artistId);
+
+    return rows;
+  });
+
+  ipcMain.handle('get-album-artist-albums', (e, { artistId }) => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Album.Id,
+        Album.Title,
+        COALESCE(
+          Album.ReleaseYear,
+          MIN(CAST(Track.ReleaseYear AS INTEGER)),
+          MIN(CAST(Track.Year AS INTEGER))
+        ) AS ReleaseYear,
+        Album.CoverUri,
+        COUNT(Track.Id) AS SongCount
+      FROM Album
+      JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
+      LEFT JOIN Track ON Album.Id = Track.AlbumId
+      WHERE AlbumArtist.ArtistId = ?
+      GROUP BY Album.Id
+      ORDER BY Album.Title COLLATE NOCASE
+    `
+      )
+      .all(artistId);
+
+    return rows.map(album => {
+      const coverPath = path.join(ALBUM_ART_DIR, `${album.Id}.jpg`);
+      return {
+        ...album,
+        coverUri: album.CoverUri || (fs.existsSync(coverPath) ? coverPath : null),
+      };
+    });
   });
 
   // Search functionality
@@ -612,15 +1150,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Track.TrackNumber,
           Track.AlbumArt,
           Track.Duration,
-          Artist.Name AS ArtistName,
+          GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
           Album.Id AS AlbumId,
           Album.Title AS AlbumTitle,
           Genre.Name AS GenreName
         FROM Track
-        LEFT JOIN Artist ON Track.ArtistId = Artist.Id
+        JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+        JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
         LEFT JOIN Album ON Track.AlbumId = Album.Id
         LEFT JOIN Genre ON Track.GenreId = Genre.Id
         WHERE Track.Title LIKE ? COLLATE NOCASE
+        GROUP BY Track.Id
         ORDER BY 
           CASE WHEN LOWER(Track.Title) = ? THEN 0 ELSE 1 END,
           Track.Title COLLATE NOCASE
@@ -637,7 +1177,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Album.Id,
           Album.Title,
           Album.CoverUri,
-          Album.ReleaseYear,
+          COALESCE(
+            Album.ReleaseYear,
+            MIN(CAST(Track.ReleaseYear AS INTEGER)),
+            MIN(CAST(Track.Year AS INTEGER))
+          ) AS ReleaseYear,
           Artist.Name AS ArtistName,
           COUNT(Track.Id) AS SongCount
         FROM Album
@@ -661,11 +1205,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Artist.Id,
           Artist.Name,
           Artist.ProfileImgUri,
-          COUNT(DISTINCT Track.Id) AS SongCount
+          COUNT(DISTINCT TrackArtist.TrackId) AS SongCount
         FROM Artist
-        LEFT JOIN Track ON Artist.Id = Track.ArtistId
+        LEFT JOIN TrackArtist ON Artist.Id = TrackArtist.ArtistId
+        LEFT JOIN Track ON TrackArtist.TrackId = Track.Id
         WHERE Artist.Name LIKE ? COLLATE NOCASE
         GROUP BY Artist.Id
+        HAVING COUNT(DISTINCT TrackArtist.TrackId) > 0
         ORDER BY 
           CASE WHEN LOWER(Artist.Name) = ? THEN 0 ELSE 1 END,
           Artist.Name COLLATE NOCASE
@@ -674,7 +1220,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search album artists (same as artists for now)
+      // Search album artists
       const albumArtists = db
         .prepare(
           `
@@ -682,11 +1228,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Artist.Id,
           Artist.Name,
           Artist.ProfileImgUri,
-          COUNT(DISTINCT Album.Id) AS AlbumCount
+          COUNT(DISTINCT AlbumArtist.AlbumId) AS AlbumCount
         FROM Artist
-        LEFT JOIN Album ON Artist.Id = Album.ArtistId
+        JOIN AlbumArtist ON Artist.Id = AlbumArtist.ArtistId
+        LEFT JOIN Album ON AlbumArtist.AlbumId = Album.Id
         WHERE Artist.Name LIKE ? COLLATE NOCASE
         GROUP BY Artist.Id
+        HAVING COUNT(DISTINCT AlbumArtist.AlbumId) > 0
         ORDER BY 
           CASE WHEN LOWER(Artist.Name) = ? THEN 0 ELSE 1 END,
           Artist.Name COLLATE NOCASE
@@ -842,11 +1390,18 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       ARTIST_ART_DIR,
     };
 
+    const settings = readSettingsFile();
+
     activeScanWorker = fork(
       path.resolve(process.cwd(), 'src', 'main', 'utils', 'musicScanWorker.js')
     );
     // Use basic/optimistic scan on startup — only process new files, skip known ones
-    activeScanWorker.send({ folders, config, mode: 'basic' });
+    activeScanWorker.send({
+      folders,
+      config,
+      mode: 'basic',
+      librarySettings: settings.library,
+    });
     sendMessageToRendererProcess(mainWin, 'scan-start', null);
 
     activeScanWorker.on('message', rawMsg => {

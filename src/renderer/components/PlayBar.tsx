@@ -15,7 +15,7 @@ import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
-import { RepeatRounded, ShuffleRounded } from '@mui/icons-material';
+import { KeyboardArrowDownRounded, RepeatRounded, ShuffleRounded } from '@mui/icons-material';
 import ShuffleOnRoundedIcon from '@mui/icons-material/ShuffleOnRounded';
 import RepeatOneOnRoundedIcon from '@mui/icons-material/RepeatOneOnRounded';
 import RepeatOnRoundedIcon from '@mui/icons-material/RepeatOnRounded';
@@ -37,6 +37,7 @@ import { motion } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { parseFile } from 'music-metadata';
 import { Lrc } from 'react-lrc';
+import Marquee from 'react-fast-marquee';
 
 const CoverImage = styled(Box)(({ theme }) => ({
   width: 140,
@@ -83,6 +84,34 @@ export default function PlayBar() {
   const [volume, setVolume] = useState(defaultVol);
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
+
+  const shouldUseMarquee = (text?: string) => {
+    return !!text && text.length > 28;
+  };
+
+  const renderMarquee = (text: string, content: React.ReactNode) => {
+    if (!shouldUseMarquee(text)) return content;
+    return (
+      <Box sx={{ width: '100%', overflow: 'hidden' }}>
+        <Marquee
+          // gradient={true}
+          gradientColor="#2b2b2c"
+          gradientWidth={20}
+          // autoFill={true}
+          pauseOnHover
+          loop={0}
+          speed={35}
+          delay={5}
+          style={{ width: '100%' }}
+        >
+          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            {content}
+            <Box component="span" sx={{ width: 64, flexShrink: 0 }} />
+          </Box>
+        </Marquee>
+      </Box>
+    );
+  };
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
   const isLyricsExpanded = state.isLyricsExpanded;
@@ -221,6 +250,26 @@ export default function PlayBar() {
     ipcRenderer.send('discord-set-enabled', { enabled: next });
     if (!next) {
       ipcRenderer.send('discord-clear');
+    }
+  };
+
+  const artistNames = React.useMemo(() => {
+    const artistText = (state.track?.ArtistName as string) || '';
+    return artistText
+      .split(/\s*[,&]\s*/)
+      .map(name => name.trim())
+      .filter(Boolean);
+  }, [state.track?.ArtistName]);
+
+  const handleArtistClick = async (artistName: string) => {
+    if (!artistName) return;
+    try {
+      const result = await ipcRenderer.invoke('find-artist-by-name', { name: artistName });
+      if (result?.id) {
+        navigate(`/main_window/artists/${result.id}`);
+      }
+    } catch {
+      // ignore lookup failures
     }
   };
 
@@ -866,7 +915,7 @@ export default function PlayBar() {
         >
           {lyricsPanel}
         </Collapse>
-        <Grid xs={12} md={6}>
+        <Grid xs={12} md={5} lg={6}>
           <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
             <CoverImage>
               <Image
@@ -877,49 +926,90 @@ export default function PlayBar() {
                 fit="contain"
               />
             </CoverImage>
-            <Box sx={{ ml: 0.5, minWidth: 0, overflow: 'auto' }}>
-              <Typography
-                variant="h6"
-                component="h6"
-                noWrap={!isPhone}
-                maxWidth={'360px'}
-                title={state?.track?.Title as string}
-                className="no-select no-drag"
-              >
-                <b>{state?.track?.Title as string}</b>
-              </Typography>
-              <Typography
-                variant="body1"
-                color="text.secondary"
-                fontWeight={500}
-                noWrap={!isPhone}
-                maxWidth={'360px'}
-                title={(state.track?.ArtistName as string) || ''}
-                className="no-select no-drag"
-              >
-                {(state.track?.ArtistName as string) || 'Unknown Artist'}
-              </Typography>
-              <Typography
-                noWrap={!isPhone}
-                maxWidth={'360px'}
-                className="no-select no-drag"
-                sx={{
-                  color: theme.palette.primary.main,
-                  // fontWeight: 500,
-                  cursor: 'pointer',
-                  '&:hover': { textDecoration: 'underline' },
-                }}
-                onClick={() => {
-                  const navPath =
-                    state.track?.AlbumId != null
-                      ? `/main_window/albums/${state.track.AlbumId}`
-                      : null;
-                  if (navPath) navigate(navPath);
-                }}
-                title={(state.track?.AlbumTitle as string) || ''}
-              >
-                {(state.track?.AlbumTitle as string) || 'Unknown Album'}
-              </Typography>
+            <Box
+              sx={{
+                ml: 0.5,
+                minWidth: 0,
+                overflow: 'auto',
+                maxWidth: {
+                  xs: 'calc(100vw - 130px)',
+                  md: 'calc(50vw - 200px)',
+                },
+              }}
+            >
+              {renderMarquee(
+                state?.track?.Title as string,
+                <Typography
+                  variant="h6"
+                  component="h6"
+                  title={state?.track?.Title as string}
+                  className="no-select no-drag"
+                  sx={{ whiteSpace: 'nowrap' }}
+                >
+                  <b>{state?.track?.Title as string}</b>
+                </Typography>
+              )}
+              {renderMarquee(
+                (state.track?.ArtistName as string) || '',
+                <Typography
+                  variant="body1"
+                  color="text.secondary"
+                  fontWeight={500}
+                  lineHeight={1}
+                  title={(state.track?.ArtistName as string) || ''}
+                  className="no-select no-drag"
+                  sx={{
+                    display: 'inline-flex',
+                    flexWrap: 'nowrap',
+                    gap: 0.5,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {artistNames.length > 0
+                    ? artistNames.map((name, index) => (
+                        <React.Fragment key={`${name}-${index}`}>
+                          <Box
+                            component="span"
+                            onClick={() => handleArtistClick(name)}
+                            sx={{
+                              cursor: 'pointer',
+                              '&:hover': {
+                                opacity: 0.8,
+                                textDecoration: 'underline',
+                                color: theme.palette.secondary.main,
+                              },
+                            }}
+                          >
+                            {name}
+                          </Box>
+                          {index < artistNames.length - 1 && <Box component="span">•</Box>}
+                        </React.Fragment>
+                      ))
+                    : 'Unknown Artist'}
+                </Typography>
+              )}
+              {renderMarquee(
+                (state.track?.AlbumTitle as string) || 'Unknown Album',
+                <Typography
+                  className="no-select no-drag"
+                  sx={{
+                    color: theme.palette.primary.main,
+                    cursor: 'pointer',
+                    '&:hover': { textDecoration: 'underline' },
+                    whiteSpace: 'nowrap',
+                  }}
+                  onClick={() => {
+                    const navPath =
+                      state.track?.AlbumId != null
+                        ? `/main_window/albums/${state.track.AlbumId}`
+                        : null;
+                    if (navPath) navigate(navPath);
+                  }}
+                  title={(state.track?.AlbumTitle as string) || ''}
+                >
+                  {(state.track?.AlbumTitle as string) || 'Unknown Album'}
+                </Typography>
+              )}
             </Box>
           </Box>
         </Grid>
@@ -1085,47 +1175,107 @@ export default function PlayBar() {
             </Stack>
           </Box>
         </Grid>
-        <Grid xs={12} md={1} direction="row">
-          <Box m={1}>
-            <IconButton onClick={handleShuffle} aria-label="shuffle">
-              {state.isShuffle ? <ShuffleOnRoundedIcon /> : <ShuffleRounded />}
-            </IconButton>
-            <IconButton onClick={handleRepeat} aria-label="repeat">
-              {state.repeatMode === 'off' ? (
-                <RepeatRounded />
-              ) : state.repeatMode === 'all' ? (
-                <RepeatOnRoundedIcon />
-              ) : (
-                <RepeatOneOnRoundedIcon />
-              )}
-            </IconButton>
-            <IconButton
-              onClick={handleDiscordToggle}
-              aria-label="discord presence"
-              title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
-              sx={{ opacity: discordEnabled ? 1 : 0.35 }}
-            >
-              <DiscordIcon viewBox="0 0 70 60" width={24} height={24} />
-            </IconButton>
-            <IconButton
-              onClick={handleLyricsToggle}
-              aria-label="lyrics"
-              disabled={!lrcContent}
-              title={isLyricsExpanded ? 'Close Lyrics' : 'Show Lyrics'}
-              sx={{ opacity: lrcContent ? 1 : 0.5 }}
-            >
-              {isLyricsExpanded ? (
-                <LyricNoteActiveIcon
-                  viewBox="0 0 16 17"
-                  className="icon-white"
-                  width={24}
-                  height={24}
-                />
-              ) : (
-                <LyricNoteIcon viewBox="0 0 16 17" className="icon-white" width={24} height={24} />
-              )}
-            </IconButton>
-          </Box>
+        <Grid
+          xs={12}
+          md={2}
+          lg={1}
+          sx={{
+            display: {
+              xs: 'flex',
+              md: 'grid',
+            },
+          }}
+          alignContent="center"
+          justifyContent="center"
+          pr={0.5}
+        >
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton onClick={handleShuffle} aria-label="shuffle">
+                {state.isShuffle ? <ShuffleOnRoundedIcon /> : <ShuffleRounded />}
+              </IconButton>
+            </Grid>
+            <Grid xs={6}>
+              <IconButton onClick={handleRepeat} aria-label="repeat">
+                {state.repeatMode === 'off' ? (
+                  <RepeatRounded />
+                ) : state.repeatMode === 'all' ? (
+                  <RepeatOnRoundedIcon />
+                ) : (
+                  <RepeatOneOnRoundedIcon />
+                )}
+              </IconButton>
+            </Grid>
+          </Grid>
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton
+                onClick={handleDiscordToggle}
+                aria-label="discord presence"
+                title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
+                sx={{ opacity: discordEnabled ? 1 : 0.35 }}
+              >
+                <DiscordIcon viewBox="0 0 70 60" width={24} height={24} />
+              </IconButton>
+            </Grid>
+            <Grid xs={6}>
+              <IconButton
+                onClick={handleLyricsToggle}
+                aria-label="lyrics"
+                disabled={!lrcContent}
+                title={isLyricsExpanded ? 'Close Lyrics' : 'Show Lyrics'}
+                sx={{ opacity: lrcContent ? 1 : 0.5 }}
+              >
+                {isLyricsExpanded ? (
+                  <LyricNoteActiveIcon
+                    viewBox="0 0 16 17"
+                    className="icon-white"
+                    width={24}
+                    height={24}
+                  />
+                ) : (
+                  <LyricNoteIcon
+                    viewBox="0 0 16 17"
+                    className="icon-white"
+                    width={24}
+                    height={24}
+                  />
+                )}
+              </IconButton>{' '}
+            </Grid>
+          </Grid>
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton
+                onClick={() => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false })}
+                aria-label="hide player bar"
+                title="Hide player bar"
+              >
+                <KeyboardArrowDownRounded />
+              </IconButton>
+            </Grid>
+          </Grid>
         </Grid>
       </Grid>
       <audio ref={audioRef} style={{ display: 'none' }} />

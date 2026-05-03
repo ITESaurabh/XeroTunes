@@ -1,5 +1,6 @@
 import { createContext, useReducer, ReactNode, Dispatch } from 'react';
 import { setTheme, setQueueState, getQueueState } from './LocStoreUtil';
+import { ThemeMode } from 'src/config/app_settings';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -24,6 +25,7 @@ export interface LibraryStats {
   folders: number;
   genres: number;
   years: number;
+  recentlyAdded: number;
 }
 
 export interface AppState {
@@ -48,7 +50,7 @@ export interface AppState {
 }
 
 export type AppAction =
-  | { type: 'SET_THEME'; payload: boolean }
+  | { type: 'SET_THEME_MODE'; payload: ThemeMode }
   | { type: 'SET_IS_MAXIMIZED'; payload: boolean }
   | { type: 'SET_SEARCH_ENABLED'; payload: boolean }
   | { type: 'SET_MENU_EXPANDED'; payload: boolean }
@@ -80,7 +82,7 @@ const initialState: AppState = (() => {
   return {
     isLightTheme: true,
     isMaximized: false,
-    isMenuExpanded: true,
+    isMenuExpanded: typeof window !== 'undefined' ? window.innerWidth >= 960 : true,
     path: null,
     track: (saved?.track as Track) || null,
     isPlaying: false,
@@ -107,9 +109,15 @@ const { Provider } = store;
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'SET_THEME': {
+    case 'SET_THEME_MODE': {
       setTheme(action.payload);
-      return { ...state, isLightTheme: action.payload };
+      const isLightTheme =
+        action.payload === 1
+          ? true
+          : action.payload === 2
+            ? false
+            : !window.matchMedia('(prefers-color-scheme: dark)').matches;
+      return { ...state, isLightTheme };
     }
     case 'SET_IS_MAXIMIZED': {
       return { ...state, isMaximized: action.payload };
@@ -183,7 +191,11 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, isLyricsExpanded: action.payload };
     }
     case 'SET_SCANNING': {
-      return { ...state, isScanningLibrary: action.payload, scanProgress: action.payload ? state.scanProgress : null };
+      return {
+        ...state,
+        isScanningLibrary: action.payload,
+        scanProgress: action.payload ? state.scanProgress : null,
+      };
     }
     case 'SET_SCAN_PROGRESS': {
       return { ...state, scanProgress: action.payload };

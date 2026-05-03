@@ -97,7 +97,8 @@ main {
 }
 
 .title-bar {
-  width: 100vw;
+  width: 100%;
+  max-width: 100%;
   position: fixed;
   display: flex;
   z-index: 1300 !important;

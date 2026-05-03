@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useCallback } from 'react';
+import React, { useContext, useEffect, useCallback, useState } from 'react';
 import {
   Box,
   Typography,
@@ -8,19 +8,22 @@ import {
   Theme,
   Button,
 } from '@mui/material';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useLocation } from 'react-router';
 import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
-import { motion } from 'motion/react';
+import { motion, useMotionValue, useSpring } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../utils/useScrollRestoration';
+import ImagePreviewDialog from '../components/ImagePreviewDialog';
 
 interface AlbumSong extends Track {
   TrackNumber?: string | number;
   ArtistName?: string;
+  AlbumArtistName?: string;
   AlbumTitle?: string;
   AlbumCoverUri?: string;
   GenreName?: string;
@@ -51,10 +54,11 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
 
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
-  const navigate = useNavigate();
+  const location = useLocation();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration(location.pathname);
 
   const {
     data: songs = [] as AlbumSong[],
@@ -85,12 +89,59 @@ const AlbumDetail: React.FC = () => {
 
   // Derive album metadata from first song
   const albumTitle = songs[0]?.AlbumTitle ?? 'Unknown Album';
-  const artistName = songs[0]?.ArtistName ?? 'Unknown Artist';
+  const artistName = songs[0]?.AlbumArtistName ?? songs[0]?.ArtistName ?? 'Unknown Artist';
   const coverUri = songs[0]?.AlbumCoverUri ?? null;
   const releaseYear = songs[0]?.['Year'] ?? null;
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const coverSrc = React.useMemo(() => {
+    if (!coverUri) return null;
+    if (coverUri.startsWith('file://')) return coverUri;
+    return `file:///${coverUri.replace(/\\/g, '/')}`;
+  }, [coverUri]);
+
+  const [isHeaderCondensed, setIsHeaderCondensed] = useState(false);
+
+  const expandedImageSize = isPhone ? 112 : 200;
+  const condensedImageSize = isPhone ? 60 : 100;
+  const expandedTitleSize = isPhone ? 22 : 34;
+  const condensedTitleSize = isPhone ? 16 : 22;
+
+  const headerHeightVal = useMotionValue(isPhone ? 180 : 260);
+  const imageSizeVal = useMotionValue(expandedImageSize);
+  const titleSizeVal = useMotionValue(expandedTitleSize);
+
+  const animatedHeaderHeight = useSpring(headerHeightVal, { damping: 26, stiffness: 210 });
+  const animatedImageSize = useSpring(imageSizeVal, { damping: 28, stiffness: 220 });
+  const animatedTitleSize = useSpring(titleSizeVal, { damping: 24, stiffness: 200 });
+
+  useEffect(() => {
+    headerHeightVal.set(isHeaderCondensed ? 130 : isPhone ? 180 : 260);
+    imageSizeVal.set(isHeaderCondensed ? condensedImageSize : expandedImageSize);
+    titleSizeVal.set(isHeaderCondensed ? condensedTitleSize : expandedTitleSize);
+  }, [
+    condensedImageSize,
+    condensedTitleSize,
+    expandedImageSize,
+    expandedTitleSize,
+    headerHeightVal,
+    imageSizeVal,
+    isHeaderCondensed,
+    isPhone,
+    titleSizeVal,
+  ]);
 
   const ROW_HEIGHT = 60;
-  const handleScroll = useScrollHidePlayerBar();
+  const scrollHide = useScrollHidePlayerBar();
+  const handleScroll = React.useCallback(
+    (args: { scrollOffset: number }) => {
+      const condensed = args.scrollOffset > 0;
+      setIsHeaderCondensed(prev => (prev !== condensed ? condensed : prev));
+      saveScrollPosition(args.scrollOffset);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -126,8 +177,8 @@ const AlbumDetail: React.FC = () => {
             {isActive
               ? '▶'
               : formatTrackNumber(song.TrackNumber) !== null
-              ? formatTrackNumber(song.TrackNumber)
-              : index + 1}
+                ? formatTrackNumber(song.TrackNumber)
+                : index + 1}
           </Typography>
 
           {/* Title + Artist */}
@@ -173,31 +224,26 @@ const AlbumDetail: React.FC = () => {
     >
       {/* Album header */}
       <Box
+        component={motion.div}
+        initial={false}
+        style={{ height: animatedHeaderHeight }}
         sx={{
-          // height: HEADER_HEIGHT,
           display: 'flex',
           alignItems: 'center',
           gap: 3,
-          p: {
-            xs: 2,
-            md: 5,
-          },
+          px: { xs: 2, md: 4 },
           flexShrink: 0,
           position: 'relative',
           overflow: 'hidden',
           borderRadius: '0.5rem 0 0 0',
-          // borderTopLeftRadius: 0.5,
-          // borderTopRightRadius: 0.5,
-          // borderBottomLeftRadius: 0.5,
-          // borderBottomRightRadius: 0.5,
           background: 'rgba(255,255,255,0.04)',
         }}
       >
         {/* Blurred background art */}
-        {coverUri && (
+        {coverSrc && (
           <Box
             component="img"
-            src={`file://${coverUri}`}
+            src={coverSrc}
             sx={{
               position: 'absolute',
               inset: 0,
@@ -217,20 +263,33 @@ const AlbumDetail: React.FC = () => {
         >
           {/* Album art */}
           <Box
+            component={motion.div}
+            style={{ width: animatedImageSize, height: animatedImageSize }}
+            role={coverSrc ? 'button' : undefined}
+            tabIndex={coverSrc ? 0 : -1}
+            onClick={() => {
+              if (coverSrc) setPreviewOpen(true);
+            }}
+            onKeyDown={event => {
+              if (!coverSrc) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setPreviewOpen(true);
+              }
+            }}
             sx={{
-              width: isPhone ? 112 : 200,
-              height: isPhone ? 112 : 200,
               borderRadius: 0.5,
               overflow: 'hidden',
               flexShrink: 0,
               boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
               background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
+              cursor: coverSrc ? 'zoom-in' : 'default',
             }}
           >
-            {coverUri ? (
+            {coverSrc ? (
               <Box
                 component="img"
-                src={`file://${coverUri}`}
+                src={coverSrc ?? undefined}
                 alt={albumTitle}
                 sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
               />
@@ -252,19 +311,30 @@ const AlbumDetail: React.FC = () => {
           </Box>
 
           {/* Album info */}
-          <Box>
-            <Typography
-              variant="caption"
-              sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}
-            >
-              Album
-            </Typography>
-            <Typography
-              variant={isPhone ? 'h5' : 'h4'}
-              sx={{ fontWeight: 800, lineHeight: 1.1, mb: 0.5 }}
+          <Box sx={{ minWidth: 0 }}>
+            {!isHeaderCondensed && (
+              <Typography
+                variant="caption"
+                sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1 }}
+              >
+                Album
+              </Typography>
+            )}
+            <motion.span
+              style={{
+                fontSize: animatedTitleSize,
+                fontWeight: 800,
+                lineHeight: 1.1,
+                display: 'block',
+                marginBottom: 4,
+                color: 'white',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
             >
               {albumTitle}
-            </Typography>
+            </motion.span>
             <Typography variant="body2" sx={{ color: 'text.secondary' }}>
               {artistName}
               {releaseYear ? ` · ${releaseYear}` : ''}
@@ -277,7 +347,7 @@ const AlbumDetail: React.FC = () => {
               onClick={() => handlePlayAll(0)}
               variant="contained"
               sx={{
-                mt: 2,
+                mt: 1,
               }}
             >
               ▶ Play All
@@ -285,6 +355,13 @@ const AlbumDetail: React.FC = () => {
           </Box>
         </Box>
       </Box>
+
+      <ImagePreviewDialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        imageSrc={coverSrc}
+        imageAlt={albumTitle}
+      />
 
       {/* Track list */}
       <Box sx={{ flex: 1, minHeight: 0 }}>
@@ -300,6 +377,7 @@ const AlbumDetail: React.FC = () => {
                 width={width}
                 itemCount={songs.length}
                 itemSize={ROW_HEIGHT}
+                initialScrollOffset={initialScrollOffset}
                 overscanCount={20}
                 onScroll={handleScroll}
               >

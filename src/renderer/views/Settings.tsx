@@ -28,7 +28,12 @@ import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
 import { motion } from 'motion/react';
-import { getOverlayEnabled, setOverlayEnabled } from '../utils/LocStoreUtil';
+import {
+  getOverlayEnabled,
+  setOverlayEnabled,
+  getArtistImageFetchingEnabled,
+  setArtistImageFetchingEnabled,
+} from '../utils/LocStoreUtil';
 
 interface MusicFolder {
   Id: string | number;
@@ -87,9 +92,19 @@ const Settings: React.FC = () => {
   const [expanded, setExpanded] = React.useState<boolean>(false);
   const [folders, setFolders] = React.useState<MusicFolder[]>([]);
   const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(getOverlayEnabled);
+  const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
+    getArtistImageFetchingEnabled()
+  );
   const { invokeEventToMainProcess } = useIpc();
-  const { state } = useContext(store);
+  const { state, dispatch } = useContext(store);
   const { isScanningLibrary } = state;
+
+  React.useEffect(() => {
+    dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false });
+    return () => {
+      dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
+    };
+  }, [dispatch]);
 
   React.useEffect(() => {
     invokeEventToMainProcess('get-music-folders')
@@ -290,6 +305,58 @@ const Settings: React.FC = () => {
                 mr: 0.5,
               }}
             />
+          </ListItem>
+          <ListItem>
+            <ListItemIcon>
+              <Icon icon={windowPlayIcon} width={'2rem'} />
+            </ListItemIcon>
+            <ListItemText
+              id="switch-list-label-artist-images"
+              primary="Fetch artist images"
+              secondary="Automatically load artist profile images in lists"
+            />
+            <IOSSwitch
+              checked={artistImageFetchEnabled}
+              onChange={e => {
+                setArtistImageFetchEnabledState(e.target.checked);
+                setArtistImageFetchingEnabled(e.target.checked);
+              }}
+              sx={{
+                mr: 0.5,
+              }}
+            />
+          </ListItem>
+        </List>
+        <List
+          subheader={
+            <ListSubheader color="inherit" sx={{ bgcolor: 'inherit' }}>
+              Advanced Options
+            </ListSubheader>
+          }
+        >
+          <ListItem component={Stack} direction="row" spacing={2}>
+            <Button
+              // startIcon={
+              //   isScanningLibrary ? (
+              //     <CircularProgress size={16} color="inherit" />
+              //   ) : (
+              //     <Icon icon={syncIcon} height={'1.5rem'} />
+              //   )
+              // }
+              variant="outlined"
+              color="primary"
+              fullWidth
+              disabled={isScanningLibrary}
+              onClick={() =>
+                invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
+                  (err: unknown) => {
+                    console.error('Error opening application data folder:', err);
+                  }
+                )
+              }
+            >
+              Open Application Data Folder
+            </Button>
           </ListItem>
         </List>
       </Container>

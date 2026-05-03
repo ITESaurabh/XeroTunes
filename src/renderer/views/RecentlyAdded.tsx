@@ -1,18 +1,15 @@
 import React, { useContext, useEffect } from 'react';
 import {
   Container,
-  Button,
-  useMediaQuery,
   Box,
   Grid,
   LinearProgress,
   Theme,
   Typography,
   ListItemButton,
+  useMediaQuery,
 } from '@mui/material';
 import { useNavigate } from 'react-router';
-import filterIcon from '@iconify/icons-fluent/filter-24-filled';
-import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -31,7 +28,22 @@ interface Column {
   align: 'left' | 'center' | 'right';
   flex?: number;
   getNavPath?: (_song: Track) => string | null;
+  format?: (_val: unknown) => string;
 }
+
+const formatDateAdded = (val: unknown): string => {
+  if (!val || typeof val !== 'number') return '';
+  const date = new Date(val);
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+const formatDuration = (seconds: unknown): string => {
+  const secs = typeof seconds === 'number' && seconds > 0 ? seconds : null;
+  if (secs == null) return '';
+  const m = Math.floor(secs / 60);
+  const s = Math.floor(secs % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
 
 const columns: Column[] = [
   { label: 'Title', key: 'Title', width: 248, align: 'left', flex: 3 },
@@ -44,14 +56,26 @@ const columns: Column[] = [
     flex: 2,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
-  { label: 'Year', key: 'Year', width: 100, align: 'center', flex: 1 },
-  { label: 'Genre', key: 'GenreName', width: 130, align: 'left', flex: 2 },
-  { label: 'Duration', key: 'Duration', width: 80, align: 'right', flex: 1 },
+  {
+    label: 'Added at',
+    key: 'DateAdded',
+    width: 130,
+    align: 'center',
+    flex: 1,
+    format: formatDateAdded,
+  },
+  {
+    label: 'Duration',
+    key: 'Duration',
+    width: 80,
+    align: 'right',
+    flex: 1,
+    format: formatDuration,
+  },
 ];
 
 const getVisibleColumns = (isPhone: boolean): Column[] => (isPhone ? columns.slice(0, 2) : columns);
 
-// Overlay scrollbar so it floats over content, keeping header and row widths in sync.
 const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   ({ style, ...rest }, ref) => (
     <div
@@ -66,14 +90,6 @@ const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDiv
   )
 );
 ScrollContainer.displayName = 'ScrollContainer';
-
-const formatDuration = (seconds: unknown): string => {
-  const secs = typeof seconds === 'number' && seconds > 0 ? seconds : null;
-  if (secs == null) return '';
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
 
 const getFlex = (col: Column, isPhone: boolean): number => {
   if (isPhone) return 1;
@@ -116,12 +132,14 @@ const HeaderRow: React.FC<HeaderRowProps> = ({ isPhone }) => {
   );
 };
 
-const AllSongs: React.FC = () => {
+const RecentlyAdded: React.FC = () => {
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const scrollHide = useScrollHidePlayerBar();
-  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration('all_songs');
+  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration('recently_added');
+  const navigate = useNavigate();
+
   const handleScroll = React.useCallback(
     (args: { scrollOffset: number }) => {
       saveScrollPosition(args.scrollOffset);
@@ -129,18 +147,17 @@ const AllSongs: React.FC = () => {
     },
     [saveScrollPosition, scrollHide]
   );
-  const navigate = useNavigate();
 
   const {
     data: songs = [] as Track[],
     isLoading,
     error,
   } = useQuery({
-    queryKey: [QUERY_KEYS.ALL_SONGS],
-    queryFn: () => invokeEventToMainProcess('get-all-songs', undefined) as Promise<Track[]>,
+    queryKey: [QUERY_KEYS.RECENTLY_ADDED],
+    queryFn: () =>
+      invokeEventToMainProcess('get-recently-added-songs', undefined) as Promise<Track[]>,
   });
 
-  // Show player bar when component mounts or unmounts
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
     return () => {
@@ -188,6 +205,10 @@ const AllSongs: React.FC = () => {
           {visibleColumns.map((col, i) => {
             const navPath = col.getNavPath?.(song) ?? null;
             const isLast = i === visibleColumns.length - 1;
+            const cellValue = col.format
+              ? col.format(song[col.key])
+              : (song[col.key] as string) || '';
+
             return (
               <Box
                 key={col.label}
@@ -217,13 +238,11 @@ const AllSongs: React.FC = () => {
                       '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                     }}
                   >
-                    {(song[col.key] as string) || ''}
+                    {cellValue}
                   </Typography>
                 ) : (
                   <Typography variant="body2" noWrap>
-                    {col.key === 'Duration'
-                      ? formatDuration(song[col.key])
-                      : (song[col.key] as string) || ''}
+                    {cellValue}
                   </Typography>
                 )}
               </Box>
@@ -238,15 +257,10 @@ const AllSongs: React.FC = () => {
   if (isLoading)
     return (
       <div>
-        <LinearProgress
-          color="primary"
-          sx={{
-            borderRadius: 1,
-          }}
-        />
+        <LinearProgress color="primary" sx={{ borderRadius: 1 }} />
       </div>
     );
-  if (error) return <div>Error fetching songs</div>;
+  if (error) return <div>Error fetching recently added songs</div>;
 
   return (
     <Grid
@@ -258,14 +272,7 @@ const AllSongs: React.FC = () => {
       item
       sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}
     >
-      <PageToolbar
-        title="All Songs"
-        action={
-          <Button variant="contained" startIcon={<Icon icon={filterIcon} />}>
-            Filter
-          </Button>
-        }
-      />
+      <PageToolbar title="Recently Added" />
       <Container
         maxWidth="xl"
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
@@ -294,4 +301,4 @@ const AllSongs: React.FC = () => {
   );
 };
 
-export default AllSongs;
+export default RecentlyAdded;
