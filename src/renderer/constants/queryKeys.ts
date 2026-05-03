@@ -7,6 +7,7 @@ export const QUERY_KEYS = {
   ARTIST_META: 'ARTIST-META',
   ARTIST_SONGS: 'ARTIST-SONGS',
   ARTIST_ALBUMS: 'ARTIST-ALBUMS',
+  RECENTLY_ADDED: 'RECENTLY-ADDED',
 } as const;
 
-export type QueryKey = typeof QUERY_KEYS[keyof typeof QUERY_KEYS];
+export type QueryKey = (typeof QUERY_KEYS)[keyof typeof QUERY_KEYS];

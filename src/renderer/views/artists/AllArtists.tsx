@@ -195,7 +195,11 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
     error,
   } = useQuery({
     queryKey: [QUERY_KEYS.ALL_ARTISTS, showAlbumsOnly],
-    queryFn: () => invokeEventToMainProcess('get-all-artists', undefined) as Promise<Artist[]>,
+    queryFn: () =>
+      invokeEventToMainProcess(
+        showAlbumsOnly ? 'get-all-album-artists' : 'get-all-artists',
+        undefined
+      ) as Promise<Artist[]>,
   });
 
   useEffect(() => {
@@ -209,9 +213,12 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
 
   const handleArtistClick = useCallback(
     (artist: Artist) => {
-      navigate(`/main_window/artists/${artist.Id}`);
+      const path = showAlbumsOnly
+        ? `/main_window/album-artists/${artist.Id}`
+        : `/main_window/artists/${artist.Id}`;
+      navigate(path);
     },
-    [navigate]
+    [navigate, showAlbumsOnly]
   );
 
   const [gridLayout, setGridLayout] = useState(() => calcLayout(800));
@@ -285,6 +292,7 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
 
             return (
               <FixedSizeGrid
+                key={location.pathname}
                 columnCount={colCount}
                 columnWidth={colWidth + GAP}
                 rowCount={rowCount}

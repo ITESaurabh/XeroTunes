@@ -10,6 +10,7 @@ const AllArtists = lazy(() => import('../views/artists/AllArtists'));
 const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
 const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
+const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
 
 const BigLoader = () => {
   return (
@@ -96,6 +97,14 @@ const routes = [
         ),
       },
       {
+        path: 'album-artists/:artistId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <ArtistDetail showAlbumArtist />
+          </React.Suspense>
+        ),
+      },
+      {
         path: 'folders',
         element: (
           <React.Suspense fallback={<BigLoader />}>
@@ -124,6 +133,14 @@ const routes = [
         element: (
           <React.Suspense fallback={<BigLoader />}>
             <Search />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'recently-added',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <RecentlyAdded />
           </React.Suspense>
         ),
       },

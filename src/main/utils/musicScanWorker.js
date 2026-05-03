@@ -48,7 +48,19 @@ function escapeRegex(value) {
 }
 
 function normalizeArtistName(raw) {
-  return raw?.toString().trim()?.replace(/\s+/g, ' ') || '';
+  if (!raw) return '';
+
+  if (typeof raw === 'object') {
+    if (typeof raw.name === 'string' && raw.name.trim()) {
+      return raw.name.trim().replace(/\s+/g, ' ');
+    }
+    if (typeof raw.artist === 'string' && raw.artist.trim()) {
+      return raw.artist.trim().replace(/\s+/g, ' ');
+    }
+    return String(raw).trim().replace(/\s+/g, ' ');
+  }
+
+  return String(raw).trim().replace(/\s+/g, ' ');
 }
 
 function splitArtists(rawArtist) {
@@ -116,7 +128,8 @@ async function parseMusicWorker(filePath) {
       artist: metadata.common.artist || metadata.common.artists || '',
       albumArtist:
         metadata.common.albumartist ||
-        (metadata.common.albumartists ? metadata.common.albumartists : '') ||
+        metadata.common.albumArtist ||
+        metadata.common.albumartists ||
         '',
       album: metadata.common.album || '',
       track: normalizeTrackNumber(metadata.common.track?.no ?? null),
@@ -226,22 +239,22 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
 
-  let albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
-  if (albumArtistNames.length === 0 && primaryArtistName) {
-    albumArtistNames = [primaryArtistName];
-  }
-
-  const primaryAlbumArtistName = albumArtistNames[0] || primaryArtistName || '';
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
   const primaryAlbumArtistId = primaryAlbumArtistName
     ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
     : null;
 
   const albumArtistIds = new Set();
-  albumArtistNames.forEach(name => {
-    if (!name) return;
-    const id = getOrCreate(db, 'Artist', 'Name', name);
-    albumArtistIds.add(id);
-  });
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
 
   let albumId = null;
   if (musicInfo.tags.album) {
@@ -342,22 +355,22 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
 
-  let albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
-  if (albumArtistNames.length === 0 && primaryArtistName) {
-    albumArtistNames = [primaryArtistName];
-  }
-
-  const primaryAlbumArtistName = albumArtistNames[0] || primaryArtistName || '';
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
   const primaryAlbumArtistId = primaryAlbumArtistName
     ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
     : null;
 
   const albumArtistIds = new Set();
-  albumArtistNames.forEach(name => {
-    if (!name) return;
-    const id = getOrCreate(db, 'Artist', 'Name', name);
-    albumArtistIds.add(id);
-  });
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
 
   let albumId = null;
   if (musicInfo.tags.album) {
@@ -431,10 +444,15 @@ function cleanupOrphans(db) {
   ).run();
   db.prepare('DELETE FROM TrackArtist WHERE TrackId NOT IN (SELECT Id FROM Track)').run();
   db.prepare('DELETE FROM AlbumArtist WHERE AlbumId NOT IN (SELECT Id FROM Album)').run();
-  db.prepare(
-    'DELETE FROM Artist WHERE Id NOT IN (SELECT ArtistId FROM TrackArtist WHERE ArtistId IS NOT NULL)'
-  ).run();
   db.prepare('DELETE FROM AlbumArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
+  db.prepare(
+    `DELETE FROM Artist
+     WHERE Id NOT IN (
+       SELECT ArtistId FROM TrackArtist WHERE ArtistId IS NOT NULL
+       UNION
+       SELECT ArtistId FROM AlbumArtist WHERE ArtistId IS NOT NULL
+     )`
+  ).run();
   db.prepare(
     'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
   ).run();
@@ -498,6 +516,10 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
 // Hashes + parses every file, inserts new and updates changed, removes stale.
 
 async function runFullScan(db, folders, config, supportedFileTypes) {
+  // Rebuild album artist relationships from current file metadata.
+  // This clears stale associations that may have been created by older scan logic.
+  db.prepare('DELETE FROM AlbumArtist').run();
+
   let allFiles = [];
   for (const folder of folders) {
     allFiles = allFiles.concat(getAllSupportedFiles(folder.Uri, supportedFileTypes));

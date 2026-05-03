@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useCallback, useState } from 'react';
+import React, { useContext, useEffect, useCallback, useState, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -6,16 +6,24 @@ import {
   ListItemButton,
   useMediaQuery,
   Theme,
+  ButtonGroup,
+  Button,
+  Menu,
+  MenuItem,
+  Collapse,
 } from '@mui/material';
 import { useParams, useLocation } from 'react-router';
 import { motion, useMotionValue, useSpring } from 'motion/react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
 import { useIpc } from '../../state/ipc';
 import { store, Track } from '../../utils/store';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../../utils/useScrollRestoration';
+import { Icon } from '@iconify/react';
+import ChevronDownIcon from '@iconify/icons-fluent/chevron-down-24-filled';
+import AppDialog from '../../components/AppDialog';
 
 interface ArtistDetailData {
   Id: number;
@@ -80,46 +88,88 @@ const resolveImageSrc = (uri: string | null | undefined) => {
   return isRemoteUri(uri) ? uri : toFileUrl(uri);
 };
 
-const ArtistDetail: React.FC = () => {
+interface ArtistDetailProps {
+  showAlbumArtist?: boolean;
+}
+
+const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) => {
   const { artistId } = useParams<{ artistId: string }>();
   const location = useLocation();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { scrollRef, saveScrollPosition } = useScrollRestoration(location.pathname);
+  const queryClient = useQueryClient();
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const menuOpen = Boolean(menuAnchorEl);
+  const [biographyOpen, setBiographyOpen] = useState(false);
+  const dropdownButtonRef = useRef<HTMLButtonElement>(null);
+
+  const handleSync = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      // Force re-fetch from remote (clears local cache + DB record first)
+      await invokeEventToMainProcess('force-fetch-artist-profile-image', {
+        artistId: Number(artistId),
+      });
+      // Then refresh all queries so the UI picks up new data
+      await queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.ARTIST_DETAIL, artistId, showAlbumArtist],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.ARTIST_META, artistId],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.ARTIST_SONGS, artistId, showAlbumArtist],
+      });
+      await queryClient.invalidateQueries({
+        queryKey: [QUERY_KEYS.ARTIST_ALBUMS, artistId, showAlbumArtist],
+      });
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [artistId, invokeEventToMainProcess, queryClient, showAlbumArtist]);
 
   const {
     data: artist,
     isLoading: artistLoading,
     error: artistError,
   } = useQuery({
-    queryKey: [QUERY_KEYS.ARTIST_DETAIL, artistId],
+    queryKey: [QUERY_KEYS.ARTIST_DETAIL, artistId, showAlbumArtist],
     queryFn: () =>
-      invokeEventToMainProcess('get-artist-detail', {
+      invokeEventToMainProcess(showAlbumArtist ? 'get-album-artist-detail' : 'get-artist-detail', {
         artistId: Number(artistId),
       }) as Promise<ArtistDetailData | null>,
     enabled: !!artistId,
   });
 
-  const { isLoading: artistMetaLoading, error: artistMetaError } = useQuery({
+  const {
+    data: artistMeta,
+    isLoading: artistMetaLoading,
+    error: artistMetaError,
+  } = useQuery({
     queryKey: [QUERY_KEYS.ARTIST_META, artistId],
     queryFn: () =>
-      invokeEventToMainProcess('get-artist-meta', { artistId: Number(artistId) }) as Promise<
-        unknown | null
-      >,
+      invokeEventToMainProcess('get-artist-meta', { artistId: Number(artistId) }) as Promise<Record<
+        string,
+        unknown
+      > | null>,
     enabled: !!artistId,
   });
+
+  console.log(artistMeta);
 
   const {
     data: songs = [],
     isLoading: songsLoading,
     error: songsError,
   } = useQuery({
-    queryKey: [QUERY_KEYS.ARTIST_SONGS, artistId],
+    queryKey: [QUERY_KEYS.ARTIST_SONGS, artistId, showAlbumArtist],
     queryFn: () =>
-      invokeEventToMainProcess('get-artist-songs', { artistId: Number(artistId) }) as Promise<
-        Track[]
-      >,
+      invokeEventToMainProcess(showAlbumArtist ? 'get-album-artist-songs' : 'get-artist-songs', {
+        artistId: Number(artistId),
+      }) as Promise<Track[]>,
     enabled: !!artistId,
   });
 
@@ -128,11 +178,11 @@ const ArtistDetail: React.FC = () => {
     isLoading: albumsLoading,
     error: albumsError,
   } = useQuery({
-    queryKey: [QUERY_KEYS.ARTIST_ALBUMS, artistId],
+    queryKey: [QUERY_KEYS.ARTIST_ALBUMS, artistId, showAlbumArtist],
     queryFn: () =>
-      invokeEventToMainProcess('get-artist-albums', { artistId: Number(artistId) }) as Promise<
-        ArtistAlbum[]
-      >,
+      invokeEventToMainProcess(showAlbumArtist ? 'get-album-artist-albums' : 'get-artist-albums', {
+        artistId: Number(artistId),
+      }) as Promise<ArtistAlbum[]>,
     enabled: !!artistId,
   });
 
@@ -188,6 +238,14 @@ const ArtistDetail: React.FC = () => {
     [songs, dispatch]
   );
 
+  const artistStats = React.useMemo(() => {
+    const parts: string[] = [];
+    if (artist?.AlbumCount) parts.push(`${artist.AlbumCount} albums`);
+    if (artist?.SongCount) parts.push(`${artist.SongCount} songs`);
+    if (songs.length) parts.push(totalDuration(songs));
+    return parts.join(' • ');
+  }, [artist, songs]);
+
   const handleScroll = useScrollHidePlayerBar<{ scrollTop: number }>({
     field: 'scrollTop',
     threshold: 0,
@@ -216,7 +274,7 @@ const ArtistDetail: React.FC = () => {
   if (loading)
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <PageToolbar title="Artist" />
+        <PageToolbar title={showAlbumArtist ? 'Album Artist' : 'Artist'} />
         <LinearProgress color="primary" sx={{ borderRadius: 1 }} />
       </Box>
     );
@@ -224,7 +282,7 @@ const ArtistDetail: React.FC = () => {
   if (error || !artist)
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        <PageToolbar title="Artist" />
+        <PageToolbar title={showAlbumArtist ? 'Album Artist' : 'Artist'} />
         <Typography sx={{ p: 3, color: 'error.main' }}>Error loading artist details</Typography>
       </Box>
     );
@@ -234,7 +292,8 @@ const ArtistDetail: React.FC = () => {
 
   const onContentScroll = (event: React.UIEvent<HTMLDivElement>) => {
     const y = event.currentTarget.scrollTop;
-    const condensed = y > 0;
+    // Use a small hysteresis band to avoid rapid toggle jitter near the top.
+    const condensed = isHeaderCondensed ? y > 8 : y > 24;
     if (condensed !== isHeaderCondensed) {
       setIsHeaderCondensed(condensed);
     }
@@ -266,8 +325,6 @@ const ArtistDetail: React.FC = () => {
           px: 3,
           py: 1,
           borderBottom: '1px solid rgba(255,255,255,0.12)',
-          // backgroundColor: 'rgba(12,12,20,0.95)',
-          // backdropFilter: 'blur(8px)',
         }}
       >
         <Box
@@ -337,11 +394,77 @@ const ArtistDetail: React.FC = () => {
                 {artist.Name}
               </motion.span>
               <Typography sx={{ color: 'grey.300', mt: 0.5, fontSize: 14 }}>
-                {artist.AlbumCount} albums • {artist.SongCount} songs • {totalDuration(songs)}
+                {artistStats || '--'}
               </Typography>
-              {!isHeaderCondensed && (
-                <Typography sx={{ color: 'grey.400', fontSize: 12 }}>Artist • Mashup</Typography>
-              )}
+              <Collapse in={!isHeaderCondensed} timeout={220} collapsedSize={0}>
+                <Box sx={{ pt: 0.25 }}>
+                  <Typography sx={{ color: 'grey.400', fontSize: 12 }}>
+                    {showAlbumArtist ? 'Album Artist' : 'Artist'}
+                  </Typography>
+                  <ButtonGroup
+                    variant="contained"
+                    aria-label="Button group with a nested menu"
+                    sx={{ mt: 0.75 }}
+                  >
+                    <Button onClick={() => handlePlayAll(0)}>▶&nbsp;&nbsp;Play All</Button>
+                    <Button
+                      size="small"
+                      ref={dropdownButtonRef}
+                      aria-controls={menuOpen ? 'artist-action-menu' : undefined}
+                      aria-expanded={menuOpen ? 'true' : undefined}
+                      aria-label="more options"
+                      aria-haspopup="menu"
+                      onClick={e => setMenuAnchorEl(e.currentTarget)}
+                    >
+                      <Icon icon={ChevronDownIcon} width={'1rem'} />
+                    </Button>
+                  </ButtonGroup>
+                </Box>
+              </Collapse>
+              <Menu
+                id="artist-action-menu"
+                anchorEl={menuAnchorEl}
+                open={menuOpen}
+                onClose={() => setMenuAnchorEl(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+              >
+                <MenuItem
+                  onClick={() => {
+                    setMenuAnchorEl(null);
+                    setBiographyOpen(true);
+                  }}
+                  disabled={!artistMeta?.strBiography}
+                >
+                  Biography
+                </MenuItem>
+                <MenuItem
+                  disabled={isSyncing}
+                  onClick={() => {
+                    setMenuAnchorEl(null);
+                    handleSync();
+                  }}
+                >
+                  Refresh Artist Info
+                </MenuItem>
+              </Menu>
+              <AppDialog
+                open={biographyOpen}
+                onClose={() => setBiographyOpen(false)}
+                title={`${artist?.Name} - Biography`}
+                headerAction={
+                  <Button size="small" onClick={() => setBiographyOpen(false)}>
+                    Close
+                  </Button>
+                }
+              >
+                <Typography
+                  variant="body2"
+                  sx={{ whiteSpace: 'pre-line', color: 'text.secondary', lineHeight: 1.8 }}
+                >
+                  {(artistMeta?.strBiography as string) || 'No biography available.'}
+                </Typography>
+              </AppDialog>
             </Box>
           </Box>
         </Box>
@@ -427,7 +550,7 @@ const ArtistDetail: React.FC = () => {
                           </Typography>
                         </Box>
                       )}
-                      <Box sx={{ minWidth: 0, gap: 0.5 }}>
+                      <Box sx={{ minWidth: '100%', gap: 0.5, mb: 1 }}>
                         <Typography variant="body2" sx={{ fontWeight: 700, color: 'common.white' }}>
                           {album.Title}
                         </Typography>

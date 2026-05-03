@@ -15,7 +15,7 @@ import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
-import { RepeatRounded, ShuffleRounded } from '@mui/icons-material';
+import { KeyboardArrowDownRounded, RepeatRounded, ShuffleRounded } from '@mui/icons-material';
 import ShuffleOnRoundedIcon from '@mui/icons-material/ShuffleOnRounded';
 import RepeatOneOnRoundedIcon from '@mui/icons-material/RepeatOneOnRounded';
 import RepeatOnRoundedIcon from '@mui/icons-material/RepeatOnRounded';
@@ -915,7 +915,7 @@ export default function PlayBar() {
         >
           {lyricsPanel}
         </Collapse>
-        <Grid xs={12} md={6}>
+        <Grid xs={12} md={5} lg={6}>
           <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
             <CoverImage>
               <Image
@@ -1175,47 +1175,107 @@ export default function PlayBar() {
             </Stack>
           </Box>
         </Grid>
-        <Grid xs={12} md={1} direction="row">
-          <Box m={1}>
-            <IconButton onClick={handleShuffle} aria-label="shuffle">
-              {state.isShuffle ? <ShuffleOnRoundedIcon /> : <ShuffleRounded />}
-            </IconButton>
-            <IconButton onClick={handleRepeat} aria-label="repeat">
-              {state.repeatMode === 'off' ? (
-                <RepeatRounded />
-              ) : state.repeatMode === 'all' ? (
-                <RepeatOnRoundedIcon />
-              ) : (
-                <RepeatOneOnRoundedIcon />
-              )}
-            </IconButton>
-            <IconButton
-              onClick={handleDiscordToggle}
-              aria-label="discord presence"
-              title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
-              sx={{ opacity: discordEnabled ? 1 : 0.35 }}
-            >
-              <DiscordIcon viewBox="0 0 70 60" width={24} height={24} />
-            </IconButton>
-            <IconButton
-              onClick={handleLyricsToggle}
-              aria-label="lyrics"
-              disabled={!lrcContent}
-              title={isLyricsExpanded ? 'Close Lyrics' : 'Show Lyrics'}
-              sx={{ opacity: lrcContent ? 1 : 0.5 }}
-            >
-              {isLyricsExpanded ? (
-                <LyricNoteActiveIcon
-                  viewBox="0 0 16 17"
-                  className="icon-white"
-                  width={24}
-                  height={24}
-                />
-              ) : (
-                <LyricNoteIcon viewBox="0 0 16 17" className="icon-white" width={24} height={24} />
-              )}
-            </IconButton>
-          </Box>
+        <Grid
+          xs={12}
+          md={2}
+          lg={1}
+          sx={{
+            display: {
+              xs: 'flex',
+              md: 'grid',
+            },
+          }}
+          alignContent="center"
+          justifyContent="center"
+          pr={0.5}
+        >
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton onClick={handleShuffle} aria-label="shuffle">
+                {state.isShuffle ? <ShuffleOnRoundedIcon /> : <ShuffleRounded />}
+              </IconButton>
+            </Grid>
+            <Grid xs={6}>
+              <IconButton onClick={handleRepeat} aria-label="repeat">
+                {state.repeatMode === 'off' ? (
+                  <RepeatRounded />
+                ) : state.repeatMode === 'all' ? (
+                  <RepeatOnRoundedIcon />
+                ) : (
+                  <RepeatOneOnRoundedIcon />
+                )}
+              </IconButton>
+            </Grid>
+          </Grid>
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton
+                onClick={handleDiscordToggle}
+                aria-label="discord presence"
+                title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
+                sx={{ opacity: discordEnabled ? 1 : 0.35 }}
+              >
+                <DiscordIcon viewBox="0 0 70 60" width={24} height={24} />
+              </IconButton>
+            </Grid>
+            <Grid xs={6}>
+              <IconButton
+                onClick={handleLyricsToggle}
+                aria-label="lyrics"
+                disabled={!lrcContent}
+                title={isLyricsExpanded ? 'Close Lyrics' : 'Show Lyrics'}
+                sx={{ opacity: lrcContent ? 1 : 0.5 }}
+              >
+                {isLyricsExpanded ? (
+                  <LyricNoteActiveIcon
+                    viewBox="0 0 16 17"
+                    className="icon-white"
+                    width={24}
+                    height={24}
+                  />
+                ) : (
+                  <LyricNoteIcon
+                    viewBox="0 0 16 17"
+                    className="icon-white"
+                    width={24}
+                    height={24}
+                  />
+                )}
+              </IconButton>{' '}
+            </Grid>
+          </Grid>
+          <Grid
+            container
+            justifyContent={'end'}
+            gap={{
+              xs: 0.5,
+              md: 0,
+            }}
+          >
+            <Grid xs={6}>
+              <IconButton
+                onClick={() => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false })}
+                aria-label="hide player bar"
+                title="Hide player bar"
+              >
+                <KeyboardArrowDownRounded />
+              </IconButton>
+            </Grid>
+          </Grid>
         </Grid>
       </Grid>
       <audio ref={audioRef} style={{ display: 'none' }} />

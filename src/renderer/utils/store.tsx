@@ -25,6 +25,7 @@ export interface LibraryStats {
   folders: number;
   genres: number;
   years: number;
+  recentlyAdded: number;
 }
 
 export interface AppState {
@@ -81,7 +82,7 @@ const initialState: AppState = (() => {
   return {
     isLightTheme: true,
     isMaximized: false,
-    isMenuExpanded: true,
+    isMenuExpanded: typeof window !== 'undefined' ? window.innerWidth >= 960 : true,
     path: null,
     track: (saved?.track as Track) || null,
     isPlaying: false,

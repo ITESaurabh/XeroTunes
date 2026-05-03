@@ -3,10 +3,11 @@ import Titlebar from './Titlebar';
 import { styled, Theme } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
-import { Paper, Stack, useMediaQuery } from '@mui/material';
+import { IconButton, Paper, Stack, useMediaQuery } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { Outlet } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
+import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 
 import PlayBar from './PlayBar';
 import MainDrawer from './MainDrawer';
@@ -71,6 +72,8 @@ function Layout() {
               borderRight: 'none',
             },
           }}
+          ModalProps={{ keepMounted: false }}
+          onClose={() => dispatch({ type: 'SET_MENU_EXPANDED', payload: false })}
           open={state.isMenuExpanded}
         >
           <MainDrawer />
@@ -153,6 +156,37 @@ function Layout() {
               <PlayBar />
             </Box>
           </motion.div>
+          {/* Expand tab shown when track is loaded but playbar is hidden */}
+          {state.track && !state.isPlayerBarVisible && (
+            <Box
+              sx={{
+                position: 'absolute',
+                bottom: 0,
+                left: 0,
+                right: 0,
+                zIndex: 11,
+                display: 'flex',
+                justifyContent: 'center',
+                pointerEvents: 'auto',
+              }}
+            >
+              <IconButton
+                size="small"
+                onClick={() => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true })}
+                title="Show player bar"
+                sx={{
+                  backdropFilter: 'blur(20px)',
+                  backgroundColor: 'rgba(0,0,0,0.25)',
+                  borderRadius: '8px 8px 0 0',
+                  px: 4,
+                  py: 0.25,
+                  '&:hover': { backgroundColor: 'rgba(0,0,0,0.45)' },
+                }}
+              >
+                <KeyboardArrowUpRounded fontSize="small" />
+              </IconButton>
+            </Box>
+          )}
         </Stack>
       </Box>
       <SearchDialog />

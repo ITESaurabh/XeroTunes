@@ -229,9 +229,12 @@ export default function SearchDialog() {
     } else if (category.type === 'albums') {
       const id = result.Id ?? result.id;
       navigate(id != null ? `/main_window/albums/${id}` : category.href);
-    } else if (category.type === 'artists' || category.type === 'albumArtists') {
+    } else if (category.type === 'artists') {
       const id = result.Id ?? result.id;
       navigate(id != null ? `/main_window/artists/${id}` : category.href);
+    } else if (category.type === 'albumArtists') {
+      const id = result.Id ?? result.id;
+      navigate(id != null ? `/main_window/album-artists/${id}` : category.href);
     } else {
       navigate(category.href);
     }

@@ -96,8 +96,15 @@ const Settings: React.FC = () => {
     getArtistImageFetchingEnabled()
   );
   const { invokeEventToMainProcess } = useIpc();
-  const { state } = useContext(store);
+  const { state, dispatch } = useContext(store);
   const { isScanningLibrary } = state;
+
+  React.useEffect(() => {
+    dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false });
+    return () => {
+      dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
+    };
+  }, [dispatch]);
 
   React.useEffect(() => {
     invokeEventToMainProcess('get-music-folders')

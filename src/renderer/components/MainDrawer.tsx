@@ -36,6 +36,8 @@ import genresIcon from '@iconify/icons-fluent/guitar-24-regular';
 import genresActiveIcon from '@iconify/icons-fluent/guitar-24-filled';
 import yearsIcon from '@iconify/icons-fluent/timer-24-regular';
 import yearsActiveIcon from '@iconify/icons-fluent/timer-24-filled';
+import recentIcon from '@iconify/icons-fluent/add-circle-24-regular';
+import recentActiveIcon from '@iconify/icons-fluent/add-circle-24-filled';
 import settingsIcon from '@iconify/icons-fluent/settings-24-regular';
 import settingsActiveIcon from '@iconify/icons-fluent/settings-24-filled';
 import { store, LibraryStats } from '../utils/store';
@@ -82,8 +84,15 @@ const menuItems: MenuItem[] = [
     href: '/main_window/playlists',
     icon: playlistIcon,
     iconActive: playlistActiveIcon,
-    divider: true,
     statKey: 'playlists',
+  },
+  {
+    title: 'Recently Added',
+    href: '/main_window/recently-added',
+    icon: recentIcon,
+    iconActive: recentActiveIcon,
+    divider: true,
+    statKey: 'recentlyAdded',
   },
   {
     title: 'Albums',
