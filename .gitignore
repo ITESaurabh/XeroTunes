@@ -99,3 +99,5 @@ notes.txt
 .yarn/install-state.gz
 
 docs
+.claude/
+.cursor/

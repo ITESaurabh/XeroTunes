@@ -5,20 +5,9 @@ import Typography from '@mui/material/Typography';
 import Slider from '@mui/material/Slider';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
-import PauseRounded from '@mui/icons-material/PauseRounded';
-import PlayArrowRounded from '@mui/icons-material/PlayArrowRounded';
-import FastForwardRounded from '@mui/icons-material/FastForwardRounded';
-import FastRewindRounded from '@mui/icons-material/FastRewindRounded';
-import { Icon } from '@iconify/react';
+
 import { Card, Collapse, useMediaQuery } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
-import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
-import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
-import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
-import { KeyboardArrowDownRounded, RepeatRounded, ShuffleRounded } from '@mui/icons-material';
-import ShuffleOnRoundedIcon from '@mui/icons-material/ShuffleOnRounded';
-import RepeatOneOnRoundedIcon from '@mui/icons-material/RepeatOneOnRounded';
-import RepeatOnRoundedIcon from '@mui/icons-material/RepeatOnRounded';
 import { store, RepeatMode } from '../utils/store';
 import {
   getVolumeLevel,
@@ -27,17 +16,34 @@ import {
   getDiscordEnabled,
   setDiscordEnabled,
 } from '../utils/LocStoreUtil';
+import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
+import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
+import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
+import { Icon } from '@iconify/react';
+import pause32Filled from '@iconify/icons-fluent/pause-32-filled';
+import play32Filled from '@iconify/icons-fluent/play-32-filled';
+import fastForward32Filled from '@iconify/icons-fluent/fast-forward-28-filled';
+import repeatOne24Filled from '@iconify/icons-fluent/arrow-repeat-1-24-filled';
+import repeatAll24Filled from '@iconify/icons-fluent/arrow-repeat-all-24-filled';
+import repeatOff24Filled from '@iconify/icons-fluent/arrow-repeat-all-off-24-filled';
 import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
+import info24Regular from '@iconify/icons-fluent/info-24-regular';
+import info24Filled from '@iconify/icons-fluent/info-24-filled';
+import shuffle24Filled from '@iconify/icons-fluent/arrow-shuffle-24-filled';
+import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-filled';
+import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
 import { Image } from 'mui-image';
 import { DEFAULT_AA } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
 import { motion } from 'motion/react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import { parseFile } from 'music-metadata';
 import { Lrc } from 'react-lrc';
 import Marquee from 'react-fast-marquee';
+import ImagePreviewDialog from './ImagePreviewDialog';
+import SongInfoDialog from './SongInfoDialog';
 
 const CoverImage = styled(Box)(({ theme }) => ({
   width: 140,
@@ -67,6 +73,7 @@ const TinyText = styled(Typography)({
 export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const isDark = theme.palette.mode === 'dark';
   const { state, dispatch } = useContext(store);
   const defaultVol = getVolumeLevel();
@@ -84,6 +91,7 @@ export default function PlayBar() {
   const [volume, setVolume] = useState(defaultVol);
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
+  const [songInfoOpen, setSongInfoOpen] = useState(false);
 
   const shouldUseMarquee = (text?: string) => {
     return !!text && text.length > 28;
@@ -115,6 +123,7 @@ export default function PlayBar() {
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
   const isLyricsExpanded = state.isLyricsExpanded;
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [lrcContent, setLrcContent] = useState<string | null>(null);
   const [lyricsSource, setLyricsSource] = useState<'LRC file' | 'Embedded' | null>(null);
   const [lyricsType, setLyricsType] = useState<'synced' | 'unsynced' | null>(null);
@@ -241,6 +250,12 @@ export default function PlayBar() {
   const handleLyricsToggle = () => {
     dispatch({ type: 'SET_LYRICS_EXPANDED', payload: !isLyricsExpanded });
   };
+
+  useEffect(() => {
+    if (isLyricsExpanded) {
+      dispatch({ type: 'SET_LYRICS_EXPANDED', payload: false });
+    }
+  }, [location.pathname]);
   // ── End Lyrics ───────────────────────────────────────────────────────────
 
   const handleDiscordToggle = () => {
@@ -290,9 +305,6 @@ export default function PlayBar() {
       // Convert file path to file:// URL for proper audio loading
       const fileUrl = `file://${songPath.replace(/\\/g, '/')}`;
 
-      parseFile(songPath, { skipCovers: false }).then(metadata => {
-        console.log('TAGS', metadata);
-      });
       audioRef.current.src = fileUrl;
       audioRef.current.volume = defaultVol / 100;
       // Play only after loadedmetadata
@@ -899,8 +911,10 @@ export default function PlayBar() {
       <Grid
         container
         sx={{
-          backdropFilter: 'blur(40px)',
+          backdropFilter: 'blur(80px)',
           width: '100%',
+          border: 'rgba(0,0,0,0.25) 1px solid',
+          '-electron-corner-smoothing': '100%',
           backgroundColor:
             theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.4)',
         }}
@@ -917,7 +931,12 @@ export default function PlayBar() {
         </Collapse>
         <Grid xs={12} md={5} lg={6}>
           <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-            <CoverImage>
+            <CoverImage
+              onClick={() => {
+                if (state.track?.AlbumArt) setPreviewOpen(true);
+              }}
+              sx={{ cursor: state.track?.AlbumArt ? 'zoom-in' : 'default' }}
+            >
               <Image
                 src={albumArtSrc}
                 className="no-select no-drag"
@@ -926,6 +945,12 @@ export default function PlayBar() {
                 fit="contain"
               />
             </CoverImage>
+            <ImagePreviewDialog
+              open={previewOpen}
+              onClose={() => setPreviewOpen(false)}
+              imageSrc={state.track?.AlbumArt ? albumArtSrc : null}
+              imageAlt={state.track?.Title as string}
+            />
             <Box
               sx={{
                 ml: 0.5,
@@ -1014,7 +1039,7 @@ export default function PlayBar() {
           </Box>
         </Grid>
         <Grid justifyContent="center" alignContent="center" xs={12} md={5}>
-          <Box marginInline={3} mt={isPhone ? 0 : 2}>
+          <Box marginInline={2} mt={isPhone ? 0 : 1}>
             <Slider
               aria-label="time-indicator"
               size="small"
@@ -1088,7 +1113,15 @@ export default function PlayBar() {
                 sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
                 {...prevButtonEvents}
               >
-                <FastRewindRounded fontSize="large" htmlColor={mainIconColor} />
+                <Icon
+                  icon={fastForward32Filled}
+                  width={25}
+                  style={{
+                    margin: '0.2rem',
+                  }}
+                  flip="horizontal"
+                  color={mainIconColor}
+                />
               </IconButton>
               <IconButton
                 component={motion.div}
@@ -1098,9 +1131,23 @@ export default function PlayBar() {
                 onClick={() => setPaused(!paused)}
               >
                 {paused ? (
-                  <PlayArrowRounded sx={{ fontSize: '3rem' }} htmlColor={mainIconColor} />
+                  <Icon
+                    icon={play32Filled}
+                    width={35}
+                    style={{
+                      margin: '0.3rem',
+                    }}
+                    color={mainIconColor}
+                  />
                 ) : (
-                  <PauseRounded sx={{ fontSize: '3rem' }} htmlColor={mainIconColor} />
+                  <Icon
+                    icon={pause32Filled}
+                    style={{
+                      margin: '0.3rem',
+                    }}
+                    width={35}
+                    color={mainIconColor}
+                  />
                 )}
               </IconButton>
               <IconButton
@@ -1110,7 +1157,14 @@ export default function PlayBar() {
                 sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
                 {...nextButtonEvents}
               >
-                <FastForwardRounded fontSize="large" htmlColor={mainIconColor} />
+                <Icon
+                  icon={fastForward32Filled}
+                  style={{
+                    margin: '0.2rem',
+                  }}
+                  width={25}
+                  color={mainIconColor}
+                />
               </IconButton>
             </Box>
             <Stack
@@ -1191,6 +1245,7 @@ export default function PlayBar() {
         >
           <Grid
             container
+            flexWrap={'nowrap'}
             justifyContent={'end'}
             gap={{
               xs: 0.5,
@@ -1198,24 +1253,45 @@ export default function PlayBar() {
             }}
           >
             <Grid xs={6}>
-              <IconButton onClick={handleShuffle} aria-label="shuffle">
-                {state.isShuffle ? <ShuffleOnRoundedIcon /> : <ShuffleRounded />}
+              <IconButton
+                onClick={handleShuffle}
+                sx={{ opacity: state.isShuffle ? 1 : 0.5 }}
+                title={state.isShuffle ? 'Shuffle: On' : 'Shuffle: Off'}
+                aria-label="shuffle"
+              >
+                {state.isShuffle ? (
+                  <Icon icon={shuffle24Filled} width={22} />
+                ) : (
+                  <Icon icon={shuffleInactive24Filled} width={22} />
+                )}
               </IconButton>
             </Grid>
             <Grid xs={6}>
-              <IconButton onClick={handleRepeat} aria-label="repeat">
+              <IconButton
+                onClick={handleRepeat}
+                sx={{ opacity: state.repeatMode !== 'off' ? 1 : 0.5 }}
+                title={
+                  state.repeatMode === 'off'
+                    ? 'Repeat: Off'
+                    : state.repeatMode === 'all'
+                      ? 'Repeat: All'
+                      : 'Repeat: One'
+                }
+                aria-label="repeat"
+              >
                 {state.repeatMode === 'off' ? (
-                  <RepeatRounded />
+                  <Icon icon={repeatOff24Filled} width={22} />
                 ) : state.repeatMode === 'all' ? (
-                  <RepeatOnRoundedIcon />
+                  <Icon icon={repeatAll24Filled} width={22} />
                 ) : (
-                  <RepeatOneOnRoundedIcon />
+                  <Icon icon={repeatOne24Filled} width={22} />
                 )}
               </IconButton>
             </Grid>
           </Grid>
           <Grid
             container
+            flexWrap={'nowrap'}
             justifyContent={'end'}
             gap={{
               xs: 0.5,
@@ -1229,7 +1305,7 @@ export default function PlayBar() {
                 title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
                 sx={{ opacity: discordEnabled ? 1 : 0.35 }}
               >
-                <DiscordIcon viewBox="0 0 70 60" width={24} height={24} />
+                <DiscordIcon viewBox="0 0 70 60" width={22} height={22} />
               </IconButton>
             </Grid>
             <Grid xs={6}>
@@ -1244,22 +1320,23 @@ export default function PlayBar() {
                   <LyricNoteActiveIcon
                     viewBox="0 0 16 17"
                     className="icon-white"
-                    width={24}
-                    height={24}
+                    width={22}
+                    height={22}
                   />
                 ) : (
                   <LyricNoteIcon
                     viewBox="0 0 16 17"
                     className="icon-white"
-                    width={24}
-                    height={24}
+                    width={22}
+                    height={22}
                   />
                 )}
-              </IconButton>{' '}
+              </IconButton>
             </Grid>
           </Grid>
           <Grid
             container
+            flexWrap={'nowrap'}
             justifyContent={'end'}
             gap={{
               xs: 0.5,
@@ -1268,16 +1345,32 @@ export default function PlayBar() {
           >
             <Grid xs={6}>
               <IconButton
+                onClick={() => setSongInfoOpen(true)}
+                aria-label="song info"
+                title="Song info / tags"
+                disabled={!state.track}
+              >
+                <Icon icon={songInfoOpen ? info24Filled : info24Regular} width={22} />
+              </IconButton>
+            </Grid>
+            <Grid xs={6}>
+              <IconButton
                 onClick={() => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false })}
                 aria-label="hide player bar"
                 title="Hide player bar"
               >
-                <KeyboardArrowDownRounded />
+                <Icon icon={arrowCircleDown24Filled} width={22} />
               </IconButton>
             </Grid>
           </Grid>
         </Grid>
       </Grid>
+      <SongInfoDialog
+        open={songInfoOpen}
+        onClose={() => setSongInfoOpen(false)}
+        track={state.track}
+        songPath={songPath}
+      />
       <audio ref={audioRef} style={{ display: 'none' }} />
     </Box>
   );

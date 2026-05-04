@@ -12,6 +12,11 @@ import {
   LinearProgress,
   Typography,
   CircularProgress,
+  Tooltip,
+  Zoom,
+  styled,
+  TooltipProps,
+  tooltipClasses,
 } from '@mui/material';
 import SearchBar from './SearchBar';
 import { Link, useMatch, useResolvedPath } from 'react-router';
@@ -61,8 +66,23 @@ interface CustomLinkProps {
   item: MenuItem;
   stat?: number;
   showStat?: boolean;
+  menuExpanded?: boolean;
   [key: string]: unknown;
 }
+
+const MenuTooltip = styled(({ className, ...props }: TooltipProps) => (
+  <Tooltip {...props} classes={{ popper: className }} />
+))(({ theme }) => ({
+  [`& .${tooltipClasses.tooltip}`]: {
+    backgroundColor: theme.palette.background.paper,
+    color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.87)' : 'rgba(0, 0, 0, 0.87)',
+    boxShadow: theme.shadows[1],
+    fontSize: 16,
+    borderRadius: 50,
+    margin: 0,
+    paddingInline: 16,
+  },
+}));
 
 const menuItems: MenuItem[] = [
   {
@@ -162,6 +182,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
           width: '100%',
           position: 'relative',
           overflow: 'auto',
+          overflowX: 'hidden',
           p: 1,
           '& ul': { padding: 0 },
           '&::-webkit-scrollbar': { display: 'none' },
@@ -189,6 +210,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             item={item}
             stat={item.statKey && libraryStats ? libraryStats[item.statKey] : undefined}
             showStat={isMenuExpanded}
+            menuExpanded={isMenuExpanded}
           />
         ))}
       </List>
@@ -283,13 +305,14 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             icon: settingsIcon,
             iconActive: settingsActiveIcon,
           }}
+          menuExpanded={isMenuExpanded}
         />
       </List>
     </>
   );
 }
 
-function CustomLink({ item, stat, showStat, ...props }: CustomLinkProps) {
+function CustomLink({ item, stat, showStat, menuExpanded, ...props }: CustomLinkProps) {
   const resolved = useResolvedPath(item.href);
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { dispatch } = useContext(store);
@@ -297,40 +320,49 @@ function CustomLink({ item, stat, showStat, ...props }: CustomLinkProps) {
 
   return (
     <>
-      <ListItemButton
-        component={Link}
-        sx={{ borderRadius: 15, mb: 1 }}
-        selected={!!match}
-        onClick={
-          isPhone ? () => dispatch({ type: 'SET_MENU_EXPANDED', payload: false }) : undefined
-        }
-        to={item.href}
-        {...(props as object)}
+      <MenuTooltip
+        title={item.title}
+        placement="right"
+        TransitionComponent={Zoom}
+        disableFocusListener={menuExpanded}
+        disableHoverListener={menuExpanded}
+        disableTouchListener={menuExpanded}
       >
-        <ListItemIcon sx={{ mr: -1 }}>
-          <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
-        </ListItemIcon>
-        <ListItemText primary={item.title} />
-        {showStat && stat !== undefined && stat > 0 && (
-          <Typography
-            variant="caption"
-            sx={{
-              ml: 1,
-              px: 1,
-              py: 0.25,
-              borderRadius: 10,
-              bgcolor: match ? 'action.selected' : 'action.hover',
-              color: 'text.secondary',
-              fontWeight: 600,
-              minWidth: 24,
-              textAlign: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {stat}
-          </Typography>
-        )}
-      </ListItemButton>
+        <ListItemButton
+          component={Link}
+          sx={{ borderRadius: 15, mb: 1 }}
+          selected={!!match}
+          onClick={
+            isPhone ? () => dispatch({ type: 'SET_MENU_EXPANDED', payload: false }) : undefined
+          }
+          to={item.href}
+          {...(props as object)}
+        >
+          <ListItemIcon sx={{ mr: -1 }}>
+            <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
+          </ListItemIcon>
+          <ListItemText primary={item.title} />
+          {showStat && stat !== undefined && stat > 0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                ml: 1,
+                px: 1,
+                py: 0.25,
+                borderRadius: 10,
+                bgcolor: match ? 'action.selected' : 'action.hover',
+                color: 'text.secondary',
+                fontWeight: 600,
+                minWidth: 24,
+                textAlign: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {stat}
+            </Typography>
+          )}
+        </ListItemButton>
+      </MenuTooltip>
       {item.divider && <Divider sx={{ mb: 1 }} />}
     </>
   );

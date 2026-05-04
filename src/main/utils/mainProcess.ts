@@ -393,7 +393,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           processed: msg.processed,
         });
       } else if (msg.success) {
-        sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        if ((msg.scanned ?? 0) > 0) {
+          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        }
         resolvePromise({ success: true, scanned: msg.scanned });
       } else {
         rejectPromise(msg.error);
@@ -1421,7 +1423,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         });
       } else if (msg.success) {
         console.log(`[Auto-scan] Found ${msg.scanned} new file(s).`);
-        sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        if ((msg.scanned ?? 0) > 0) {
+          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        }
       }
     });
     activeScanWorker.on('exit', (code: number) => {
@@ -1434,6 +1438,18 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       activeScanWorker = null;
       sendMessageToRendererProcess(mainWin, 'scan-end', null);
     });
+  });
+
+  // ── Track DB info for Info/Tags dialog ───────────────────────────────────
+  ipcMain.handle('get-track-db-info', (_, { trackId }: { trackId: number | string }) => {
+    return (
+      db.prepare('SELECT PlayedTimes, LastPlayedAt FROM Track WHERE Id = ?').get(trackId) ?? null
+    );
+  });
+
+  ipcMain.handle('reveal-file', (_, { filePath }: { filePath: string }) => {
+    shell.showItemInFolder(filePath);
+    return { success: true };
   });
 
   // ── Discord Rich Presence IPC ─────────────────────────────────────────────

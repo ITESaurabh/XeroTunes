@@ -12,6 +12,7 @@ import { getBaseTheme } from '../config/theme';
 import { ipcRenderer } from 'electron';
 import Titlebar from './components/Titlebar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
 
 const queryClient = new QueryClient({
@@ -51,10 +52,20 @@ const App = () => {
     });
   }, []);
 
-  // Refresh all queries when the main process reports new/updated library files
+  // Refresh library list queries when the main process reports new/updated files.
+  // Only invalidate the specific list keys — never nuke the whole cache, which
+  // would force every active view to refetch in parallel and flash empty states.
   useEffect(() => {
     const handler = () => {
-      queryClient.invalidateQueries();
+      const listKeys = [
+        QUERY_KEYS.ALL_SONGS,
+        QUERY_KEYS.ALL_ALBUMS,
+        QUERY_KEYS.ALL_ARTISTS,
+        QUERY_KEYS.RECENTLY_ADDED,
+      ];
+      listKeys.forEach(key => {
+        queryClient.invalidateQueries({ queryKey: [key], refetchType: 'active' });
+      });
     };
     ipcRenderer.on('library-updated', handler);
     return () => {

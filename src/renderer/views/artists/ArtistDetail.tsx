@@ -158,8 +158,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
     enabled: !!artistId,
   });
 
-  console.log(artistMeta);
-
   const {
     data: songs = [],
     isLoading: songsLoading,
