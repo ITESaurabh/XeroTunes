@@ -18,7 +18,7 @@ import {
   ALBUM_ART_DIR,
   ARTIST_ART_DIR,
 } from '../../config/core_config';
-import { AppSettings, DEFAULT_APP_SETTINGS } from '../../config/app_settings';
+import { AppSettings, DEFAULT_APP_SETTINGS, clampWindowScale } from '../../config/app_settings';
 import { fetchArtistProfileImage } from '../modules/artistArts';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
@@ -53,6 +53,16 @@ function readSettingsFile(): AppSettings {
       library: {
         ...DEFAULT_APP_SETTINGS.library,
         ...(parsed.library ?? {}),
+      },
+      views: {
+        folders: {
+          ...DEFAULT_APP_SETTINGS.views.folders,
+          ...(parsed.views?.folders ?? {}),
+        },
+        folderHierarchy: {
+          ...DEFAULT_APP_SETTINGS.views.folderHierarchy,
+          ...(parsed.views?.folderHierarchy ?? {}),
+        },
       },
     };
   } catch (error) {
@@ -95,6 +105,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       movable: false,
       show: false,
       webPreferences: {
+        partition: 'overlay-isolated',
         nodeIntegration: true,
         contextIsolation: false,
         webSecurity: process.env.NODE_ENV !== 'development',
@@ -102,6 +113,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     });
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setIgnoreMouseEvents(true);
+    win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
     win.loadURL(overlayEntry);
     win.on('closed', () => {
       overlayWin = null;
@@ -194,6 +206,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.on('write-app-settings-sync', (event, settings) => {
     writeSettingsFile(settings);
     event.returnValue = settings;
+  });
+  ipcMain.handle('set-window-scale', (_e, { scale }: { scale: number }) => {
+    const safe = clampWindowScale(scale);
+    try {
+      mainWin.webContents.setZoomFactor(safe);
+    } catch (err) {
+      console.warn('Failed to set zoom factor:', err);
+    }
+    const current = readSettingsFile();
+    writeSettingsFile({ ...current, windowScale: safe });
+    return { success: true, scale: safe };
   });
   ipcMain.on('show-dialog', (e, payload) => {
     const { title } = payload;
@@ -583,6 +606,170 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('get-music-folders', () => {
     const rows = db.prepare('SELECT * FROM MusicFolder').all();
     return rows;
+  });
+
+  // ── Folder views ────────────────────────────────────────────────────────────
+  // Flat list of every folder that holds songs in the library, sorted by name.
+  // Powers the "Folders" screen.
+  ipcMain.handle('get-folders-with-songs', () => {
+    const rows = db
+      .prepare(
+        `SELECT FolderPath, COUNT(Id) AS SongCount
+         FROM Track
+         WHERE FolderPath IS NOT NULL AND FolderPath != ''
+         GROUP BY FolderPath
+         ORDER BY FolderPath COLLATE NOCASE`
+      )
+      .all() as Array<{ FolderPath: string; SongCount: number }>;
+    return rows.map(r => ({
+      Path: r.FolderPath,
+      Name: path.basename(r.FolderPath) || r.FolderPath,
+      SongCount: r.SongCount,
+    }));
+  });
+
+  // Returns immediate children of a given folder path (sub-folders + songs at
+  // that exact level). When `folderPath` is null/undefined, returns the user-
+  // configured Music Folder roots. Powers the "Folder Hierarchy" screen.
+  ipcMain.handle(
+    'get-folder-children',
+    (_e, { folderPath }: { folderPath?: string | null } = {}) => {
+      const allFolders = db
+        .prepare(
+          `SELECT FolderPath, COUNT(Id) AS SongCount
+           FROM Track
+           WHERE FolderPath IS NOT NULL AND FolderPath != ''
+           GROUP BY FolderPath`
+        )
+        .all() as Array<{ FolderPath: string; SongCount: number }>;
+
+      // Root view: show user-added Music Folders.
+      if (!folderPath) {
+        const roots = db
+          .prepare('SELECT Uri, Name FROM MusicFolder ORDER BY Name COLLATE NOCASE')
+          .all() as Array<{ Uri: string; Name: string }>;
+
+        const subfolders = roots.map(root => {
+          const sep = root.Uri.includes('\\') ? '\\' : '/';
+          const prefix = root.Uri.endsWith(sep) ? root.Uri : root.Uri + sep;
+          let count = 0;
+          for (const f of allFolders) {
+            if (f.FolderPath === root.Uri || f.FolderPath.startsWith(prefix)) {
+              count += f.SongCount;
+            }
+          }
+          return {
+            Path: root.Uri,
+            Name: root.Name || path.basename(root.Uri) || root.Uri,
+            SongCount: count,
+            IsRoot: true,
+          };
+        });
+
+        return { subfolders, songs: [], isRoot: true };
+      }
+
+      // Inside a folder: derive immediate children from FolderPath rows.
+      const sep = folderPath.includes('\\') ? '\\' : '/';
+      const prefix = folderPath.endsWith(sep) ? folderPath : folderPath + sep;
+      const subfoldersMap = new Map<
+        string,
+        { Path: string; Name: string; SongCount: number; IsRoot?: boolean }
+      >();
+
+      for (const f of allFolders) {
+        if (f.FolderPath === folderPath) continue;
+        if (!f.FolderPath.startsWith(prefix)) continue;
+        const remainder = f.FolderPath.slice(prefix.length);
+        const nextSeg = remainder.split(/[\\/]/)[0];
+        if (!nextSeg) continue;
+        const childPath = prefix + nextSeg;
+        const existing = subfoldersMap.get(childPath);
+        if (existing) {
+          existing.SongCount += f.SongCount;
+        } else {
+          subfoldersMap.set(childPath, {
+            Path: childPath,
+            Name: nextSeg,
+            SongCount: f.SongCount,
+          });
+        }
+      }
+
+      const subfolders = Array.from(subfoldersMap.values()).sort((a, b) =>
+        a.Name.localeCompare(b.Name, undefined, { sensitivity: 'base' })
+      );
+
+      const songs = db
+        .prepare(
+          `
+        SELECT
+          Track.Id,
+          Track.Title,
+          Track.Uri,
+          Track.Extension,
+          Track.Year,
+          Track.TrackNumber,
+          Track.AlbumArt,
+          Track.Duration,
+          Track.AlbumId,
+          Track.FolderPath,
+          GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+          Album.Title AS AlbumTitle,
+          Genre.Name AS GenreName
+        FROM Track
+        LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+        LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+        LEFT JOIN Album ON Track.AlbumId = Album.Id
+        LEFT JOIN Genre ON Track.GenreId = Genre.Id
+        WHERE Track.FolderPath = ?
+        GROUP BY Track.Id
+        ORDER BY COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999), Track.Title COLLATE NOCASE
+      `
+        )
+        .all(folderPath);
+
+      return { subfolders, songs, isRoot: false };
+    }
+  );
+
+  // Returns every song under the given folder path (recursive). Used by
+  // "Folders" screen play-folder action and by Folder Hierarchy when the user
+  // wants to play an entire branch.
+  ipcMain.handle('get-songs-in-folder', (_e, { folderPath }: { folderPath: string }) => {
+    if (!folderPath) return [];
+    const sep = folderPath.includes('\\') ? '\\' : '/';
+    const prefix = folderPath.endsWith(sep) ? folderPath : folderPath + sep;
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        Track.AlbumId,
+        Track.FolderPath,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Genre.Name AS GenreName
+      FROM Track
+      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE Track.FolderPath = ? OR Track.FolderPath LIKE ?
+      GROUP BY Track.Id
+      ORDER BY Track.FolderPath COLLATE NOCASE,
+               COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999),
+               Track.Title COLLATE NOCASE
+    `
+      )
+      .all(folderPath, prefix + '%');
   });
 
   ipcMain.handle('remove-music-folder', (e, { Id }) => {
@@ -1379,6 +1566,14 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   // ── Auto-scan library folders on app load ─────────────────────────────────
   mainWin.webContents.once('did-finish-load', () => {
+    // Apply persisted window scale before doing anything else
+    try {
+      const persistedScale = clampWindowScale(readSettingsFile().windowScale);
+      mainWin.webContents.setZoomFactor(persistedScale);
+    } catch (err) {
+      console.warn('Failed to apply window scale on load:', err);
+    }
+
     // Don't spawn if another scan is already running
     if (activeScanWorker) return;
 
@@ -1450,6 +1645,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('reveal-file', (_, { filePath }: { filePath: string }) => {
     shell.showItemInFolder(filePath);
     return { success: true };
+  });
+
+  ipcMain.on('reveal-folder', (_, { folderPath }: { folderPath: string }) => {
+    if (!folderPath) return;
+    shell.openPath(folderPath);
   });
 
   // ── Discord Rich Presence IPC ─────────────────────────────────────────────

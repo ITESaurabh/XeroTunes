@@ -11,6 +11,8 @@ const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
 const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
 const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
+const Folders = lazy(() => import('../views/Folders'));
+const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
 
 const BigLoader = () => {
   return (
@@ -108,7 +110,7 @@ const routes = [
         path: 'folders',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Folders />
           </React.Suspense>
         ),
       },
@@ -116,7 +118,7 @@ const routes = [
         path: 'folder-hierarchy',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <FolderHierarchy />
           </React.Suspense>
         ),
       },

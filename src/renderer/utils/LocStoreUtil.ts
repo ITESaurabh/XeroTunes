@@ -7,6 +7,9 @@ import {
   PlaybackSettings,
   PlaybackRepeatMode,
   LibrarySettings,
+  ViewSettings,
+  FolderViewSettings,
+  clampWindowScale,
 } from '../../config/app_settings';
 
 const QUEUE_STATE_KEY = 'queueState';
@@ -66,6 +69,16 @@ function parseSettingsObject(raw: unknown): AppSettings {
       ...DEFAULT_APP_SETTINGS.library,
       ...(parsed.library ?? {}),
     },
+    views: {
+      folders: {
+        ...DEFAULT_APP_SETTINGS.views.folders,
+        ...(parsed.views?.folders ?? {}),
+      },
+      folderHierarchy: {
+        ...DEFAULT_APP_SETTINGS.views.folderHierarchy,
+        ...(parsed.views?.folderHierarchy ?? {}),
+      },
+    },
   };
 }
 
@@ -94,6 +107,16 @@ export function updateSettings(update: Partial<AppSettings>): AppSettings {
     library: {
       ...current.library,
       ...(update.library ?? {}),
+    },
+    views: {
+      folders: {
+        ...current.views.folders,
+        ...(update.views?.folders ?? {}),
+      },
+      folderHierarchy: {
+        ...current.views.folderHierarchy,
+        ...(update.views?.folderHierarchy ?? {}),
+      },
     },
   };
   setSettings(nextSettings);
@@ -208,4 +231,35 @@ export function getArtistImageFetchingEnabled(): boolean {
 
 export function setArtistImageFetchingEnabled(enabled: boolean): void {
   updateSettings({ artistImageFetchingEnabled: enabled });
+}
+
+export function getWindowScale(): number {
+  return clampWindowScale(getSettings().windowScale);
+}
+
+export function setWindowScale(scale: number): number {
+  const safe = clampWindowScale(scale);
+  updateSettings({ windowScale: safe });
+  ipcRenderer
+    .invoke('set-window-scale', { scale: safe })
+    .catch((err: unknown) => console.warn('Failed to apply window scale:', err));
+  return safe;
+}
+
+export function getViewSettings(): ViewSettings {
+  return getSettings().views;
+}
+
+export function getFolderViewSettings(key: keyof ViewSettings): FolderViewSettings {
+  return getViewSettings()[key];
+}
+
+export function setFolderViewSettings(
+  key: keyof ViewSettings,
+  update: Partial<FolderViewSettings>
+): FolderViewSettings {
+  const current = getViewSettings();
+  const next: FolderViewSettings = { ...current[key], ...update };
+  updateSettings({ views: { ...current, [key]: next } });
+  return next;
 }
