@@ -1,4 +1,4 @@
-import React, { useEffect, useContext, createContext, ReactNode } from 'react';
+import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 'react';
 import { store, LibraryStats } from '../utils/store';
 import { debounce } from '../utils/misc';
 
@@ -97,17 +97,19 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
     };
   }, []);
 
-  const sendEventToMainProcess = (event: string, payload: unknown): void => {
-    ipcRenderer.send(event, payload);
-  };
-
-  const invokeEventToMainProcess = (event: string, payload: unknown): Promise<unknown> => {
-    return ipcRenderer.invoke(event, payload);
-  };
-
-  return (
-    <IpcContext.Provider value={{ sendEventToMainProcess, invokeEventToMainProcess }}>
-      {children}
-    </IpcContext.Provider>
+  // Memoize so consumers using these as effect deps don't re-fire on every
+  // store dispatch (provider re-renders → new fn refs → cascading effect runs).
+  const value = useMemo<IpcContextValue>(
+    () => ({
+      sendEventToMainProcess: (event: string, payload: unknown): void => {
+        ipcRenderer.send(event, payload);
+      },
+      invokeEventToMainProcess: (event: string, payload: unknown): Promise<unknown> => {
+        return ipcRenderer.invoke(event, payload);
+      },
+    }),
+    []
   );
+
+  return <IpcContext.Provider value={value}>{children}</IpcContext.Provider>;
 };

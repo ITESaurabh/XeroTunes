@@ -405,6 +405,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         type?: string;
         success?: boolean;
         scanned?: number;
+        removed?: number;
         total?: number;
         processed?: number;
         error?: string;
@@ -416,10 +417,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           processed: msg.processed,
         });
       } else if (msg.success) {
-        if ((msg.scanned ?? 0) > 0) {
-          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        const scanned = msg.scanned ?? 0;
+        const removed = msg.removed ?? 0;
+        if (scanned > 0 || removed > 0) {
+          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
-        resolvePromise({ success: true, scanned: msg.scanned });
+        resolvePromise({ success: true, scanned, removed });
       } else {
         rejectPromise(msg.error);
       }
@@ -1606,6 +1609,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         type?: string;
         success?: boolean;
         scanned?: number;
+        removed?: number;
         total?: number;
         processed?: number;
         error?: string;
@@ -1617,9 +1621,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           processed: msg.processed,
         });
       } else if (msg.success) {
-        console.log(`[Auto-scan] Found ${msg.scanned} new file(s).`);
-        if ((msg.scanned ?? 0) > 0) {
-          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned: msg.scanned });
+        const scanned = msg.scanned ?? 0;
+        const removed = msg.removed ?? 0;
+        console.log(`[Auto-scan] +${scanned} new, -${removed} removed.`);
+        if (scanned > 0 || removed > 0) {
+          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
       }
     });

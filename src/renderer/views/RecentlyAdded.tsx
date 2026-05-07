@@ -165,6 +165,15 @@ const RecentlyAdded: React.FC = () => {
     };
   }, [dispatch]);
 
+  // Re-scan for new/removed files once when entering this view. Store
+  // dispatches (e.g. from scroll) must NOT re-trigger this — hence empty deps
+  // + a ref to the latest `invokeEventToMainProcess`.
+  const invokeRef = React.useRef(invokeEventToMainProcess);
+  invokeRef.current = invokeEventToMainProcess;
+  useEffect(() => {
+    invokeRef.current('scan-media', undefined).catch(() => undefined);
+  }, []);
+
   const handleSongClick = React.useCallback(
     (clickedIndex: number): void => {
       dispatch({

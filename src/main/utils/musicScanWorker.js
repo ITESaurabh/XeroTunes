@@ -438,7 +438,35 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
   }
 }
 
-function cleanupOrphans(db) {
+// Sweep an art directory: remove every <id>.jpg whose id is not in liveIds.
+// Authoritative — catches both freshly-orphaned files and any leftovers from
+// earlier scans / older builds that didn't clean up properly.
+function sweepOrphanArt(dir, liveIds) {
+  if (!dir) return 0;
+  let removed = 0;
+  try {
+    if (!fs.existsSync(dir)) return 0;
+    const live = liveIds instanceof Set ? liveIds : new Set(liveIds);
+    for (const file of fs.readdirSync(dir)) {
+      // Only consider <number>.jpg — leave anything else untouched.
+      const m = /^(\d+)\.jpg$/i.exec(file);
+      if (!m) continue;
+      const id = Number(m[1]);
+      if (live.has(id)) continue;
+      try {
+        fs.unlinkSync(path.join(dir, file));
+        removed++;
+      } catch (err) {
+        console.warn('[cleanup] Failed to remove', file, err?.message || err);
+      }
+    }
+  } catch (err) {
+    console.warn('[cleanup] Sweep failed for', dir, err?.message || err);
+  }
+  return removed;
+}
+
+function cleanupOrphans(db, config = {}) {
   db.prepare(
     'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
   ).run();
@@ -456,6 +484,20 @@ function cleanupOrphans(db) {
   db.prepare(
     'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
   ).run();
+
+  // Now that the DB reflects reality, delete any cover/profile art file whose
+  // owning row no longer exists. We diff disk against the DB rather than
+  // tracking which rows we just deleted, so this also fixes art left behind
+  // by older scan logic that never cleaned up.
+  const liveAlbumIds = db.prepare('SELECT Id FROM Album').all().map(r => r.Id);
+  const liveArtistIds = db.prepare('SELECT Id FROM Artist').all().map(r => r.Id);
+  const albumArtRemoved = sweepOrphanArt(config.ALBUM_ART_DIR, liveAlbumIds);
+  const artistArtRemoved = sweepOrphanArt(config.ARTIST_ART_DIR, liveArtistIds);
+  if (albumArtRemoved > 0 || artistArtRemoved > 0) {
+    console.log(
+      `[cleanup] Removed ${albumArtRemoved} album art file(s), ${artistArtRemoved} artist art file(s).`
+    );
+  }
 }
 
 // ─── Basic (optimistic) scan ─────────────────────────────────────────────────
@@ -503,13 +545,12 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
       removed++;
     }
   }
-  if (removed > 0) {
-    console.log(`[basic-scan] Removed ${removed} deleted track(s).`);
-    cleanupOrphans(db);
-  }
+  if (removed > 0) console.log(`[basic-scan] Removed ${removed} deleted track(s).`);
+  // Always run — also handles orphan art files left behind by older scans.
+  cleanupOrphans(db, config);
 
   console.log(`[basic-scan] Done. Inserted ${scanned} new track(s), removed ${removed}.`);
-  return scanned;
+  return { scanned, removed };
 }
 
 // ─── Full rescan ──────────────────────────────────────────────────────────────
@@ -572,10 +613,10 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
     }
   }
   if (removed > 0) console.log(`[full-scan] Removed ${removed} stale track(s).`);
-  cleanupOrphans(db);
+  cleanupOrphans(db, config);
 
   console.log(`[full-scan] Done. Processed ${scanned} new/updated track(s).`);
-  return scanned;
+  return { scanned, removed };
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
@@ -592,11 +633,11 @@ process.on('message', async ({ folders, config, mode, librarySettings }) => {
   const supportedFileTypes = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.webm', '.m4a'];
 
   try {
-    const scanned = isFullScan
+    const result = isFullScan
       ? await runFullScan(db, folders, config, supportedFileTypes)
       : await runBasicScan(db, folders, config, supportedFileTypes);
 
-    process.send({ success: true, scanned });
+    process.send({ success: true, scanned: result.scanned, removed: result.removed });
     process.exit(0);
   } catch (error) {
     process.send({ success: false, error: error.message });
