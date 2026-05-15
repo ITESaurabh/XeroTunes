@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron-forge start --",
     "package": "electron-forge package",
-    "rebuild": "@electron/rebuild -f",
+    "rebuildlib": "electron-rebuild -f",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",

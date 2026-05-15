@@ -222,7 +222,7 @@ export default function SearchDialog() {
     if (category.type === 'songs') {
       dispatch({
         type: 'SET_QUEUE',
-        payload: { queue: [result], index: 0 },
+        payload: { queue: [result], index: 0, source: null },
       });
       dispatch({ type: 'SET_CURR_TRACK', payload: result });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });

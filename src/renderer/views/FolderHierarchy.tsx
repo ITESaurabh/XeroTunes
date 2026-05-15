@@ -10,7 +10,7 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material';
-import { useSearchParams } from 'react-router';
+import { useSearchParams, useLocation } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
 import musicNoteIcon from '@iconify/icons-fluent/music-note-2-24-regular';
@@ -165,8 +165,10 @@ const FolderHierarchy: React.FC = () => {
   const { invokeEventToMainProcess, sendEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const currentPath = searchParams.get('path');
+  const bodyRef = React.useRef<HTMLDivElement | null>(null);
 
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => getFolderViewSettings('folderHierarchy').viewMode
@@ -250,11 +252,18 @@ const FolderHierarchy: React.FC = () => {
   const handleSongClick = useCallback(
     (clickedIndex: number) => {
       if (!songs.length) return;
-      dispatch({ type: 'SET_QUEUE', payload: { queue: songs, index: clickedIndex } });
+      dispatch({
+        type: 'SET_QUEUE',
+        payload: {
+          queue: songs,
+          index: clickedIndex,
+          source: location.pathname + location.search,
+        },
+      });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[clickedIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
 
   const handlePlayFolder = useCallback(async () => {
@@ -263,10 +272,26 @@ const FolderHierarchy: React.FC = () => {
       folderPath: currentPath,
     })) as Track[];
     if (!all.length) return;
-    dispatch({ type: 'SET_QUEUE', payload: { queue: all, index: 0 } });
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: all, index: 0, source: location.pathname + location.search },
+    });
     dispatch({ type: 'SET_CURR_TRACK', payload: all[0] });
     dispatch({ type: 'SET_IS_PLAYING', payload: true });
-  }, [currentPath, invokeEventToMainProcess, dispatch]);
+  }, [currentPath, invokeEventToMainProcess, dispatch, location.pathname, location.search]);
+
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !bodyRef.current) return;
+    const id = requestAnimationFrame(() => {
+      const el = bodyRef.current?.querySelector(
+        `[data-track-id="${focusTrackId}"]`
+      ) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusTrackId, focusTs, songs]);
 
   const handleRevealInExplorer = useCallback(() => {
     if (!currentPath) return;
@@ -443,6 +468,7 @@ const FolderHierarchy: React.FC = () => {
 
       {/* Body */}
       <Box
+        ref={bodyRef}
         onScroll={handleBodyScroll}
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', mt: 1, px: { xs: 1, md: 2 } }}
       >
@@ -553,6 +579,7 @@ const FolderHierarchy: React.FC = () => {
                   {songs.map((song, idx) => (
                     <ListItemButton
                       key={String(song.Id ?? idx)}
+                      data-track-id={song.Id ?? ''}
                       onClick={() => handleSongClick(idx)}
                       selected={song.Id === state.track?.Id}
                       sx={{

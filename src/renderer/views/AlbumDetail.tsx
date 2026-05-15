@@ -59,6 +59,7 @@ const AlbumDetail: React.FC = () => {
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { initialScrollOffset, saveScrollPosition } = useScrollRestoration(location.pathname);
+  const listRef = React.useRef<FixedSizeList | null>(null);
 
   const {
     data: songs = [] as AlbumSong[],
@@ -80,12 +81,27 @@ const AlbumDetail: React.FC = () => {
   const handlePlayAll = useCallback(
     (startIndex = 0) => {
       if (!songs.length) return;
-      dispatch({ type: 'SET_QUEUE', payload: { queue: songs, index: startIndex } });
+      dispatch({
+        type: 'SET_QUEUE',
+        payload: {
+          queue: songs,
+          index: startIndex,
+          source: location.pathname + location.search,
+        },
+      });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[startIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
+
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !listRef.current) return;
+    const idx = songs.findIndex(s => s.Id === focusTrackId);
+    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+  }, [focusTrackId, focusTs, songs]);
 
   // Derive album metadata from first song
   const albumTitle = songs[0]?.AlbumTitle ?? 'Unknown Album';
@@ -373,6 +389,7 @@ const AlbumDetail: React.FC = () => {
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList
+                ref={listRef}
                 height={height}
                 width={width}
                 itemCount={songs.length}

@@ -10,7 +10,7 @@ import {
   Typography,
   ListItemButton,
 } from '@mui/material';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import filterIcon from '@iconify/icons-fluent/filter-24-filled';
 import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
@@ -130,6 +130,8 @@ const AllSongs: React.FC = () => {
     [saveScrollPosition, scrollHide]
   );
   const navigate = useNavigate();
+  const location = useLocation();
+  const listRef = React.useRef<FixedSizeList | null>(null);
 
   const {
     data: songs = [] as Track[],
@@ -152,13 +154,26 @@ const AllSongs: React.FC = () => {
     (clickedIndex: number): void => {
       dispatch({
         type: 'SET_QUEUE',
-        payload: { queue: songs, index: clickedIndex },
+        payload: {
+          queue: songs,
+          index: clickedIndex,
+          source: location.pathname + location.search,
+        },
       });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[clickedIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
+
+  // Focus-scroll: when navigated here from PlayBar with a focusTrackId, scroll to it.
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !listRef.current) return;
+    const idx = songs.findIndex(s => s.Id === focusTrackId);
+    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+  }, [focusTrackId, focusTs, songs]);
 
   const Row = React.useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -275,6 +290,7 @@ const AllSongs: React.FC = () => {
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList
+                ref={listRef}
                 height={height}
                 overscanCount={100}
                 itemCount={songs.length}

@@ -229,12 +229,33 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
   const handlePlayAll = useCallback(
     (startIndex = 0) => {
       if (!songs.length) return;
-      dispatch({ type: 'SET_QUEUE', payload: { queue: songs, index: startIndex } });
+      dispatch({
+        type: 'SET_QUEUE',
+        payload: {
+          queue: songs,
+          index: startIndex,
+          source: location.pathname + location.search,
+        },
+      });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[startIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
+
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !scrollRef.current) return;
+    // Wait a tick for the rows to render after data load.
+    const id = requestAnimationFrame(() => {
+      const el = scrollRef.current?.querySelector(
+        `[data-track-id="${focusTrackId}"]`
+      ) as HTMLElement | null;
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [focusTrackId, focusTs, songs, scrollRef]);
 
   const artistStats = React.useMemo(() => {
     const parts: string[] = [];
@@ -574,6 +595,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                       {(albumTracksMap.get(album.Id) || []).map((song, trackIndex) => (
                         <ListItemButton
                           key={song.Id ?? trackIndex}
+                          data-track-id={song.Id ?? ''}
                           selected={song.Id === state.track?.Id}
                           onClick={() => handlePlayAll(songs.findIndex(s => s.Id === song.Id))}
                           sx={{
@@ -638,6 +660,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                     {songs.map((song, index) => (
                       <ListItemButton
                         key={song.Id ?? index}
+                        data-track-id={song.Id ?? ''}
                         selected={song.Id === state.track?.Id}
                         onClick={() => handlePlayAll(index)}
                         sx={{
@@ -702,6 +725,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                     {orphanTracks.map((song, index) => (
                       <ListItemButton
                         key={song.Id ?? index}
+                        data-track-id={song.Id ?? ''}
                         selected={song.Id === state.track?.Id}
                         onClick={() => handlePlayAll(songs.findIndex(s => s.Id === song.Id))}
                         sx={{

@@ -201,8 +201,13 @@ export function setMultiArtistExceptions(exceptions: string[]): void {
   setLibrarySettings({ multiArtistExceptions: exceptions });
 }
 
-export function setQueueState(queue: unknown[], queueIndex: number, track: unknown): void {
-  writeQueueState({ queue, queueIndex, track });
+export function setQueueState(
+  queue: unknown[],
+  queueIndex: number,
+  track: unknown,
+  queueSource?: string | null
+): void {
+  writeQueueState({ queue, queueIndex, track, queueSource: queueSource ?? null });
 }
 
 export function getQueueState(): QueueState | null {

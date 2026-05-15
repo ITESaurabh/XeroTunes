@@ -9,7 +9,7 @@ import {
   ListItemButton,
   useMediaQuery,
 } from '@mui/material';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import PageToolbar from '../components/PageToolbar';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -139,6 +139,8 @@ const RecentlyAdded: React.FC = () => {
   const scrollHide = useScrollHidePlayerBar();
   const { initialScrollOffset, saveScrollPosition } = useScrollRestoration('recently_added');
   const navigate = useNavigate();
+  const location = useLocation();
+  const listRef = React.useRef<FixedSizeList | null>(null);
 
   const handleScroll = React.useCallback(
     (args: { scrollOffset: number }) => {
@@ -178,13 +180,25 @@ const RecentlyAdded: React.FC = () => {
     (clickedIndex: number): void => {
       dispatch({
         type: 'SET_QUEUE',
-        payload: { queue: songs, index: clickedIndex },
+        payload: {
+          queue: songs,
+          index: clickedIndex,
+          source: location.pathname + location.search,
+        },
       });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[clickedIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
+
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !listRef.current) return;
+    const idx = songs.findIndex(s => s.Id === focusTrackId);
+    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+  }, [focusTrackId, focusTs, songs]);
 
   const Row = React.useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -291,6 +305,7 @@ const RecentlyAdded: React.FC = () => {
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList
+                ref={listRef}
                 height={height}
                 overscanCount={100}
                 itemCount={songs.length}

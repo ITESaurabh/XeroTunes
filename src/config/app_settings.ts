@@ -17,6 +17,7 @@ export interface QueueState {
   queue: unknown[];
   queueIndex: number;
   track: unknown;
+  queueSource?: string | null;
 }
 
 export interface ThemeSettings {

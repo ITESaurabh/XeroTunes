@@ -18,10 +18,11 @@ import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Data is considered fresh for 5 minutes → no refetch on re-mount
-      staleTime: 5 * 60 * 1000,
-      // Unused query cache is released after 2 minutes
-      gcTime: 2 * 60 * 1000,
+      // Data stays fresh for 1 min → no refetch on quick re-mount
+      staleTime: 60 * 1000,
+      // Unused query cache is released after 30 s — keeps RAM tight while
+      // still feeling instant for fast back-and-forth navigation.
+      gcTime: 30 * 1000,
     },
   },
 });

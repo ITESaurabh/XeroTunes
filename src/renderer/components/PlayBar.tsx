@@ -1,4 +1,4 @@
-import React, { useContext, useRef, useState, useEffect } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -40,10 +40,13 @@ const { ipcRenderer } = window.require('electron');
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import { parseFile } from 'music-metadata';
-import { Lrc } from 'react-lrc';
-import Marquee from 'react-fast-marquee';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
+import Marquee from './Marquee';
+import PlaybackProgress from './PlaybackProgress';
+import LyricsPanel from './LyricsPanel';
+
+// ── Styled primitives ──────────────────────────────────────────────────────
 
 const CoverImage = styled(Box)(({ theme }) => ({
   width: 140,
@@ -54,13 +57,14 @@ const CoverImage = styled(Box)(({ theme }) => ({
   flexShrink: 0,
   borderRadius: 8,
   backgroundColor: 'rgba(0,0,0,0.08)',
-  '& > img': {
-    width: '100%',
-  },
-  [theme.breakpoints.down('md')]: {
-    width: 90,
-    height: 90,
-  },
+  '& > img': { width: '100%' },
+  [theme.breakpoints.down('md')]: { width: 90, height: 90 },
+}));
+
+const CoverImageInteractive = styled(CoverImage, {
+  shouldForwardProp: prop => prop !== 'hasArt',
+})<{ hasArt: boolean }>(({ hasArt }) => ({
+  cursor: hasArt ? 'zoom-in' : 'default',
 }));
 
 const TinyText = styled(Typography)({
@@ -70,6 +74,183 @@ const TinyText = styled(Typography)({
   letterSpacing: 0.2,
 });
 
+const QueueCounter = styled(TinyText)({
+  display: 'block',
+  marginBottom: 2,
+});
+
+const PlayBarRoot = styled(Box, {
+  shouldForwardProp: prop => prop !== 'isPhone',
+})<{ isPhone: boolean }>(({ isPhone }) => ({
+  paddingLeft: isPhone ? 0 : '1.5rem',
+  paddingRight: isPhone ? 0 : '1.5rem',
+  flex: 1,
+  position: 'relative',
+}));
+
+const PlayerCard = styled(Grid)(({ theme }) => ({
+  backdropFilter: 'blur(80px)',
+  width: '100%',
+  border: 'rgba(0,0,0,0.25) 1px solid',
+  // eslint-disable-next-line @typescript-eslint/naming-convention
+  '-electron-corner-smoothing': '100%',
+  backgroundColor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.4)',
+}));
+
+const LyricsCollapse = styled(Collapse)({
+  width: '100%',
+});
+
+const TrackInfoRow = styled(Box)({
+  display: 'flex',
+  alignItems: 'center',
+  height: '100%',
+});
+
+const TrackTextWrap = styled(Box)(({ theme }) => ({
+  marginLeft: theme.spacing(0.5),
+  minWidth: 0,
+  overflow: 'auto',
+  maxWidth: 'calc(50vw - 200px)',
+  [theme.breakpoints.down('md')]: { maxWidth: 'calc(100vw - 130px)' },
+}));
+
+const TitleText = styled(Typography, {
+  shouldForwardProp: prop => prop !== 'navigable',
+})<{ navigable: boolean }>(({ theme, navigable }) => ({
+  whiteSpace: 'nowrap',
+  fontSize: '1.25rem',
+  lineHeight: 1.5,
+  cursor: navigable ? 'pointer' : 'default',
+  '&:hover': navigable
+    ? { textDecoration: 'underline', color: theme.palette.secondary.main }
+    : undefined,
+}));
+
+const ArtistsText = styled(Typography)({
+  display: 'inline-flex',
+  flexWrap: 'nowrap',
+  gap: 4,
+  whiteSpace: 'nowrap',
+});
+
+const ArtistName = styled(Box)(({ theme }) => ({
+  cursor: 'pointer',
+  '&:hover': {
+    opacity: 0.8,
+    textDecoration: 'underline',
+    color: theme.palette.secondary.main,
+  },
+}));
+
+const AlbumText = styled(Typography)(({ theme }) => ({
+  color: theme.palette.primary.main,
+  cursor: 'pointer',
+  '&:hover': { textDecoration: 'underline' },
+  whiteSpace: 'nowrap',
+}));
+
+const ProgressColumn = styled(Box, {
+  shouldForwardProp: prop => prop !== 'isPhone',
+})<{ isPhone: boolean }>(({ isPhone, theme }) => ({
+  marginInline: theme.spacing(2),
+  marginTop: isPhone ? 0 : theme.spacing(1),
+}));
+
+const TransportRow = styled(Box)({
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '0.625rem',
+});
+
+const ControlButton = styled(IconButton, {
+  shouldForwardProp: prop => prop !== 'isDark',
+})<{ isDark: boolean }>(({ isDark }) => ({
+  backgroundColor: isDark ? 'black' : '#d9d9d9',
+}));
+
+const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
+const PlayPauseIconStyle: React.CSSProperties = { margin: '0.3rem' };
+const AlbumArtImageStyle: React.CSSProperties = { borderRadius: '0.4375rem' };
+const AudioElementStyle: React.CSSProperties = { display: 'none' };
+
+const VolumeStack = styled(Stack, {
+  shouldForwardProp: prop => prop !== 'isPhone',
+})<{ isPhone: boolean }>(({ isPhone, theme }) => ({
+  marginTop: theme.spacing(1),
+  marginBottom: isPhone ? 0 : theme.spacing(1),
+  paddingLeft: theme.spacing(1),
+  paddingRight: theme.spacing(1),
+  width: '60%',
+  marginInline: 'auto',
+}));
+
+const VolumeSlider = styled(Slider)(({ theme }) => ({
+  color: theme.palette.primary.main,
+  height: 4,
+  transition: 'color 0.2s ease-in-out',
+  '& .MuiSlider-track': { border: 'none' },
+  '& .MuiSlider-rail': { opacity: 0.28 },
+  '& .MuiSlider-thumb': {
+    width: 14,
+    height: 14,
+    backgroundColor: theme.palette.text.primary,
+    transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
+    '&:before': { boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)' },
+    '&:hover, &.Mui-focusVisible': {
+      boxShadow: `0px 0px 0px 8px ${
+        theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
+      }`,
+    },
+    '&.Mui-active': { width: 16, height: 16 },
+  },
+}));
+
+const VolumeLabel = styled(Typography)(({ theme }) => ({
+  fontSize: '0.75rem',
+  marginLeft: theme.spacing(2),
+}));
+
+const SideButtonsColumn = styled(Grid)(({ theme }) => ({
+  display: 'flex',
+  [theme.breakpoints.up('md')]: { display: 'grid' },
+}));
+
+const SideButtonsRow = styled(Grid)(({ theme }) => ({
+  flexWrap: 'nowrap',
+  justifyContent: 'flex-end',
+  gap: theme.spacing(0.5),
+  [theme.breakpoints.up('md')]: { gap: 0 },
+}));
+
+const FadedIconButton = styled(IconButton, {
+  shouldForwardProp: prop => prop !== 'active',
+})<{ active: boolean }>(({ active }) => ({
+  opacity: active ? 1 : 0.5,
+}));
+
+const DiscordIconButton = styled(IconButton, {
+  shouldForwardProp: prop => prop !== 'enabled',
+})<{ enabled: boolean }>(({ enabled }) => ({
+  opacity: enabled ? 1 : 0.35,
+}));
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function syltToLrc(synchronisedText: Array<{ text: string; timestamp: number }>): string {
+  return synchronisedText
+    .map(({ text, timestamp }) => {
+      const mins = Math.floor(timestamp / 60000);
+      const secs = Math.floor((timestamp % 60000) / 1000);
+      const centis = Math.floor((timestamp % 1000) / 10);
+      return `[${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}]${text}`;
+    })
+    .join('\n');
+}
+
+// ── Component ──────────────────────────────────────────────────────────────
+
 export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -77,49 +258,21 @@ export default function PlayBar() {
   const isDark = theme.palette.mode === 'dark';
   const { state, dispatch } = useContext(store);
   const defaultVol = getVolumeLevel();
-  const [songPath, setSongPath] = useState(null);
+  const [songPath, setSongPath] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  const fadeIntervalRef = useRef(null);
+  const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const volumeRef = useRef(defaultVol / 100);
   const muteVolumeRef = useRef(false);
-  const [position, setPosition] = useState(0);
+  const didAutoStartRef = useRef(false);
+  const pausedRef = useRef(true);
   const [duration, setDuration] = useState(0);
   const [paused, setPaused] = useState(true);
   const [muteVolume, setMuteVolume] = useState(false);
-  const [isSeeking, setIsSeeking] = useState(false);
   const isPhone = useMediaQuery(({ breakpoints }) => breakpoints.down('md'));
   const [volume, setVolume] = useState(defaultVol);
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
   const [songInfoOpen, setSongInfoOpen] = useState(false);
-
-  const shouldUseMarquee = (text?: string) => {
-    return !!text && text.length > 28;
-  };
-
-  const renderMarquee = (text: string, content: React.ReactNode) => {
-    if (!shouldUseMarquee(text)) return content;
-    return (
-      <Box sx={{ width: '100%', overflow: 'hidden' }}>
-        <Marquee
-          // gradient={true}
-          gradientColor="#2b2b2c"
-          gradientWidth={20}
-          // autoFill={true}
-          pauseOnHover
-          loop={0}
-          speed={35}
-          delay={5}
-          style={{ width: '100%' }}
-        >
-          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-            {content}
-            <Box component="span" sx={{ width: 64, flexShrink: 0 }} />
-          </Box>
-        </Marquee>
-      </Box>
-    );
-  };
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
   const isLyricsExpanded = state.isLyricsExpanded;
@@ -127,17 +280,6 @@ export default function PlayBar() {
   const [lrcContent, setLrcContent] = useState<string | null>(null);
   const [lyricsSource, setLyricsSource] = useState<'LRC file' | 'Embedded' | null>(null);
   const [lyricsType, setLyricsType] = useState<'synced' | 'unsynced' | null>(null);
-
-  function syltToLrc(synchronisedText: Array<{ text: string; timestamp: number }>): string {
-    return synchronisedText
-      .map(({ text, timestamp }) => {
-        const mins = Math.floor(timestamp / 60000);
-        const secs = Math.floor((timestamp % 60000) / 1000);
-        const centis = Math.floor((timestamp % 1000) / 10);
-        return `[${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}]${text}`;
-      })
-      .join('\n');
-  }
 
   useEffect(() => {
     if (!songPath) {
@@ -178,7 +320,6 @@ export default function PlayBar() {
           ...(metadata.native['ID3v2.4'] ?? []),
         ];
 
-        // SYLT — synchronized lyrics
         const sylt = nativeFrames.find(f => f.id === 'SYLT');
         const syltVal = sylt?.value as
           | { synchronisedText?: Array<{ text: string; timestamp: number }> }
@@ -193,28 +334,19 @@ export default function PlayBar() {
           return;
         }
 
-        // USLT — check if already in LRC format (synced) or plain text (unsynced)
         const uslt = nativeFrames.find(f => f.id === 'USLT');
         const usltVal = uslt?.value as { text?: string } | undefined;
         if (usltVal?.text) {
           const text: string = usltVal.text;
-          if (/\[\d{2}:\d{2}[.:]\d{2}/.test(text)) {
-            if (!cancelled) {
-              setLrcContent(text);
-              setLyricsSource('Embedded');
-              setLyricsType('synced');
-            }
-          } else {
-            if (!cancelled) {
-              setLrcContent(text);
-              setLyricsSource('Embedded');
-              setLyricsType('unsynced');
-            }
+          const isSynced = /\[\d{2}:\d{2}[.:]\d{2}/.test(text);
+          if (!cancelled) {
+            setLrcContent(text);
+            setLyricsSource('Embedded');
+            setLyricsType(isSynced ? 'synced' : 'unsynced');
           }
           return;
         }
 
-        // common.lyrics fallback (plain text)
         const commonLyrics = (metadata.common as unknown as Record<string, unknown>).lyrics;
         const lyricText = Array.isArray(commonLyrics)
           ? (commonLyrics as Array<{ text?: string } | string>)
@@ -247,26 +379,27 @@ export default function PlayBar() {
     };
   }, [songPath]);
 
-  const handleLyricsToggle = () => {
+  const handleLyricsToggle = useCallback(() => {
     dispatch({ type: 'SET_LYRICS_EXPANDED', payload: !isLyricsExpanded });
-  };
+  }, [dispatch, isLyricsExpanded]);
 
   useEffect(() => {
     if (isLyricsExpanded) {
       dispatch({ type: 'SET_LYRICS_EXPANDED', payload: false });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
   // ── End Lyrics ───────────────────────────────────────────────────────────
 
-  const handleDiscordToggle = () => {
-    const next = !discordEnabled;
-    setDiscordEnabledState(next);
-    setDiscordEnabled(next);
-    ipcRenderer.send('discord-set-enabled', { enabled: next });
-    if (!next) {
-      ipcRenderer.send('discord-clear');
-    }
-  };
+  const handleDiscordToggle = useCallback(() => {
+    setDiscordEnabledState(prev => {
+      const next = !prev;
+      setDiscordEnabled(next);
+      ipcRenderer.send('discord-set-enabled', { enabled: next });
+      if (!next) ipcRenderer.send('discord-clear');
+      return next;
+    });
+  }, []);
 
   const artistNames = React.useMemo(() => {
     const artistText = (state.track?.ArtistName as string) || '';
@@ -276,55 +409,51 @@ export default function PlayBar() {
       .filter(Boolean);
   }, [state.track?.ArtistName]);
 
-  const handleArtistClick = async (artistName: string) => {
-    if (!artistName) return;
-    try {
-      const result = await ipcRenderer.invoke('find-artist-by-name', { name: artistName });
-      if (result?.id) {
-        navigate(`/main_window/artists/${result.id}`);
+  const handleArtistClick = useCallback(
+    async (artistName: string) => {
+      if (!artistName) return;
+      try {
+        const result = await ipcRenderer.invoke('find-artist-by-name', { name: artistName });
+        if (result?.id) navigate(`/main_window/artists/${result.id}`);
+      } catch {
+        /* ignore lookup failures */
       }
-    } catch {
-      // ignore lookup failures
-    }
-  };
+    },
+    [navigate]
+  );
 
+  const trackUri = state?.track?.Uri as string | undefined;
   useEffect(() => {
-    // Only set songPath and paused if queue is ready and track is valid
-    if (Array.isArray(state?.queue) && state.queue.length > 0 && state?.track && state?.track.Uri) {
-      setSongPath(state.track.Uri);
-      setPaused(false);
+    if (trackUri) {
+      setSongPath(trackUri);
+      if (didAutoStartRef.current) setPaused(false);
+      didAutoStartRef.current = true;
     } else {
       setSongPath(null);
       setPaused(true);
     }
-  }, [state?.track, state?.queue]);
+  }, [trackUri]);
 
   useEffect(() => {
-    // Only interact with audio if queue is ready and track is valid
-    if (audioRef.current && songPath && Array.isArray(state?.queue) && state.queue.length > 0) {
-      // Convert file path to file:// URL for proper audio loading
+    if (audioRef.current && songPath) {
       const fileUrl = `file://${songPath.replace(/\\/g, '/')}`;
-
       audioRef.current.src = fileUrl;
-      audioRef.current.volume = defaultVol / 100;
-      // Play only after loadedmetadata
+      audioRef.current.volume = muteVolumeRef.current ? 0 : volumeRef.current;
       const handleLoadedMetadata = () => {
-        audioRef.current.play().catch(() => undefined);
+        if (pausedRef.current) return;
+        audioRef.current?.play().catch(() => undefined);
       };
       audioRef.current.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
       return () => {
         audioRef.current?.removeEventListener('loadedmetadata', handleLoadedMetadata);
       };
     }
-  }, [songPath, state?.queue]);
+  }, [songPath]);
 
   useEffect(() => {
     if (!songPath) {
-      setPosition(0);
       setDuration(0);
-      if (audioRef.current) {
-        audioRef.current.src = '';
-      }
+      if (audioRef.current) audioRef.current.src = '';
       setPaused(true);
     }
   }, [songPath]);
@@ -332,14 +461,13 @@ export default function PlayBar() {
   useEffect(() => {
     volumeRef.current = volume / 100;
     muteVolumeRef.current = muteVolume;
-    // Only apply volume directly when not in a fade transition
     if (audioRef.current && !fadeIntervalRef.current) {
       audioRef.current.volume = muteVolume ? 0 : volume / 100;
       audioRef.current.muted = muteVolume;
     }
   }, [volume, muteVolume]);
 
-  const handleVolumeChange = (_, value) => {
+  const handleVolumeChange = useCallback((_: Event, value: number | number[]) => {
     const resolved = Array.isArray(value) ? value[0] : value;
     setVolume(resolved);
     setVolumeLevel(resolved);
@@ -349,85 +477,80 @@ export default function PlayBar() {
       setMuteVolume(false);
       setLastVolume(resolved);
     }
-  };
+  }, []);
 
-  const setVolumeValue = (nextValue: number) => {
-    const clamped = Math.max(0, Math.min(100, nextValue));
-    setVolume(clamped);
-    setVolumeLevel(clamped);
-    if (clamped === 0) {
-      setMuteVolume(true);
-    } else {
-      setMuteVolume(false);
-      setLastVolume(clamped);
-    }
-  };
-
-  const handleVolumeWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+  const handleVolumeWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
     event.preventDefault();
-    const delta = event.deltaY < 0 ? 1 : -1; // wheel up -> increase, down -> decrease
-    setVolumeValue(volume + delta);
-  };
+    const delta = event.deltaY < 0 ? 1 : -1;
+    setVolume(prev => {
+      const next = Math.max(0, Math.min(100, prev + delta));
+      setVolumeLevel(next);
+      if (next === 0) {
+        setMuteVolume(true);
+      } else {
+        setMuteVolume(false);
+        setLastVolume(next);
+      }
+      return next;
+    });
+  }, []);
 
-  const handleMuteClick = () => {
-    if (muteVolume) {
-      setMuteVolume(false);
-      setVolume(lastVolume > 0 ? lastVolume : 30);
-      setVolumeLevel(lastVolume > 0 ? lastVolume : 30);
-    } else {
-      setMuteVolume(true);
-    }
-  };
+  const handleMuteClick = useCallback(() => {
+    setMuteVolume(prev => {
+      if (prev) {
+        const restore = lastVolume > 0 ? lastVolume : 30;
+        setVolume(restore);
+        setVolumeLevel(restore);
+        return false;
+      }
+      return true;
+    });
+  }, [lastVolume]);
+
+  // Subscribe to loadedmetadata for duration only — position lives in PlaybackProgress / LyricsPanel
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+  }, []);
 
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const handleTimeUpdate = () => {
-      if (!isSeeking) setPosition(audio.currentTime);
-    };
-    const handleLoadedMetadata = () => setDuration(audio.duration);
-    audio.addEventListener('timeupdate', handleTimeUpdate);
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate);
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-    };
-  }, [audioRef, isSeeking, state?.track]);
-
-  useEffect(() => {
-    if (audioRef.current) {
-      audioRef.current.onended = () => {
-        setPosition(0);
-        if (state.queue && state.queue.length > 0) {
-          if (state.repeatMode === 'one') {
-            // Repeat the current track
-            audioRef.current.currentTime = 0;
-            audioRef.current.play().catch(() => undefined);
-          } else if (state.queueIndex < state.queue.length - 1) {
-            dispatch({ type: 'NEXT_TRACK' });
-          } else if (state.repeatMode === 'all') {
-            dispatch({ type: 'NEXT_TRACK' });
-          } else {
-            setPaused(true);
-          }
+    audio.onended = () => {
+      if (state.queue && state.queue.length > 0) {
+        if (state.repeatMode === 'one') {
+          audio.currentTime = 0;
+          audio.play().catch(() => undefined);
+        } else if (state.queueIndex < state.queue.length - 1) {
+          dispatch({ type: 'NEXT_TRACK' });
+        } else if (state.repeatMode === 'all') {
+          dispatch({ type: 'NEXT_TRACK' });
+        } else {
+          setPaused(true);
         }
-      };
-    }
+      }
+    };
   }, [state.queue, state.queueIndex, state.repeatMode, dispatch]);
 
-  // Sync audio element play/pause with smooth fade in/out
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
+
+  // Sync audio play/pause with smooth fade
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !songPath) return;
 
-    // Cancel any running fade first
     if (fadeIntervalRef.current) {
       clearInterval(fadeIntervalRef.current);
       fadeIntervalRef.current = null;
     }
 
     const FADE_STEPS = 25;
-    const FADE_INTERVAL_MS = 20; // 25 steps × 20ms = 500ms total
+    const FADE_INTERVAL_MS = 20;
 
     if (paused) {
       const startVol = audio.volume;
@@ -436,10 +559,9 @@ export default function PlayBar() {
         step++;
         audio.volume = Math.max(0, startVol * (1 - step / FADE_STEPS));
         if (step >= FADE_STEPS) {
-          clearInterval(fadeIntervalRef.current);
+          if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
           fadeIntervalRef.current = null;
           audio.pause();
-          // Restore to user volume so next play fades from correct target
           audio.volume = muteVolumeRef.current ? 0 : volumeRef.current;
         }
       }, FADE_INTERVAL_MS);
@@ -453,14 +575,13 @@ export default function PlayBar() {
         audio.volume = Math.min(targetVol, targetVol * (step / FADE_STEPS));
         if (step >= FADE_STEPS) {
           audio.volume = targetVol;
-          clearInterval(fadeIntervalRef.current);
+          if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
           fadeIntervalRef.current = null;
         }
       }, FADE_INTERVAL_MS);
     }
   }, [paused, songPath]);
 
-  // Build album art src from the DB path (avoids reading the raw file into memory)
   const albumArtSrc = state.track?.AlbumArt
     ? `file:///${(state.track.AlbumArt as string).replace(/\\/g, '/')}`
     : DEFAULT_AA;
@@ -478,30 +599,51 @@ export default function PlayBar() {
       queueTotal: state.queue.length,
       status: 'new-track',
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id]);
 
-  // ── Track play count / last-played tracking (≥70% listened) ────────────
+  // ── Track play count / last-played + OS seek bar — coalesced 1Hz tick ──
   const playedCountedRef = useRef(false);
-  // Reset the flag whenever the track changes
   useEffect(() => {
     playedCountedRef.current = false;
   }, [state.track?.Id]);
-  // Fire once when position crosses 70% of duration
-  useEffect(() => {
-    if (!state.track?.Id) return;
-    if (playedCountedRef.current) return;
-    if (!duration || duration <= 0) return;
-    if (position / duration >= 0.7) {
-      playedCountedRef.current = true;
-      ipcRenderer.send('track-played', { trackId: state.track.Id });
-    }
-  }, [position, duration, state.track?.Id]);
 
-  // ── Play / Pause overlay ─────────────────────────────────────────────────
+  useEffect(() => {
+    const trackId = state.track?.Id;
+    if (paused || !trackId || !duration || duration <= 0) return;
+
+    const tick = () => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      const pos = audio.currentTime;
+
+      if ('mediaSession' in navigator) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration,
+            playbackRate: audio.playbackRate || 1,
+            position: pos,
+          });
+        } catch {
+          /* noop */
+        }
+      }
+
+      if (!playedCountedRef.current && pos / duration >= 0.7) {
+        playedCountedRef.current = true;
+        ipcRenderer.send('track-played', { trackId });
+      }
+    };
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [paused, duration, state.track?.Id]);
+
+  // ── Play/Pause overlay notify ──────────────────────────────────────────
   const prevPausedRef = useRef<boolean | null>(null);
   useEffect(() => {
     if (!state.track?.Id) return;
-    // Skip the very first render to avoid a spurious 'playing' flash on mount
     if (prevPausedRef.current === null) {
       prevPausedRef.current = paused;
       return;
@@ -518,10 +660,10 @@ export default function PlayBar() {
       queueTotal: state.queue.length,
       status: paused ? 'paused' : 'playing',
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
 
   // --- Media Session API ---
-  // Update OS metadata (Now Playing, lock screen, taskbar) when track changes
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
@@ -539,7 +681,7 @@ export default function PlayBar() {
           });
           artwork = [{ src: base64 }];
         } catch {
-          // artwork stays empty if loading fails
+          /* artwork stays empty */
         }
       }
       navigator.mediaSession.metadata = new MediaMetadata({
@@ -553,49 +695,24 @@ export default function PlayBar() {
     updateMediaSession();
   }, [state.track]);
 
-  // Sync OS playback state with local paused state
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     navigator.mediaSession.playbackState = paused ? 'paused' : 'playing';
   }, [paused]);
 
-  // Keep OS seek bar in sync with audio position
-  useEffect(() => {
-    if (!('mediaSession' in navigator) || !duration) return;
-    try {
-      navigator.mediaSession.setPositionState({
-        duration,
-        playbackRate: audioRef.current?.playbackRate || 1,
-        position: position,
-      });
-    } catch {
-      /* noop */
-    }
-  }, [position, duration]);
-
-  // Register OS media key / hardware button action handlers
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
 
-    navigator.mediaSession.setActionHandler('play', () => {
-      setPaused(false);
-    });
-    navigator.mediaSession.setActionHandler('pause', () => {
-      setPaused(true);
-    });
-    navigator.mediaSession.setActionHandler('stop', () => {
-      setPaused(true);
-    });
-    navigator.mediaSession.setActionHandler('nexttrack', () => {
-      dispatch({ type: 'NEXT_TRACK' });
-    });
-    navigator.mediaSession.setActionHandler('previoustrack', () => {
-      dispatch({ type: 'PREV_TRACK' });
-    });
+    navigator.mediaSession.setActionHandler('play', () => setPaused(false));
+    navigator.mediaSession.setActionHandler('pause', () => setPaused(true));
+    navigator.mediaSession.setActionHandler('stop', () => setPaused(true));
+    navigator.mediaSession.setActionHandler('nexttrack', () => dispatch({ type: 'NEXT_TRACK' }));
+    navigator.mediaSession.setActionHandler('previoustrack', () =>
+      dispatch({ type: 'PREV_TRACK' })
+    );
     navigator.mediaSession.setActionHandler('seekto', details => {
       if (audioRef.current && details.seekTime !== undefined) {
         audioRef.current.currentTime = details.seekTime;
-        setPosition(details.seekTime);
       }
     });
     navigator.mediaSession.setActionHandler('seekforward', details => {
@@ -635,40 +752,48 @@ export default function PlayBar() {
   // --- End Media Session API ---
 
   // ── Discord Rich Presence sync ───────────────────────────────────────
-  // Bootstrap enabled state into main process on mount
   useEffect(() => {
     ipcRenderer.send('discord-set-enabled', { enabled: discordEnabled });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sendDiscordUpdate = (pos: number) => {
-    if (!discordEnabled) return;
-    if (!state.track?.Id) {
-      ipcRenderer.send('discord-clear');
-      return;
-    }
-    ipcRenderer.send('discord-update', {
-      title: (state.track.Title as string) || 'Unknown Track',
-      artist: (state.track.ArtistName as string) || '',
-      album: (state.track.AlbumTitle as string) || '',
-      isPlaying: !paused,
-      position: pos,
-      duration,
-    });
-  };
+  const sendDiscordUpdate = useCallback(
+    (pos: number) => {
+      if (!discordEnabled) return;
+      if (!state.track?.Id) {
+        ipcRenderer.send('discord-clear');
+        return;
+      }
+      ipcRenderer.send('discord-update', {
+        title: (state.track.Title as string) || 'Unknown Track',
+        artist: (state.track.ArtistName as string) || '',
+        album: (state.track.AlbumTitle as string) || '',
+        isPlaying: !paused,
+        position: pos,
+        duration,
+      });
+    },
+    [discordEnabled, state.track, paused, duration]
+  );
 
-  // Update presence on track change, play/pause toggle, or enable/disable
+  // Ref-stable callback for memoized children that need to call sendDiscordUpdate
+  const sendDiscordUpdateRef = useRef(sendDiscordUpdate);
+  sendDiscordUpdateRef.current = sendDiscordUpdate;
+  const handleSeekCommit = useCallback((pos: number) => {
+    sendDiscordUpdateRef.current(pos);
+  }, []);
+
   useEffect(() => {
-    sendDiscordUpdate(position);
+    sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id, paused, discordEnabled]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
 
   // ── Thumbnail toolbar sync ──────────────────────────────────────────
-  // Notify main process whenever play/pause changes so it can flip the icon
   useEffect(() => {
     ipcRenderer.send('thumbar-update', { isPlaying: !paused });
   }, [paused]);
 
-  // Listen for button clicks from the Windows thumbnail toolbar
   useEffect(() => {
     const onToggle = () => setPaused(prev => !prev);
     const onNext = () => dispatch({ type: 'NEXT_TRACK' });
@@ -685,53 +810,37 @@ export default function PlayBar() {
   }, [dispatch]);
   // ── End Thumbnail toolbar sync ───────────────────────────────────────
 
-  const handleShuffle = () => {
+  const handleShuffle = useCallback(() => {
     dispatch({ type: 'SET_SHUFFLE', payload: !state.isShuffle });
-  };
-  const handleRepeat = () => {
+  }, [dispatch, state.isShuffle]);
+
+  const handleRepeat = useCallback(() => {
     const modes: RepeatMode[] = ['off', 'all', 'one'];
     const currentIndex = modes.indexOf(state.repeatMode);
     const nextMode = modes[(currentIndex + 1) % modes.length];
     dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode });
-  };
+  }, [dispatch, state.repeatMode]);
 
-  function formatDuration(value) {
-    const minute = Math.floor(value / 60);
-    const secondLeft = Math.floor(value - minute * 60);
-    return `${minute}:${secondLeft < 10 ? `0${secondLeft}` : secondLeft}`;
-  }
-  const mainIconColor = theme.palette.mode === 'dark' ? '#fff' : '#000';
-  // Long press logic for skip buttons
+  const mainIconColor = isDark ? '#fff' : '#000';
+
+  // ── Long-press skip buttons ───────────────────────────────────────────
   const longPressTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-  const handlePrevPress = () => {
-    dispatch({ type: 'PREV_TRACK' });
-  };
-  const handleNextPress = () => {
-    dispatch({ type: 'NEXT_TRACK' });
-  };
-  const handlePrevLongPress = () => {
-    handlePrevLongPressAction();
-    longPressInterval.current = setInterval(handlePrevLongPressAction, 500);
-  };
-  const handleNextLongPress = () => {
-    handleNextLongPressAction();
-    longPressInterval.current = setInterval(handleNextLongPressAction, 500);
-  };
-  const handlePrevLongPressAction = () => {
+  const longPressFiredRef = useRef(false);
+
+  const handlePrevLongPressAction = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
-      setIsSeeking(false);
     }
-  };
-  const handleNextLongPressAction = () => {
+  }, []);
+
+  const handleNextLongPressAction = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 15);
-      setIsSeeking(false);
     }
-  };
+  }, [duration]);
 
-  const clearLongPress = (callback?: () => void) => {
+  const clearLongPress = useCallback((callback?: () => void) => {
     if (longPressTimeout.current) {
       clearTimeout(longPressTimeout.current);
       longPressTimeout.current = null;
@@ -741,438 +850,257 @@ export default function PlayBar() {
       longPressInterval.current = null;
     }
     if (callback) callback();
-  };
+  }, []);
 
-  const prevButtonEvents = {
-    onMouseDown: () => {
-      longPressTimeout.current = setTimeout(handlePrevLongPress, 500);
+  const consumeClick = useCallback(
+    (clickAction: () => void) => () => {
+      const fired = longPressFiredRef.current;
+      longPressFiredRef.current = false;
+      clearLongPress(fired ? undefined : clickAction);
     },
-    onMouseUp: () => {
-      clearLongPress(handlePrevPress);
-    },
-    onMouseLeave: () => {
-      clearLongPress();
-    },
-    onTouchStart: () => {
-      longPressTimeout.current = setTimeout(handlePrevLongPress, 500);
-    },
-    onTouchEnd: () => {
-      clearLongPress(handlePrevPress);
-    },
-  };
-  const nextButtonEvents = {
-    onMouseDown: () => {
-      longPressTimeout.current = setTimeout(handleNextLongPress, 500);
-    },
-    onMouseUp: () => {
-      clearLongPress(handleNextPress);
-    },
-    onMouseLeave: () => {
-      clearLongPress();
-    },
-    onTouchStart: () => {
-      longPressTimeout.current = setTimeout(handleNextLongPress, 500);
-    },
-    onTouchEnd: () => {
-      clearLongPress(handleNextPress);
-    },
-  };
-
-  if (!state?.track) {
-    return null;
-  }
-
-  // ── Unsynced lyrics: split into displayable lines
-  const unsyncedLines = lyricsType === 'unsynced' && lrcContent ? lrcContent.split('\n') : [];
-
-  const lyricsPanel = (
-    <Box
-      sx={{
-        bottom: '100%',
-        width: '100%',
-        height: 'calc(100vh - 250px)',
-        borderRadius: '0.5rem 0.5rem 0 0',
-        overflow: 'hidden',
-        display: 'flex',
-        flexDirection: 'column',
-      }}
-    >
-      {/* Source label — top right */}
-      {lyricsSource && (
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 10,
-            right: 14,
-            zIndex: 1,
-            backgroundColor:
-              theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)',
-            borderRadius: '6px',
-            px: 1.2,
-            py: 0.3,
-            pointerEvents: 'none',
-          }}
-        >
-          <Typography sx={{ fontSize: '0.7rem', opacity: 0.55, letterSpacing: 0.3 }}>
-            Source: {lyricsSource}
-          </Typography>
-        </Box>
-      )}
-
-      {/* ── SYNCED lyrics ────────────────────────────────────────── */}
-      {lyricsType === 'synced' && lrcContent && (
-        <Lrc
-          lrc={lrcContent}
-          currentMillisecond={position * 1000}
-          verticalSpace
-          style={{ flex: 1, overflow: 'hidden auto', paddingBottom: '60px', width: '100%' }}
-          lineRenderer={({ active, line }) => (
-            <Box
-              key={line.id}
-              onClick={() => {
-                if (audioRef.current) {
-                  audioRef.current.currentTime = line.startMillisecond / 1000;
-                  setPosition(line.startMillisecond / 1000);
-                }
-              }}
-              sx={{
-                textAlign: 'center',
-                py: '5px',
-                px: 3,
-                cursor: 'pointer',
-                userSelect: 'none',
-                fontSize: active ? '1.35rem' : '1rem',
-                fontWeight: active ? 700 : 400,
-                lineHeight: active ? 1.6 : 1.5,
-                color: active
-                  ? theme.palette.text.primary
-                  : theme.palette.mode === 'dark'
-                    ? 'rgba(255,255,255,0.28)'
-                    : 'rgba(0,0,0,0.28)',
-                transform: active ? 'scale(1.03)' : 'scale(1)',
-                transition: 'all 0.22s ease',
-                '&:hover': {
-                  color:
-                    theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-                },
-              }}
-            >
-              {line.content || '\u00A0'}
-            </Box>
-          )}
-        />
-      )}
-
-      {/* ── UNSYNCED lyrics ──────────────────────────────────────── */}
-      {lyricsType === 'unsynced' && (
-        <Box sx={{ flex: 1, overflow: 'hidden auto', px: 4, pt: 3, pb: '60px' }}>
-          {unsyncedLines.map((line, i) => (
-            <Typography
-              key={i}
-              sx={{
-                fontSize: '1rem',
-                lineHeight: 1.85,
-                color: theme.palette.text.primary,
-                opacity: line.trim() === '' ? 0 : 0.82,
-                minHeight: line.trim() === '' ? '0.8rem' : undefined,
-              }}
-            >
-              {line || '\u00A0'}
-            </Typography>
-          ))}
-        </Box>
-      )}
-
-      {/* ── No lyrics ────────────────────────────────────────────── */}
-      {!lrcContent && (
-        <Box
-          sx={{
-            flex: 1,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 1,
-            opacity: 0.35,
-          }}
-        >
-          <Typography variant="body1" fontWeight={500}>
-            No lyrics found
-          </Typography>
-          <Typography variant="caption">Try adding a .lrc file next to the track</Typography>
-        </Box>
-      )}
-    </Box>
+    [clearLongPress]
   );
 
+  const handlePrevPress = useCallback(() => {
+    dispatch({ type: 'PREV_TRACK' });
+  }, [dispatch]);
+
+  const handleNextPress = useCallback(() => {
+    dispatch({ type: 'NEXT_TRACK' });
+  }, [dispatch]);
+
+  const startPrevLongPress = useCallback(() => {
+    longPressFiredRef.current = true;
+    handlePrevLongPressAction();
+    longPressInterval.current = setInterval(handlePrevLongPressAction, 500);
+  }, [handlePrevLongPressAction]);
+
+  const startNextLongPress = useCallback(() => {
+    longPressFiredRef.current = true;
+    handleNextLongPressAction();
+    longPressInterval.current = setInterval(handleNextLongPressAction, 500);
+  }, [handleNextLongPressAction]);
+
+  const prevButtonEvents = React.useMemo(
+    () => ({
+      onMouseDown: () => {
+        longPressFiredRef.current = false;
+        longPressTimeout.current = setTimeout(startPrevLongPress, 500);
+      },
+      onMouseUp: consumeClick(handlePrevPress),
+      onMouseLeave: () => {
+        longPressFiredRef.current = false;
+        clearLongPress();
+      },
+      onTouchStart: () => {
+        longPressFiredRef.current = false;
+        longPressTimeout.current = setTimeout(startPrevLongPress, 500);
+      },
+      onTouchEnd: consumeClick(handlePrevPress),
+    }),
+    [startPrevLongPress, consumeClick, handlePrevPress, clearLongPress]
+  );
+
+  const nextButtonEvents = React.useMemo(
+    () => ({
+      onMouseDown: () => {
+        longPressFiredRef.current = false;
+        longPressTimeout.current = setTimeout(startNextLongPress, 500);
+      },
+      onMouseUp: consumeClick(handleNextPress),
+      onMouseLeave: () => {
+        longPressFiredRef.current = false;
+        clearLongPress();
+      },
+      onTouchStart: () => {
+        longPressFiredRef.current = false;
+        longPressTimeout.current = setTimeout(startNextLongPress, 500);
+      },
+      onTouchEnd: consumeClick(handleNextPress),
+    }),
+    [startNextLongPress, consumeClick, handleNextPress, clearLongPress]
+  );
+
+  // ── Stable handlers for memoized subtrees ─────────────────────────────
+  const handleCoverClick = useCallback(() => {
+    if (state.track?.AlbumArt) setPreviewOpen(true);
+  }, [state.track?.AlbumArt]);
+
+  const handleClosePreview = useCallback(() => setPreviewOpen(false), []);
+
+  const handleTitleClick = useCallback(() => {
+    if (!state.queueSource) return;
+    navigate(state.queueSource, {
+      state: { focusTrackId: state.track?.Id, _ts: Date.now() },
+    });
+  }, [navigate, state.queueSource, state.track?.Id]);
+
+  const handleAlbumClick = useCallback(() => {
+    const navPath =
+      state.track?.AlbumId != null ? `/main_window/albums/${state.track.AlbumId}` : null;
+    if (navPath) navigate(navPath);
+  }, [navigate, state.track?.AlbumId]);
+
+  const handleOpenSongInfo = useCallback(() => setSongInfoOpen(true), []);
+  const handleCloseSongInfo = useCallback(() => setSongInfoOpen(false), []);
+  const handleHidePlayBar = useCallback(
+    () => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false }),
+    [dispatch]
+  );
+  const togglePlay = useCallback(() => setPaused(prev => !prev), []);
+
+  if (!state?.track) return null;
+
+  const trackTitle = (state.track.Title as string) || '';
+  const trackArtist = (state.track.ArtistName as string) || '';
+  const trackAlbum = (state.track.AlbumTitle as string) || 'Unknown Album';
+  const navigable = !!state.queueSource;
+
   return (
-    <Box sx={{ px: isPhone ? 0 : '1.5rem', flex: 1, position: 'relative' }}>
-      {/* ── Player controls card ────────────────────────────────────── */}
-      <Grid
-        container
-        sx={{
-          backdropFilter: 'blur(80px)',
-          width: '100%',
-          border: 'rgba(0,0,0,0.25) 1px solid',
-          '-electron-corner-smoothing': '100%',
-          backgroundColor:
-            theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.4)',
-        }}
-        elevation={3}
-        component={Card}
-      >
-        <Collapse
-          in={isLyricsExpanded}
-          sx={{
-            width: '100%',
-          }}
-        >
-          {lyricsPanel}
-        </Collapse>
+    <PlayBarRoot isPhone={isPhone}>
+      <PlayerCard container elevation={3} component={Card}>
+        <LyricsCollapse in={isLyricsExpanded} mountOnEnter unmountOnExit>
+          <LyricsPanel
+            audioRef={audioRef}
+            lrcContent={lrcContent}
+            lyricsType={lyricsType}
+            lyricsSource={lyricsSource}
+          />
+        </LyricsCollapse>
+
         <Grid xs={12} md={5} lg={6}>
-          <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
-            <CoverImage
-              onClick={() => {
-                if (state.track?.AlbumArt) setPreviewOpen(true);
-              }}
-              sx={{ cursor: state.track?.AlbumArt ? 'zoom-in' : 'default' }}
-            >
+          <TrackInfoRow>
+            <CoverImageInteractive hasArt={!!state.track.AlbumArt} onClick={handleCoverClick}>
               <Image
                 src={albumArtSrc}
                 className="no-select no-drag"
                 showLoading
-                style={{ borderRadius: '0.4375rem' }}
+                style={AlbumArtImageStyle}
                 fit="contain"
               />
-            </CoverImage>
+            </CoverImageInteractive>
             <ImagePreviewDialog
               open={previewOpen}
-              onClose={() => setPreviewOpen(false)}
-              imageSrc={state.track?.AlbumArt ? albumArtSrc : null}
-              imageAlt={state.track?.Title as string}
+              onClose={handleClosePreview}
+              imageSrc={state.track.AlbumArt ? albumArtSrc : null}
+              imageAlt={trackTitle}
             />
-            <Box
-              sx={{
-                ml: 0.5,
-                minWidth: 0,
-                overflow: 'auto',
-                maxWidth: {
-                  xs: 'calc(100vw - 130px)',
-                  md: 'calc(50vw - 200px)',
-                },
-              }}
-            >
-              {renderMarquee(
-                state?.track?.Title as string,
-                <Typography
+            <TrackTextWrap>
+              {state.queue.length > 0 && (
+                <QueueCounter>
+                  {state.queueIndex + 1} / {state.queue.length}
+                </QueueCounter>
+              )}
+              <Marquee text={trackTitle}>
+                <TitleText
                   variant="h6"
                   component="h6"
-                  title={state?.track?.Title as string}
+                  navigable={navigable}
+                  title={navigable ? `${trackTitle} — click to reveal in source` : trackTitle}
                   className="no-select no-drag"
-                  sx={{ whiteSpace: 'nowrap' }}
+                  onClick={handleTitleClick}
                 >
-                  <b>{state?.track?.Title as string}</b>
-                </Typography>
-              )}
-              {renderMarquee(
-                (state.track?.ArtistName as string) || '',
-                <Typography
+                  <b>{trackTitle}</b>
+                </TitleText>
+              </Marquee>
+              <Marquee text={trackArtist}>
+                <ArtistsText
                   variant="body1"
                   color="text.secondary"
                   fontWeight={500}
                   lineHeight={1}
-                  title={(state.track?.ArtistName as string) || ''}
+                  title={trackArtist}
                   className="no-select no-drag"
-                  sx={{
-                    display: 'inline-flex',
-                    flexWrap: 'nowrap',
-                    gap: 0.5,
-                    whiteSpace: 'nowrap',
-                  }}
                 >
                   {artistNames.length > 0
                     ? artistNames.map((name, index) => (
                         <React.Fragment key={`${name}-${index}`}>
-                          <Box
-                            component="span"
-                            onClick={() => handleArtistClick(name)}
-                            sx={{
-                              cursor: 'pointer',
-                              '&:hover': {
-                                opacity: 0.8,
-                                textDecoration: 'underline',
-                                color: theme.palette.secondary.main,
-                              },
-                            }}
-                          >
+                          <ArtistName component="span" onClick={() => handleArtistClick(name)}>
                             {name}
-                          </Box>
+                          </ArtistName>
                           {index < artistNames.length - 1 && <Box component="span">•</Box>}
                         </React.Fragment>
                       ))
                     : 'Unknown Artist'}
-                </Typography>
-              )}
-              {renderMarquee(
-                (state.track?.AlbumTitle as string) || 'Unknown Album',
-                <Typography
+                </ArtistsText>
+              </Marquee>
+              <Marquee text={trackAlbum}>
+                <AlbumText
                   className="no-select no-drag"
-                  sx={{
-                    color: theme.palette.primary.main,
-                    cursor: 'pointer',
-                    '&:hover': { textDecoration: 'underline' },
-                    whiteSpace: 'nowrap',
-                  }}
-                  onClick={() => {
-                    const navPath =
-                      state.track?.AlbumId != null
-                        ? `/main_window/albums/${state.track.AlbumId}`
-                        : null;
-                    if (navPath) navigate(navPath);
-                  }}
-                  title={(state.track?.AlbumTitle as string) || ''}
+                  fontWeight={400}
+                  onClick={handleAlbumClick}
+                  title={trackAlbum}
                 >
-                  {(state.track?.AlbumTitle as string) || 'Unknown Album'}
-                </Typography>
-              )}
-            </Box>
-          </Box>
+                  {trackAlbum}
+                </AlbumText>
+              </Marquee>
+            </TrackTextWrap>
+          </TrackInfoRow>
         </Grid>
+
         <Grid justifyContent="center" alignContent="center" xs={12} md={5}>
-          <Box marginInline={2} mt={isPhone ? 0 : 1}>
-            <Slider
-              aria-label="time-indicator"
-              size="small"
-              value={position}
-              min={0}
-              step={1}
-              max={duration}
-              onChange={(_, value) => setPosition(Array.isArray(value) ? value[0] : value)}
-              onChangeCommitted={(_, value) => {
-                const seekPos = Array.isArray(value) ? value[0] : value;
-                if (audioRef.current) audioRef.current.currentTime = seekPos;
-                setIsSeeking(false);
-                sendDiscordUpdate(seekPos);
-              }}
-              onMouseDown={() => setIsSeeking(true)}
-              onMouseUp={() => setIsSeeking(false)}
-              onTouchStart={() => setIsSeeking(true)}
-              onTouchEnd={() => setIsSeeking(false)}
-              sx={{
-                color: theme.palette.primary.main,
-                '& .MuiSlider-track': {
-                  border: 'none',
-                },
-                height: 4,
-                '& .MuiSlider-thumb': {
-                  width: 20,
-                  height: 20,
-                  backgroundColor: theme.palette.text.primary,
-                  transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
-                  '&:before': {
-                    boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
-                  },
-                  '&:hover, &.Mui-focusVisible': {
-                    boxShadow: `0px 0px 0px 8px ${
-                      theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
-                    }`,
-                  },
-                  '&.Mui-active': {
-                    width: 20,
-                    height: 20,
-                  },
-                },
-                '& .MuiSlider-rail': {
-                  opacity: 0.28,
-                },
-              }}
+          <ProgressColumn isPhone={isPhone}>
+            <PlaybackProgress
+              audioRef={audioRef}
+              duration={duration}
+              trackId={state.track.Id as string | number | null}
+              onSeekCommit={handleSeekCommit}
             />
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                mt: -2,
-              }}
-            >
-              <TinyText>{formatDuration(position)}</TinyText>
-              <TinyText>-{formatDuration(duration - position)}</TinyText>
-            </Box>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '0.625rem',
-              }}
-            >
-              <IconButton
+            <TransportRow>
+              <ControlButton
+                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="previous song"
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
                 {...prevButtonEvents}
               >
                 <Icon
                   icon={fastForward32Filled}
                   width={25}
-                  style={{
-                    margin: '0.2rem',
-                  }}
+                  style={TransportIconStyle}
                   flip="horizontal"
                   color={mainIconColor}
                 />
-              </IconButton>
-              <IconButton
+              </ControlButton>
+              <ControlButton
+                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label={paused ? 'play' : 'pause'}
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
-                onClick={() => setPaused(!paused)}
+                onClick={togglePlay}
               >
                 {paused ? (
                   <Icon
                     icon={play32Filled}
                     width={35}
-                    style={{
-                      margin: '0.3rem',
-                    }}
+                    style={PlayPauseIconStyle}
                     color={mainIconColor}
                   />
                 ) : (
                   <Icon
                     icon={pause32Filled}
-                    style={{
-                      margin: '0.3rem',
-                    }}
+                    style={PlayPauseIconStyle}
                     width={35}
                     color={mainIconColor}
                   />
                 )}
-              </IconButton>
-              <IconButton
+              </ControlButton>
+              <ControlButton
+                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="next song"
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
                 {...nextButtonEvents}
               >
                 <Icon
                   icon={fastForward32Filled}
-                  style={{
-                    margin: '0.2rem',
-                  }}
+                  style={TransportIconStyle}
                   width={25}
                   color={mainIconColor}
                 />
-              </IconButton>
-            </Box>
-            <Stack
-              spacing={2}
-              direction="row"
-              sx={{ mt: 1, mb: isPhone ? 0 : 1, px: 1, width: '60%', marginInline: 'auto' }}
-              alignItems="center"
-            >
+              </ControlButton>
+            </TransportRow>
+            <VolumeStack spacing={2} direction="row" alignItems="center" isPhone={isPhone}>
               <IconButton size="small" onClick={handleMuteClick}>
                 {volume === 0 || muteVolume ? (
                   <Icon icon={speakerMute32Filled} width={20} />
@@ -1182,80 +1110,32 @@ export default function PlayBar() {
                   <Icon icon={speaker232Regular} width={20} />
                 )}
               </IconButton>
-              <Slider
+              <VolumeSlider
                 onWheel={handleVolumeWheel}
                 aria-label="Volume"
                 value={muteVolume ? 0 : volume}
                 min={0}
                 max={100}
                 onChange={handleVolumeChange}
-                sx={{
-                  color: theme.palette.primary.main,
-                  '& .MuiSlider-track': {
-                    border: 'none',
-                  },
-                  transition: 'color 0.2s ease-in-out',
-                  height: 4,
-                  '& .MuiSlider-thumb': {
-                    width: 14,
-                    height: 14,
-                    backgroundColor: theme.palette.text.primary,
-                    transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
-                    '&:before': {
-                      boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
-                    },
-                    '&:hover, &.Mui-focusVisible': {
-                      boxShadow: `0px 0px 0px 8px ${
-                        theme.palette.mode === 'dark'
-                          ? 'rgb(255 255 255 / 16%)'
-                          : 'rgb(0 0 0 / 16%)'
-                      }`,
-                    },
-                    '&.Mui-active': {
-                      width: 16,
-                      height: 16,
-                    },
-                  },
-                  '& .MuiSlider-rail': {
-                    opacity: 0.28,
-                  },
-                }}
               />
-              <Typography
-                fontSize={'0.75rem'}
-                ml={2}
-                className="no-select no-drag"
-              >{`${volume}%`}</Typography>
-            </Stack>
-          </Box>
+              <VolumeLabel className="no-select no-drag">{`${volume}%`}</VolumeLabel>
+            </VolumeStack>
+          </ProgressColumn>
         </Grid>
-        <Grid
+
+        <SideButtonsColumn
           xs={12}
           md={2}
           lg={1}
-          sx={{
-            display: {
-              xs: 'flex',
-              md: 'grid',
-            },
-          }}
           alignContent="center"
           justifyContent="center"
           pr={0.5}
         >
-          <Grid
-            container
-            flexWrap={'nowrap'}
-            justifyContent={'end'}
-            gap={{
-              xs: 0.5,
-              md: 0,
-            }}
-          >
+          <SideButtonsRow container>
             <Grid xs={6}>
-              <IconButton
+              <FadedIconButton
                 onClick={handleShuffle}
-                sx={{ opacity: state.isShuffle ? 1 : 0.5 }}
+                active={state.isShuffle}
                 title={state.isShuffle ? 'Shuffle: On' : 'Shuffle: Off'}
                 aria-label="shuffle"
               >
@@ -1264,12 +1144,12 @@ export default function PlayBar() {
                 ) : (
                   <Icon icon={shuffleInactive24Filled} width={22} />
                 )}
-              </IconButton>
+              </FadedIconButton>
             </Grid>
             <Grid xs={6}>
-              <IconButton
+              <FadedIconButton
                 onClick={handleRepeat}
-                sx={{ opacity: state.repeatMode !== 'off' ? 1 : 0.5 }}
+                active={state.repeatMode !== 'off'}
                 title={
                   state.repeatMode === 'off'
                     ? 'Repeat: Off'
@@ -1286,35 +1166,27 @@ export default function PlayBar() {
                 ) : (
                   <Icon icon={repeatOne24Filled} width={22} />
                 )}
-              </IconButton>
+              </FadedIconButton>
             </Grid>
-          </Grid>
-          <Grid
-            container
-            flexWrap={'nowrap'}
-            justifyContent={'end'}
-            gap={{
-              xs: 0.5,
-              md: 0,
-            }}
-          >
+          </SideButtonsRow>
+          <SideButtonsRow container>
             <Grid xs={6}>
-              <IconButton
+              <DiscordIconButton
                 onClick={handleDiscordToggle}
                 aria-label="discord presence"
                 title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
-                sx={{ opacity: discordEnabled ? 1 : 0.35 }}
+                enabled={discordEnabled}
               >
                 <DiscordIcon viewBox="0 0 70 60" width={22} height={22} />
-              </IconButton>
+              </DiscordIconButton>
             </Grid>
             <Grid xs={6}>
-              <IconButton
+              <FadedIconButton
                 onClick={handleLyricsToggle}
                 aria-label="lyrics"
                 disabled={!lrcContent}
+                active={!!lrcContent}
                 title={isLyricsExpanded ? 'Close Lyrics' : 'Show Lyrics'}
-                sx={{ opacity: lrcContent ? 1 : 0.5 }}
               >
                 {isLyricsExpanded ? (
                   <LyricNoteActiveIcon
@@ -1331,21 +1203,13 @@ export default function PlayBar() {
                     height={22}
                   />
                 )}
-              </IconButton>
+              </FadedIconButton>
             </Grid>
-          </Grid>
-          <Grid
-            container
-            flexWrap={'nowrap'}
-            justifyContent={'end'}
-            gap={{
-              xs: 0.5,
-              md: 0,
-            }}
-          >
+          </SideButtonsRow>
+          <SideButtonsRow container>
             <Grid xs={6}>
               <IconButton
-                onClick={() => setSongInfoOpen(true)}
+                onClick={handleOpenSongInfo}
                 aria-label="song info"
                 title="Song info / tags"
                 disabled={!state.track}
@@ -1355,23 +1219,23 @@ export default function PlayBar() {
             </Grid>
             <Grid xs={6}>
               <IconButton
-                onClick={() => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false })}
+                onClick={handleHidePlayBar}
                 aria-label="hide player bar"
                 title="Hide player bar"
               >
                 <Icon icon={arrowCircleDown24Filled} width={22} />
               </IconButton>
             </Grid>
-          </Grid>
-        </Grid>
-      </Grid>
+          </SideButtonsRow>
+        </SideButtonsColumn>
+      </PlayerCard>
       <SongInfoDialog
         open={songInfoOpen}
-        onClose={() => setSongInfoOpen(false)}
+        onClose={handleCloseSongInfo}
         track={state.track}
         songPath={songPath}
       />
-      <audio ref={audioRef} style={{ display: 'none' }} />
-    </Box>
+      <audio ref={audioRef} style={AudioElementStyle} />
+    </PlayBarRoot>
   );
 }
