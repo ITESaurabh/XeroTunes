@@ -1,7 +1,7 @@
 {
   "name": "xero-music-player",
   "productName": "Xero Music Player",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "An open source cross platform music player application.",
   "main": ".webpack/main",
   "private": true,

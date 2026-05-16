@@ -9,6 +9,7 @@ import {
   LibrarySettings,
   ViewSettings,
   FolderViewSettings,
+  TitleBarStyle,
   clampWindowScale,
 } from '../../config/app_settings';
 
@@ -249,6 +250,19 @@ export function setWindowScale(scale: number): number {
     .invoke('set-window-scale', { scale: safe })
     .catch((err: unknown) => console.warn('Failed to apply window scale:', err));
   return safe;
+}
+
+export function getTitleBarStyle(): TitleBarStyle {
+  return getSettings().theme.titleBarStyle;
+}
+
+export function setTitleBarStyle(style: TitleBarStyle): TitleBarStyle {
+  const next = setThemeSettings({ titleBarStyle: style });
+  const showNative = style === 'mac' || style === 'default';
+  ipcRenderer
+    .invoke('set-traffic-light-visibility', { visible: showNative })
+    .catch((err: unknown) => console.warn('Failed to set traffic light visibility:', err));
+  return next.titleBarStyle;
 }
 
 export function getViewSettings(): ViewSettings {

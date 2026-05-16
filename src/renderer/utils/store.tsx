@@ -7,8 +7,10 @@ import {
   getPlaybackRepeatMode,
   setPlaybackShuffle,
   setPlaybackRepeatMode,
+  getTitleBarStyle,
+  setTitleBarStyle,
 } from './LocStoreUtil';
-import { ThemeMode } from 'src/config/app_settings';
+import { ThemeMode, TitleBarStyle } from 'src/config/app_settings';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -104,10 +106,12 @@ export interface AppState {
   scanProgress: ScanProgress | null;
   libraryStats: LibraryStats | null;
   queueSource: string | null;
+  titleBarStyle: TitleBarStyle;
 }
 
 export type AppAction =
   | { type: 'SET_THEME_MODE'; payload: ThemeMode }
+  | { type: 'SET_TITLEBAR_STYLE'; payload: TitleBarStyle }
   | { type: 'SET_IS_MAXIMIZED'; payload: boolean }
   | { type: 'SET_SEARCH_ENABLED'; payload: boolean }
   | { type: 'SET_MENU_EXPANDED'; payload: boolean }
@@ -138,9 +142,11 @@ const initialState: AppState = (() => {
   const saved = getQueueState();
   let savedShuffle = false;
   let savedRepeat: RepeatMode = 'off';
+  let savedTitleBarStyle: TitleBarStyle = 'default';
   try {
     savedShuffle = getPlaybackShuffle();
     savedRepeat = getPlaybackRepeatMode();
+    savedTitleBarStyle = getTitleBarStyle();
   } catch {
     /* settings unavailable — fall back to defaults */
   }
@@ -166,6 +172,7 @@ const initialState: AppState = (() => {
     scanProgress: null,
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
+    titleBarStyle: savedTitleBarStyle,
   };
 })();
 
@@ -186,6 +193,10 @@ function reducer(state: AppState, action: AppAction): AppState {
             ? false
             : !window.matchMedia('(prefers-color-scheme: dark)').matches;
       return { ...state, isLightTheme };
+    }
+    case 'SET_TITLEBAR_STYLE': {
+      setTitleBarStyle(action.payload);
+      return { ...state, titleBarStyle: action.payload };
     }
     case 'SET_IS_MAXIMIZED': {
       return { ...state, isMaximized: action.payload };

@@ -19,6 +19,9 @@ import {
   Select,
   MenuItem,
   styled,
+  Chip,
+  Tooltip,
+  useTheme,
 } from '@mui/material';
 import { Icon } from '@iconify/react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -28,6 +31,16 @@ import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
 import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import zoomIcon from '@iconify/icons-fluent/zoom-in-24-regular';
+import checkmarkCircleIcon from '@iconify/icons-fluent/checkmark-circle-16-filled';
+import windowHeaderIcon from '@iconify/icons-fluent/window-header-vertical-20-regular';
+import minimizeIcon from '@iconify/icons-fluent/minimize-16-regular';
+import maximizeIcon from '@iconify/icons-fluent/maximize-16-regular';
+import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
+import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
+import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
+import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
+import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
+import GnomeResizeIcon from 'svg-react-loader?name=GnomeResizeIcon!../../assets/icons/gnome-resize.svg';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
 import { motion } from 'motion/react';
@@ -38,8 +51,11 @@ import {
   setArtistImageFetchingEnabled,
   getWindowScale,
   setWindowScale,
+  getTitleBarStyle,
 } from '../utils/LocStoreUtil';
-import { WINDOW_SCALE_OPTIONS } from '../../config/app_settings';
+import { WINDOW_SCALE_OPTIONS, TitleBarStyle } from '../../config/app_settings';
+import { OS_MAC } from '../../config/constants';
+import os from 'os';
 
 interface MusicFolder {
   Id: string | number;
@@ -94,6 +110,369 @@ const IOSSwitch = styled<any>(props => (
   },
 }));
 
+interface TitlebarStyleOption {
+  value: TitleBarStyle;
+  label: string;
+  description: string;
+  macOnly?: boolean;
+}
+
+const TITLEBAR_STYLE_OPTIONS: TitlebarStyleOption[] = [
+  {
+    value: 'default',
+    label: 'System Default',
+    description: 'Automatically picks style based on OS',
+  },
+  {
+    value: 'mac',
+    label: 'macOS',
+    description: 'Native macOS traffic lights',
+    macOnly: true,
+  },
+  {
+    value: 'mac-fake',
+    label: 'macOS (fake)',
+    description: 'macOS-style traffic lights on any OS',
+  },
+  {
+    value: 'windows',
+    label: 'Windows',
+    description: 'Windows-style minimize / maximize / close',
+  },
+  {
+    value: 'linux-gnome',
+    label: 'GNOME',
+    description: 'GNOME Adwaita style window controls',
+  },
+  {
+    value: 'linux-kde',
+    label: 'KDE Plasma',
+    description: 'KDE Breeze style window controls',
+  },
+];
+
+interface TitlebarPreviewProps {
+  style: TitleBarStyle;
+  isDark: boolean;
+}
+
+const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
+  const bg = isDark ? '#201e23' : '#f4f1f9';
+  const iconColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)';
+
+  const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
+    borderRadius: '50%',
+    width: size,
+    height: size,
+    bgcolor: bgColor,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'filter 0.1s',
+    cursor: 'default',
+    '&:hover': { filter: hoverFilter },
+  });
+
+  const flatBtnSx = (hoverBg: string) => ({
+    width: 30,
+    height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    cursor: 'default',
+    transition: 'background-color 0.1s ease-in-out',
+    '&:hover': { bgcolor: hoverBg },
+  });
+
+  switch (style) {
+    case 'mac':
+    case 'mac-fake':
+      return (
+        <Box
+          sx={{
+            height: 28,
+            bgcolor: bg,
+            display: 'flex',
+            alignItems: 'center',
+            pl: '10px',
+            gap: '5px',
+          }}
+        >
+          <Box sx={circleSx('#ff5f56', 'brightness(0.85)')}>
+            <Icon icon={closeIcon} height={7} color="rgba(0,0,0,0.4)" />
+          </Box>
+          <Box sx={circleSx('#ffbd2e', 'brightness(0.85)')}>
+            <Icon icon={minimizeIcon} height={7} color="rgba(0,0,0,0.4)" />
+          </Box>
+          <Box sx={circleSx('#27c93f', 'brightness(0.85)')} />
+        </Box>
+      );
+
+    case 'windows':
+      return (
+        <Box sx={{ height: 28, bgcolor: bg, display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={flatBtnSx(isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')}>
+            <Icon icon={minimizeIcon} height={10} color={iconColor} />
+          </Box>
+          <Box sx={flatBtnSx(isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')}>
+            <Icon icon={maximizeIcon} height={10} color={iconColor} />
+          </Box>
+          <Box sx={flatBtnSx('error.main')}>
+            <Icon icon={closeIcon} height={10} color={iconColor} />
+          </Box>
+        </Box>
+      );
+
+    case 'linux-gnome':
+      return (
+        <Box
+          sx={{
+            height: 28,
+            bgcolor: bg,
+            display: 'flex',
+            alignItems: 'center',
+            pl: '10px',
+            gap: '5px',
+          }}
+        >
+          <Box sx={{ flex: 1 }} />
+          <Box sx={circleSx('#38383C', 'brightness(1.4)', 13)}>
+            <GnomeMinimizeIcon
+              width={15}
+              height={10}
+              viewBox="0 0 16 16"
+              style={{ filter: 'brightness(0) invert(1)' }}
+            />
+          </Box>
+          <Box sx={circleSx('#38383C', 'brightness(1.4)', 13)}>
+            <GnomeResizeIcon
+              width={8}
+              height={8}
+              viewBox="0 0 16 16"
+              style={{ filter: 'brightness(0) invert(1)' }}
+            />
+          </Box>
+          <Box sx={circleSx('#38383C', 'brightness(1.25)', 13)} mr={1}>
+            <GnomeCloseIcon
+              width={12}
+              height={10}
+              viewBox="0 0 15 16"
+              style={{ filter: 'brightness(0) invert(1)' }}
+            />
+          </Box>
+        </Box>
+      );
+
+    case 'linux-kde':
+      return (
+        <Box sx={{ height: 28, bgcolor: bg, display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '2px', pr: '8px' }}>
+            {([chevronDownIcon, chevronUpIcon, closeIcon] as const).map((icon, i) => (
+              <Box
+                key={i}
+                sx={{
+                  width: 22,
+                  height: 16,
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                  cursor: 'default',
+                  transition: 'background-color 0.1s ease-in-out',
+                  '&:hover':
+                    i === 2
+                      ? { bgcolor: 'error.main' }
+                      : { bgcolor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' },
+                }}
+              >
+                <Icon icon={icon} height={9} color={iconColor} />
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      );
+
+    case 'default':
+    default:
+      return (
+        <Box sx={{ height: 28, bgcolor: bg, display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', pl: '8px', gap: '4px', opacity: 0.4 }}>
+            {(['#ff5f56', '#ffbd2e', '#27c93f'] as const).map((c, i) => (
+              <Box key={i} sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c }} />
+            ))}
+          </Box>
+          <Box sx={{ flex: 1 }} />
+          <Box sx={{ display: 'flex', alignItems: 'center', opacity: 0.4 }}>
+            {([minimizeIcon, maximizeIcon] as const).map((icon, i) => (
+              <Box
+                key={i}
+                sx={{
+                  width: 26,
+                  height: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Icon icon={icon} height={9} color={iconColor} />
+              </Box>
+            ))}
+            <Box
+              sx={{
+                width: 26,
+                height: 28,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: 'rgba(196,43,28,0.55)',
+              }}
+            >
+              <Icon icon={closeIcon} height={9} color="white" />
+            </Box>
+          </Box>
+        </Box>
+      );
+  }
+};
+
+interface TitlebarStyleCardProps {
+  option: TitlebarStyleOption;
+  selected: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  isDark: boolean;
+}
+
+const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
+  option,
+  selected,
+  disabled,
+  onClick,
+  isDark,
+}) => {
+  const card = (
+    <Box
+      onClick={disabled ? undefined : onClick}
+      sx={{
+        borderRadius: 1,
+        border: '2px solid',
+        borderColor: selected
+          ? 'primary.main'
+          : isDark
+            ? 'rgba(255,255,255,0.08)'
+            : 'rgba(0,0,0,0.1)',
+        overflow: 'hidden',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.38 : 1,
+        transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
+        position: 'relative',
+        userSelect: 'none',
+        '&:hover': disabled
+          ? {}
+          : {
+              borderColor: selected ? 'primary.main' : 'primary.light',
+              boxShadow: theme => `0 0 0 1px ${theme.palette.primary.light}22`,
+            },
+      }}
+    >
+      {/* Titlebar preview */}
+      <Box sx={{ height: 28, overflow: 'hidden' }}>
+        <TitlebarPreview style={option.value} isDark={isDark} />
+      </Box>
+
+      {/* Fake window content area */}
+      <Box
+        sx={{
+          height: 18,
+          bgcolor: isDark ? '#2a2730' : '#f0ecf7',
+          display: 'flex',
+          alignItems: 'center',
+          px: 1,
+          gap: 0.5,
+        }}
+      >
+        <Box
+          sx={{
+            flex: 1,
+            height: 3,
+            borderRadius: 1,
+            bgcolor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+          }}
+        />
+        <Box
+          sx={{
+            width: '30%',
+            height: 3,
+            borderRadius: 1,
+            bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+          }}
+        />
+      </Box>
+
+      {/* Label row */}
+      <Box
+        sx={{
+          px: 1,
+          pt: 0.75,
+          pb: 0.75,
+          bgcolor: 'background.paper',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          flexWrap: 'wrap',
+        }}
+      >
+        <Typography variant="caption" fontWeight={selected ? 600 : 400} fontSize="0.7rem" noWrap>
+          {option.label}
+        </Typography>
+        {option.macOnly && (
+          <Chip
+            label="macOS"
+            size="small"
+            color="secondary"
+            variant="outlined"
+            sx={{
+              height: 14,
+              fontSize: '0.55rem',
+              '& .MuiChip-label': { px: 0.6, py: 0 },
+            }}
+          />
+        )}
+      </Box>
+
+      {/* Selected checkmark */}
+      {selected && (
+        <Box
+          sx={{
+            position: 'absolute',
+            top: 4,
+            right: 4,
+            color: 'primary.main',
+            lineHeight: 0,
+          }}
+        >
+          <Icon icon={checkmarkCircleIcon} height={16} />
+        </Box>
+      )}
+    </Box>
+  );
+
+  if (disabled) {
+    return (
+      <Tooltip title="Only available on macOS" placement="top" arrow>
+        <span style={{ display: 'block' }}>{card}</span>
+      </Tooltip>
+    );
+  }
+
+  return card;
+};
+
 const Settings: React.FC = () => {
   const [expanded, setExpanded] = React.useState<boolean>(false);
   const [folders, setFolders] = React.useState<MusicFolder[]>([]);
@@ -102,9 +481,13 @@ const Settings: React.FC = () => {
     getArtistImageFetchingEnabled()
   );
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
+  const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
   const { invokeEventToMainProcess } = useIpc();
   const { state, dispatch } = useContext(store);
   const { isScanningLibrary } = state;
+  const theme = useTheme();
+  const isDark = theme.palette.mode === 'dark';
+  const currOs = os.type();
 
   React.useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false });
@@ -294,6 +677,67 @@ const Settings: React.FC = () => {
               </Accordion>
             </ListItem>
           </List>
+
+          {/* ── Appearance ── */}
+          <List
+            subheader={
+              <ListSubheader
+                color="inherit"
+                sx={{
+                  bgcolor: theme =>
+                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
+                }}
+              >
+                Appearance
+              </ListSubheader>
+            }
+          >
+            <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, width: '100%' }}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <Icon icon={windowHeaderIcon} width="1.5rem" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Title Bar Style"
+                  secondary="Choose how the window controls are displayed"
+                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                />
+              </Box>
+
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: 1.5,
+                  width: '100%',
+                }}
+              >
+                {TITLEBAR_STYLE_OPTIONS.map(option => {
+                  const isDisabled = !!option.macOnly && currOs !== OS_MAC;
+                  return (
+                    <TitlebarStyleCard
+                      key={option.value}
+                      option={option}
+                      selected={titleBarStyle === option.value}
+                      disabled={isDisabled}
+                      isDark={isDark}
+                      onClick={() => {
+                        setTitleBarStyleState(option.value);
+                        dispatch({ type: 'SET_TITLEBAR_STYLE', payload: option.value });
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+
+              {titleBarStyle !== 'default' && titleBarStyle !== state.titleBarStyle && (
+                <Typography variant="caption" color="text.secondary" sx={{ mt: 1 }}>
+                  Applied - changes take effect immediately.
+                </Typography>
+              )}
+            </ListItem>
+          </List>
+
           <List
             subheader={
               <ListSubheader
@@ -407,13 +851,6 @@ const Settings: React.FC = () => {
           >
             <ListItem component={Stack} direction="row" spacing={2}>
               <Button
-                // startIcon={
-                //   isScanningLibrary ? (
-                //     <CircularProgress size={16} color="inherit" />
-                //   ) : (
-                //     <Icon icon={syncIcon} height={'1.5rem'} />
-                //   )
-                // }
                 variant="outlined"
                 color="primary"
                 fullWidth

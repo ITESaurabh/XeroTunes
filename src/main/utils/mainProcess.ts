@@ -129,6 +129,20 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
   });
 
+  // On macOS, sync traffic light visibility with the saved titleBarStyle
+  if (process.platform === 'darwin') {
+    mainWin.webContents.once('did-finish-load', () => {
+      try {
+        const settings = readSettingsFile();
+        const style = settings.theme?.titleBarStyle ?? 'default';
+        const showNative = style === 'mac' || style === 'default';
+        mainWin.setWindowButtonVisibility(showNative);
+      } catch {
+        /* ignore */
+      }
+    });
+  }
+
   ipcMain.on('now-playing-notify', (_, data) => {
     // Don't show the overlay when the main window is in focus
     if (mainWin.isFocused()) return;
@@ -217,6 +231,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     const current = readSettingsFile();
     writeSettingsFile({ ...current, windowScale: safe });
     return { success: true, scale: safe };
+  });
+  ipcMain.handle('set-traffic-light-visibility', (_e, { visible }: { visible: boolean }) => {
+    if (process.platform === 'darwin' && mainWin && !mainWin.isDestroyed()) {
+      mainWin.setWindowButtonVisibility(visible);
+    }
   });
   ipcMain.on('show-dialog', (e, payload) => {
     const { title } = payload;
