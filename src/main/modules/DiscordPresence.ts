@@ -57,7 +57,7 @@ async function connect() {
 
   rpcClient.on('ready', () => {
     clearReconnectTimer();
-    if (currentActivity) {
+    if (currentActivity?.isPlaying) {
       applyActivity(currentActivity);
     }
   });
@@ -134,6 +134,12 @@ export function setPresenceEnabled(enabled: boolean): void {
 export function updatePresence(data: NowPlayingData): void {
   if (!presenceEnabled) return;
   currentActivity = data;
+  if (!data.isPlaying) {
+    if (rpcClient?.isConnected && rpcClient.user) {
+      rpcClient.user.clearActivity().catch(() => undefined);
+    }
+    return;
+  }
   if (rpcClient?.isConnected) {
     applyActivity(data);
   } else {

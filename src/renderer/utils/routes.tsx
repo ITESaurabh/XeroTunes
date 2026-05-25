@@ -13,6 +13,10 @@ const Settings = lazy(() => import('../views/Settings'));
 const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
 const Folders = lazy(() => import('../views/Folders'));
 const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
+const Genres = lazy(() => import('../views/Genres'));
+const GenreDetail = lazy(() => import('../views/GenreDetail'));
+const Years = lazy(() => import('../views/Years'));
+const YearDetail = lazy(() => import('../views/YearDetail'));
 
 const BigLoader = () => {
   return (
@@ -126,7 +130,15 @@ const routes = [
         path: 'genres',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Genres />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'genres/:genreId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <GenreDetail />
           </React.Suspense>
         ),
       },
@@ -134,7 +146,15 @@ const routes = [
         path: 'years',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Years />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'years/:year',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <YearDetail />
           </React.Suspense>
         ),
       },

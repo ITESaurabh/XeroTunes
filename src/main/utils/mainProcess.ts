@@ -948,6 +948,104 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return rows.map(row => ({ ...row, AlbumCoverUri: coverUri }));
   });
 
+  // ── Genres ──────────────────────────────────────────────────────────────────
+  ipcMain.handle('get-all-genres', () => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Genre.Id,
+        Genre.Name,
+        COUNT(DISTINCT Track.Id) AS SongCount,
+        COUNT(DISTINCT Track.AlbumId) AS AlbumCount
+      FROM Genre
+      LEFT JOIN Track ON Track.GenreId = Genre.Id
+      GROUP BY Genre.Id
+      HAVING COUNT(Track.Id) > 0
+      ORDER BY Genre.Name COLLATE NOCASE
+    `
+      )
+      .all();
+  });
+
+  ipcMain.handle('get-genre-songs', (_e, { genreId }: { genreId: number | string }) => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        Track.AlbumId,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Genre.Name AS GenreName
+      FROM Track
+      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE Track.GenreId = ?
+      GROUP BY Track.Id
+      ORDER BY Track.Title COLLATE NOCASE
+    `
+      )
+      .all(genreId);
+  });
+
+  // ── Years ───────────────────────────────────────────────────────────────────
+  ipcMain.handle('get-all-years', () => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Year AS Year,
+        COUNT(DISTINCT Track.Id) AS SongCount,
+        COUNT(DISTINCT Track.AlbumId) AS AlbumCount
+      FROM Track
+      WHERE Track.Year IS NOT NULL AND Track.Year != ''
+      GROUP BY Track.Year
+      ORDER BY CAST(Track.Year AS INTEGER) DESC
+    `
+      )
+      .all();
+  });
+
+  ipcMain.handle('get-year-songs', (_e, { year }: { year: string | number }) => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        Track.AlbumId,
+        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        Album.Title AS AlbumTitle,
+        Genre.Name AS GenreName
+      FROM Track
+      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
+      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE Track.Year = ?
+      GROUP BY Track.Id
+      ORDER BY Album.Title COLLATE NOCASE, CAST(Track.TrackNumber AS INTEGER), Track.Title COLLATE NOCASE
+    `
+      )
+      .all(String(year));
+  });
+
   ipcMain.handle('get-all-artists', () => {
     const rows = db
       .prepare(

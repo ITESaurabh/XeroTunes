@@ -66,6 +66,8 @@ const App = () => {
         QUERY_KEYS.FOLDERS_WITH_SONGS,
         QUERY_KEYS.FOLDER_CHILDREN,
         QUERY_KEYS.FOLDER_SONGS,
+        QUERY_KEYS.ALL_GENRES,
+        QUERY_KEYS.ALL_YEARS,
       ];
       listKeys.forEach(key => {
         queryClient.invalidateQueries({ queryKey: [key], refetchType: 'active' });

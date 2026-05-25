@@ -235,6 +235,15 @@ export default function SearchDialog() {
     } else if (category.type === 'albumArtists') {
       const id = result.Id ?? result.id;
       navigate(id != null ? `/main_window/album-artists/${id}` : category.href);
+    } else if (category.type === 'genres') {
+      const id = result.Id ?? result.id;
+      navigate(id != null ? `/main_window/genres/${id}` : category.href);
+    } else if (category.type === 'years') {
+      const yearVal = (result.Title ?? result.title ?? result.Name ?? result.name) as
+        | string
+        | number
+        | undefined;
+      navigate(yearVal != null ? `/main_window/years/${encodeURIComponent(String(yearVal))}` : category.href);
     } else {
       navigate(category.href);
     }

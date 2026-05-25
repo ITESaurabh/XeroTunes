@@ -263,7 +263,9 @@ export default function PlayBar() {
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const volumeRef = useRef(defaultVol / 100);
   const muteVolumeRef = useRef(false);
-  const didAutoStartRef = useRef(false);
+  // true when no restored track on mount → first user-initiated play should autoplay.
+  // false when a track is already in state (restored from localStorage) → don't blast music on restart.
+  const didAutoStartRef = useRef(!state?.track);
   const pausedRef = useRef(true);
   const [duration, setDuration] = useState(0);
   const [paused, setPaused] = useState(true);
@@ -507,14 +509,16 @@ export default function PlayBar() {
     });
   }, [lastVolume]);
 
-  // Subscribe to loadedmetadata for duration only — position lives in PlaybackProgress / LyricsPanel
+  // Subscribe to loadedmetadata for duration only — position lives in PlaybackProgress / LyricsPanel.
+  // Depends on songPath so it re-runs when the audio element first receives a src (on first run
+  // PlayBar renders null until the first track is set, so audioRef.current is null at mount).
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
     const handleLoadedMetadata = () => setDuration(audio.duration);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
-  }, []);
+  }, [songPath]);
 
   useEffect(() => {
     const audio = audioRef.current;
