@@ -175,6 +175,14 @@ export function setPlaybackRepeatMode(repeatMode: PlaybackRepeatMode): void {
   updateSettings({ playback: { ...getPlaybackSettings(), repeatMode } });
 }
 
+export function getPauseOnAudioOutputChange(): boolean {
+  return getPlaybackSettings().pauseOnAudioOutputChange;
+}
+
+export function setPauseOnAudioOutputChange(enabled: boolean): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), pauseOnAudioOutputChange: enabled } });
+}
+
 export function getLibrarySettings(): LibrarySettings {
   return getSettings().library;
 }

@@ -28,6 +28,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PageToolbar from '../components/PageToolbar';
 import foldersIcon from '@iconify/icons-fluent/folder-24-regular';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
+import headphonesIcon from '@iconify/icons-fluent/headphones-20-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
 import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import zoomIcon from '@iconify/icons-fluent/zoom-in-24-regular';
@@ -52,6 +53,8 @@ import {
   getWindowScale,
   setWindowScale,
   getTitleBarStyle,
+  getPauseOnAudioOutputChange,
+  setPauseOnAudioOutputChange,
 } from '../utils/LocStoreUtil';
 import { WINDOW_SCALE_OPTIONS, TitleBarStyle } from '../../config/app_settings';
 import { OS_MAC } from '../../config/constants';
@@ -480,6 +483,9 @@ const Settings: React.FC = () => {
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
     getArtistImageFetchingEnabled()
   );
+  const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
+    getPauseOnAudioOutputChange()
+  );
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
   const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
   const { invokeEventToMainProcess } = useIpc();
@@ -780,6 +786,40 @@ const Settings: React.FC = () => {
                   </MenuItem>
                 ))}
               </Select>
+            </ListItem>
+          </List>
+          <List
+            subheader={
+              <ListSubheader
+                color="inherit"
+                sx={{
+                  bgcolor: theme =>
+                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
+                }}
+              >
+                Playback
+              </ListSubheader>
+            }
+          >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={headphonesIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="switch-list-label-pause-on-output-change"
+                primary="Pause on audio output change"
+                secondary="Automatically pause when headphones are unplugged or a Bluetooth device disconnects"
+              />
+              <IOSSwitch
+                checked={pauseOnOutputChange}
+                onChange={e => {
+                  setPauseOnOutputChangeState(e.target.checked);
+                  setPauseOnAudioOutputChange(e.target.checked);
+                }}
+                sx={{
+                  mr: 0.5,
+                }}
+              />
             </ListItem>
           </List>
           <List

@@ -15,6 +15,7 @@ import {
   getOverlayEnabled,
   getDiscordEnabled,
   setDiscordEnabled,
+  getPauseOnAudioOutputChange,
 } from '../utils/LocStoreUtil';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
@@ -542,6 +543,60 @@ export default function PlayBar() {
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+
+  // Auto-pause when the active audio output device disappears (e.g. headphones
+  // unplugged, Bluetooth disconnected). Without this the <audio> element would
+  // silently re-route to the system default output and keep blasting music.
+  useEffect(() => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+
+    let cancelled = false;
+    const knownOutputIds = new Set<string>();
+
+    const snapshotOutputs = async (): Promise<Set<string>> => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return new Set(
+          devices.filter(d => d.kind === 'audiooutput' && d.deviceId).map(d => d.deviceId)
+        );
+      } catch {
+        return new Set();
+      }
+    };
+
+    // Prime the set so the first devicechange has something to compare against.
+    void snapshotOutputs().then(ids => {
+      if (cancelled) return;
+      ids.forEach(id => knownOutputIds.add(id));
+    });
+
+    const handleDeviceChange = async (): Promise<void> => {
+      if (!getPauseOnAudioOutputChange()) {
+        // Setting may have toggled off — refresh the snapshot anyway so toggling
+        // back on later doesn't trigger on stale removals.
+        const current = await snapshotOutputs();
+        knownOutputIds.clear();
+        current.forEach(id => knownOutputIds.add(id));
+        return;
+      }
+
+      const current = await snapshotOutputs();
+      const removed = [...knownOutputIds].some(id => !current.has(id));
+
+      knownOutputIds.clear();
+      current.forEach(id => knownOutputIds.add(id));
+
+      if (removed && !pausedRef.current) {
+        setPaused(true);
+      }
+    };
+
+    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+    };
+  }, []);
 
   // Sync audio play/pause with smooth fade
   useEffect(() => {

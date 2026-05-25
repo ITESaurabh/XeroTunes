@@ -30,6 +30,7 @@ export interface PlaybackSettings {
   volumeLevel: number;
   shuffle: boolean;
   repeatMode: PlaybackRepeatMode;
+  pauseOnAudioOutputChange: boolean;
 }
 
 export interface LibrarySettings {
@@ -82,6 +83,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     volumeLevel: 30,
     shuffle: false,
     repeatMode: 'off',
+    pauseOnAudioOutputChange: true,
   },
   library: {
     multiArtistSeparators: [',', '&'],
