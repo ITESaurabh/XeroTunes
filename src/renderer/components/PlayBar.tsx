@@ -1,4 +1,4 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
@@ -261,6 +261,9 @@ export default function PlayBar() {
   const defaultVol = getVolumeLevel();
   const [songPath, setSongPath] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  // Hidden silent loop — keeps MediaSession active across track changes
+  // so SMTC doesn't drop the OS-level entry. See silentSrc below.
+  const silentAudioRef = useRef<HTMLAudioElement>(null);
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const volumeRef = useRef(defaultVol / 100);
   const muteVolumeRef = useRef(false);
@@ -268,6 +271,8 @@ export default function PlayBar() {
   // false when a track is already in state (restored from localStorage) → don't blast music on restart.
   const didAutoStartRef = useRef(!state?.track);
   const pausedRef = useRef(true);
+  // Discards stale artwork loads when the user skips past the track.
+  const metadataReqRef = useRef(0);
   const [duration, setDuration] = useState(0);
   const [paused, setPaused] = useState(true);
   const [muteVolume, setMuteVolume] = useState(false);
@@ -439,17 +444,12 @@ export default function PlayBar() {
 
   useEffect(() => {
     if (audioRef.current && songPath) {
-      const fileUrl = `file://${songPath.replace(/\\/g, '/')}`;
-      audioRef.current.src = fileUrl;
-      audioRef.current.volume = muteVolumeRef.current ? 0 : volumeRef.current;
-      const handleLoadedMetadata = () => {
-        if (pausedRef.current) return;
-        audioRef.current?.play().catch(() => undefined);
-      };
-      audioRef.current.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
-      return () => {
-        audioRef.current?.removeEventListener('loadedmetadata', handleLoadedMetadata);
-      };
+      const audio = audioRef.current;
+      audio.src = `file://${songPath.replace(/\\/g, '/')}`;
+      audio.volume = muteVolumeRef.current ? 0 : volumeRef.current;
+      // Kick playback off immediately rather than waiting for loadedmetadata
+      // so the new track starts at canplay instead of an extra round-trip later.
+      if (!pausedRef.current) audio.play().catch(() => undefined);
     }
   }, [songPath]);
 
@@ -542,6 +542,63 @@ export default function PlayBar() {
 
   useEffect(() => {
     pausedRef.current = paused;
+  }, [paused]);
+
+  // ── SMTC keepalive (silent loop) ─────────────────────────────────────
+  // 1s silent WAV looped in a hidden audio element. While it's playing,
+  // MediaSession always has at least one active player, so the session
+  // doesn't go inactive while the main audio's WebMediaPlayer is destroyed
+  // and re-created on a track change — SMTC keeps the OS tile pinned.
+  const silentSrc = useMemo(() => {
+    const sampleRate = 8000;
+    const numSamples = sampleRate; // 1 second
+    const buffer = new ArrayBuffer(44 + numSamples);
+    const view = new DataView(buffer);
+    const writeStr = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + numSamples, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true); // PCM chunk size
+    view.setUint16(20, 1, true); // PCM format
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate, true); // byte rate
+    view.setUint16(32, 1, true); // block align
+    view.setUint16(34, 8, true); // bits per sample
+    writeStr(36, 'data');
+    view.setUint32(40, numSamples, true);
+    // 8-bit unsigned PCM midpoint = 128 = silence
+    for (let i = 0; i < numSamples; i++) view.setUint8(44 + i, 128);
+    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Release the blob URL when PlayBar unmounts.
+      try {
+        URL.revokeObjectURL(silentSrc);
+      } catch {
+        /* noop */
+      }
+    };
+  }, [silentSrc]);
+
+  // Mirror the main audio's play/pause state. Letting the silent track run
+  // while the user has paused makes Chromium override our explicit
+  // playbackState='paused' (since it sees an active player), which breaks
+  // SMTC's pause toggle. Track changes while paused may briefly drop
+  // SMTC — accepted trade-off, the user isn't listening anyway.
+  useEffect(() => {
+    const silent = silentAudioRef.current;
+    if (!silent) return;
+    if (paused) {
+      silent.pause();
+    } else if (silent.paused) {
+      silent.play().catch(() => undefined);
+    }
   }, [paused]);
 
   // Auto-pause when the active audio output device disappears (e.g. headphones
@@ -723,35 +780,60 @@ export default function PlayBar() {
   }, [paused]);
 
   // --- Media Session API ---
+  // Title/artist/album are set synchronously so SMTC shows them the moment
+  // the track changes; album art is fetched off the critical path and
+  // patched in once it's ready (guarded so a slow load for a previous
+  // track can't overwrite the current one).
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
-
-    const updateMediaSession = async () => {
-      let artwork: MediaImage[] = [];
-      if (state.track?.AlbumArt) {
-        try {
-          const fileUrl = `file:///${(state.track.AlbumArt as string).replace(/\\/g, '/')}`;
-          const response = await fetch(fileUrl);
-          const blob = await response.blob();
-          const base64 = await new Promise<string>(resolve => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-          });
-          artwork = [{ src: base64 }];
-        } catch {
-          /* artwork stays empty */
-        }
+    const track = state.track;
+    if (!track) {
+      try {
+        navigator.mediaSession.metadata = null;
+      } catch {
+        /* noop */
       }
-      navigator.mediaSession.metadata = new MediaMetadata({
-        title: (state.track?.Title as string) || 'Unknown Title',
-        artist: (state.track?.ArtistName as string) || 'Unknown Artist',
-        album: (state.track?.AlbumTitle as string) || 'Unknown Album',
-        artwork,
-      });
-    };
+      return;
+    }
 
-    updateMediaSession();
+    const baseMeta = {
+      title: (track.Title as string) || 'Unknown Title',
+      artist: (track.ArtistName as string) || 'Unknown Artist',
+      album: (track.AlbumTitle as string) || 'Unknown Album',
+    };
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({ ...baseMeta, artwork: [] });
+    } catch {
+      /* noop */
+    }
+
+    if (!track.AlbumArt) return;
+
+    const reqId = ++metadataReqRef.current;
+    let cancelled = false;
+    (async () => {
+      try {
+        const fileUrl = `file:///${(track.AlbumArt as string).replace(/\\/g, '/')}`;
+        const response = await fetch(fileUrl);
+        const blob = await response.blob();
+        const base64 = await new Promise<string>(resolve => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.readAsDataURL(blob);
+        });
+        if (cancelled || metadataReqRef.current !== reqId) return;
+        navigator.mediaSession.metadata = new MediaMetadata({
+          ...baseMeta,
+          artwork: [{ src: base64 }],
+        });
+      } catch {
+        /* artwork stays empty */
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [state.track]);
 
   useEffect(() => {
@@ -1295,6 +1377,15 @@ export default function PlayBar() {
         songPath={songPath}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
+      {/* SMTC keepalive — see silentSrc useMemo. */}
+      <audio
+        ref={silentAudioRef}
+        src={silentSrc}
+        loop
+        preload="auto"
+        style={AudioElementStyle}
+        aria-hidden
+      />
     </PlayBarRoot>
   );
 }

@@ -51,9 +51,12 @@ function handleSquirrelEvent(): boolean {
       regWrite(ctxRoot, 'Icon', exePath);
       regWrite(`${ctxRoot}\\command`, null, `"${exePath}" "%1"`);
 
+      // SMTC reads DisplayName + IconUri off this key for the "Now playing"
+      // flyout. IconUri needs a real image file (the EXE renders a placeholder).
       const aumidRoot = 'HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp';
+      const iconPath = path.join(path.dirname(exePath), 'resources', 'XeroTunesLogo.ico');
       regWrite(aumidRoot, 'DisplayName', 'Xero Music Player');
-      regWrite(aumidRoot, 'IconUri', exePath);
+      regWrite(aumidRoot, 'IconUri', fs.existsSync(iconPath) ? iconPath : exePath);
 
       app.quit();
       return true;
@@ -78,6 +81,10 @@ function handleSquirrelEvent(): boolean {
 if (handleSquirrelEvent()) {
   // Squirrel lifecycle event handled — app will quit, nothing more to do.
 }
+
+// Display name used by macOS menu bar, Linux MPRIS Identity, and various OS
+// surfaces that don't read package.json's productName at runtime.
+app.setName('Xero Music Player');
 
 app.setAppUserModelId('com.itesaurabh.xmp');
 

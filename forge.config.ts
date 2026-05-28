@@ -28,6 +28,12 @@ const config: ForgeConfig = {
     asar: true,
     appCategoryType: 'public.app-category.music',
     name: 'Xero Music Player',
+    // Loose-shipped so the AUMID registration in src/index.ts can point
+    // SMTC at a real file path (asar:// paths don't render).
+    extraResource: [
+      './src/assets/logo/XeroTunesLogo.ico',
+      './src/assets/logo/XeroTunesLogo.png',
+    ],
   },
   rebuildConfig: {},
   makers: [
