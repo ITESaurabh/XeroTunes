@@ -1,12 +1,5 @@
 import React, { useContext, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Container,
-  Grid,
-  LinearProgress,
-  ListItemButton,
-  Typography,
-} from '@mui/material';
+import { Box, Container, Grid, LinearProgress, ListItemButton, Typography } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import genresIcon from '@iconify/icons-fluent/guitar-24-filled';
@@ -208,12 +201,14 @@ const Genres: React.FC = () => {
       >
         {genres.length === 0 ? (
           <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>No genres found. Tracks in your library don&apos;t have genre tags.</Typography>
+            <Typography>
+              No genres found. Tracks in your library don&apos;t have genre tags.
+            </Typography>
           </Box>
         ) : (
           <>
             <HeaderRow />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
               <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                   <FixedSizeList

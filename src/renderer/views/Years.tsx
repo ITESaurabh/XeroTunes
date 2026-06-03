@@ -1,12 +1,5 @@
 import React, { useContext, useEffect, useCallback } from 'react';
-import {
-  Box,
-  Container,
-  Grid,
-  LinearProgress,
-  ListItemButton,
-  Typography,
-} from '@mui/material';
+import { Box, Container, Grid, LinearProgress, ListItemButton, Typography } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import yearsIcon from '@iconify/icons-fluent/timer-24-filled';
@@ -207,12 +200,14 @@ const Years: React.FC = () => {
       >
         {years.length === 0 ? (
           <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>No years found. Tracks in your library don&apos;t have year tags.</Typography>
+            <Typography>
+              No years found. Tracks in your library don&apos;t have year tags.
+            </Typography>
           </Box>
         ) : (
           <>
             <HeaderRow />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
               <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                   <FixedSizeList

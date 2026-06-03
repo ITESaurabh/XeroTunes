@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
 import PageToolbar from '../components/PageToolbar';
+import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track, LibraryStats } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -274,7 +275,9 @@ const RecentlyAdded: React.FC = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {navPath ? (
+                {col.key === 'ArtistName' ? (
+                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
+                ) : navPath ? (
                   <Typography
                     variant="body2"
                     noWrap
@@ -329,7 +332,7 @@ const RecentlyAdded: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <HeaderRow isPhone={isPhone} />
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList

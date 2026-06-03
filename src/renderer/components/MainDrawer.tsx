@@ -214,7 +214,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
           />
         ))}
       </List>
-      <List sx={{ mt: 'auto', p: 1 }}>
+      <List sx={{ mt: 'auto', p: 1, overflow: 'hidden' }}>
         {/* Scan progress banner */}
         <AnimatePresence>
           {isScanningLibrary && (

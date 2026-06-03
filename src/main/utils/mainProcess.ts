@@ -834,6 +834,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.AlbumArt,
         Track.Duration,
         Track.AlbumId,
+        Track.GenreId,
         GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
@@ -1030,6 +1031,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.AlbumArt,
         Track.Duration,
         Track.AlbumId,
+        Track.GenreId,
         GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName

@@ -37,7 +37,11 @@ const parseMusic = async (musicPath: string): Promise<SongMeta> => {
   }
   return {
     title: metadata.common.title || '',
-    artist: metadata.common.artist || '',
+    artist: (metadata.common.artist || '')
+      .split(',')
+      .map(n => n.trim())
+      .filter(Boolean)
+      .join(', '),
     album: metadata.common.album || '',
     albumArt,
   };

@@ -19,6 +19,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -52,7 +53,14 @@ const columns: Column[] = [
     flex: 2,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
-  { label: 'Genre', key: 'GenreName', align: 'left', flex: 2 },
+  {
+    label: 'Genre',
+    key: 'GenreName',
+    align: 'left',
+    flex: 2,
+    getNavPath: song =>
+      song.GenreId != null ? `/main_window/genres/${song.GenreId as string | number}` : null,
+  },
   { label: 'Duration', key: 'Duration', align: 'right', flex: 1, format: formatDuration },
 ];
 
@@ -199,7 +207,9 @@ const YearDetail: React.FC = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {navPath ? (
+                {col.key === 'ArtistName' ? (
+                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
+                ) : navPath ? (
                   <Typography
                     variant="body2"
                     noWrap
@@ -315,7 +325,7 @@ const YearDetail: React.FC = () => {
         ) : (
           <>
             <HeaderRow isPhone={isPhone} />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
               <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                   <FixedSizeList

@@ -14,6 +14,7 @@ import { useNavigate, useLocation } from 'react-router';
 import filterIcon from '@iconify/icons-fluent/filter-24-filled';
 import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
+import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -44,8 +45,26 @@ const columns: Column[] = [
     flex: 2,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
-  { label: 'Year', key: 'Year', width: 100, align: 'center', flex: 1 },
-  { label: 'Genre', key: 'GenreName', width: 130, align: 'left', flex: 2 },
+  {
+    label: 'Year',
+    key: 'Year',
+    width: 100,
+    align: 'center',
+    flex: 1,
+    getNavPath: song =>
+      song.Year != null && song.Year !== ''
+        ? `/main_window/years/${encodeURIComponent(song.Year as string)}`
+        : null,
+  },
+  {
+    label: 'Genre',
+    key: 'GenreName',
+    width: 130,
+    align: 'left',
+    flex: 2,
+    getNavPath: song =>
+      song.GenreId != null ? `/main_window/genres/${song.GenreId as string | number}` : null,
+  },
   { label: 'Duration', key: 'Duration', width: 80, align: 'right', flex: 1 },
 ];
 
@@ -217,7 +236,9 @@ const AllSongs: React.FC = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {navPath ? (
+                {col.key === 'ArtistName' ? (
+                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
+                ) : navPath ? (
                   <Typography
                     variant="body2"
                     noWrap
@@ -286,7 +307,7 @@ const AllSongs: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <HeaderRow isPhone={isPhone} />
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList

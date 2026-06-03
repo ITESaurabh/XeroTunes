@@ -708,7 +708,7 @@ export default function PlayBar() {
     if (!getOverlayEnabled()) return;
     ipcRenderer.send('now-playing-notify', {
       title: (state.track.Title as string) || '',
-      artist: (state.track.ArtistName as string) || '',
+      artist: artistNames.join(', '),
       album: (state.track.AlbumTitle as string) || '',
       albumArt: (state.track.AlbumArt as string) || null,
       queueIndex: state.queueIndex,
@@ -769,7 +769,7 @@ export default function PlayBar() {
     if (!getOverlayEnabled()) return;
     ipcRenderer.send('now-playing-notify', {
       title: (state.track.Title as string) || '',
-      artist: (state.track.ArtistName as string) || '',
+      artist: artistNames.join(', '),
       album: (state.track.AlbumTitle as string) || '',
       albumArt: (state.track.AlbumArt as string) || null,
       queueIndex: state.queueIndex,

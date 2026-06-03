@@ -370,7 +370,7 @@ const Folders: React.FC = () => {
         ) : (
           <>
             <HeaderRow isPhone={isPhone} />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
               <AutoSizer>
                 {({ height, width }: { height: number; width: number }) => (
                   <FixedSizeList

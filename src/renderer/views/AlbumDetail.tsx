@@ -8,7 +8,7 @@ import {
   Theme,
   Button,
 } from '@mui/material';
-import { useParams, useLocation } from 'react-router';
+import { useParams, useLocation, useNavigate } from 'react-router';
 import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion, useMotionValue, useSpring } from 'motion/react';
@@ -19,6 +19,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
+import ArtistCell from '../components/ArtistCell';
 
 interface AlbumSong extends Track {
   TrackNumber?: string | number;
@@ -55,6 +56,7 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
@@ -168,7 +170,10 @@ const AlbumDetail: React.FC = () => {
         <ListItemButton
           style={style}
           selected={isActive}
-          onClick={() => handlePlayAll(index)}
+          onClick={e => {
+            if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
+            handlePlayAll(index);
+          }}
           sx={{
             display: 'flex',
             alignItems: 'center',
@@ -210,9 +215,12 @@ const AlbumDetail: React.FC = () => {
               {(song.Title as string) || 'Unknown'}
             </Typography>
             {!isPhone && (
-              <Typography variant="caption" noWrap sx={{ color: 'text.secondary' }}>
-                {song.ArtistName || ''}
-              </Typography>
+              <Box sx={{ color: 'text.secondary' }}>
+                <ArtistCell
+                  artistNameRaw={song.ArtistName as string | undefined}
+                  variant="caption"
+                />
+              </Box>
             )}
           </Box>
 
@@ -351,12 +359,40 @@ const AlbumDetail: React.FC = () => {
             >
               {albumTitle}
             </motion.span>
-            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-              {artistName}
-              {releaseYear ? ` · ${releaseYear}` : ''}
-              {songs.length ? ` · ${songs.length} songs` : ''}
-              {songs.length ? ` · ${totalDuration(songs)}` : ''}
-            </Typography>
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                color: 'text.secondary',
+              }}
+            >
+              <ArtistCell artistNameRaw={artistName} variant="body2" />
+              {releaseYear != null && releaseYear !== '' && (
+                <>
+                  <Typography variant="body2" sx={{ mx: 0.5 }}>
+                    ·
+                  </Typography>
+                  <Typography
+                    variant="body2"
+                    onClick={() =>
+                      navigate(`/main_window/years/${encodeURIComponent(String(releaseYear))}`)
+                    }
+                    sx={{
+                      cursor: 'pointer',
+                      '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+                    }}
+                  >
+                    {releaseYear as string | number}
+                  </Typography>
+                </>
+              )}
+              {songs.length > 0 && (
+                <Typography variant="body2" sx={{ ml: 0.5 }}>
+                  · {songs.length} {songs.length === 1 ? 'song' : 'songs'} · {totalDuration(songs)}
+                </Typography>
+              )}
+            </Box>
 
             {/* Play all button */}
             <Button

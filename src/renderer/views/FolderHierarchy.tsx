@@ -10,7 +10,7 @@ import {
   Typography,
   useMediaQuery,
 } from '@mui/material';
-import { useSearchParams, useLocation } from 'react-router';
+import { useSearchParams, useLocation, useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
 import musicNoteIcon from '@iconify/icons-fluent/music-note-2-24-regular';
@@ -20,6 +20,7 @@ import homeIcon from '@iconify/icons-fluent/home-24-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import PageToolbar from '../components/PageToolbar';
+import ArtistCell from '../components/ArtistCell';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -166,6 +167,7 @@ const FolderHierarchy: React.FC = () => {
   const { dispatch, state } = useContext(store);
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentPath = searchParams.get('path');
   const bodyRef = React.useRef<HTMLDivElement | null>(null);
@@ -580,7 +582,10 @@ const FolderHierarchy: React.FC = () => {
                     <ListItemButton
                       key={String(song.Id ?? idx)}
                       data-track-id={song.Id ?? ''}
-                      onClick={() => handleSongClick(idx)}
+                      onClick={e => {
+                        if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
+                        handleSongClick(idx);
+                      }}
                       selected={song.Id === state.track?.Id}
                       sx={{
                         display: 'flex',
@@ -606,10 +611,36 @@ const FolderHierarchy: React.FC = () => {
                           {(song.Title as string) || 'Unknown'}
                         </Typography>
                         {!isPhone && (
-                          <Typography variant="caption" noWrap sx={{ color: 'text.secondary' }}>
-                            {(song.ArtistName as string) || 'Unknown Artist'}
-                            {song.AlbumTitle ? ` · ${song.AlbumTitle as string}` : ''}
-                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'hidden', color: 'text.secondary' }}>
+                            <Box sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
+                              <ArtistCell artistNameRaw={song.ArtistName as string | undefined} variant="caption" />
+                            </Box>
+                            {song.AlbumTitle && (
+                              <>
+                                <Typography variant="caption" sx={{ flexShrink: 0, color: 'text.secondary' }}>
+                                  &nbsp;·&nbsp;
+                                </Typography>
+                                <Typography
+                                  variant="caption"
+                                  noWrap
+                                  data-nav-cell="true"
+                                  onMouseDown={e => e.stopPropagation()}
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    if (song.AlbumId != null) navigate(`/main_window/albums/${song.AlbumId as string | number}`);
+                                  }}
+                                  sx={{
+                                    flexShrink: 0,
+                                    color: 'text.secondary',
+                                    cursor: song.AlbumId != null ? 'pointer' : 'default',
+                                    '&:hover': song.AlbumId != null ? { textDecoration: 'underline', color: 'primary.main' } : undefined,
+                                  }}
+                                >
+                                  {song.AlbumTitle as string}
+                                </Typography>
+                              </>
+                            )}
+                          </Box>
                         )}
                       </Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', flexShrink: 0 }}>
