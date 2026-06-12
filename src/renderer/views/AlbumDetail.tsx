@@ -107,7 +107,13 @@ const AlbumDetail: React.FC = () => {
 
   // Derive album metadata from first song
   const albumTitle = songs[0]?.AlbumTitle ?? 'Unknown Album';
-  const artistName = songs[0]?.AlbumArtistName ?? songs[0]?.ArtistName ?? 'Unknown Artist';
+  // Prefer the album artist; only fall back to the track artist when the album
+  // has no album artist tagged. The distinction matters for navigation: an
+  // album artist links to the album-artist page, a track artist to the
+  // regular artist page.
+  const albumArtistName = songs[0]?.AlbumArtistName || null;
+  const artistName = albumArtistName ?? songs[0]?.ArtistName ?? 'Unknown Artist';
+  const isAlbumArtist = albumArtistName != null;
   const coverUri = songs[0]?.AlbumCoverUri ?? null;
   const releaseYear = songs[0]?.['Year'] ?? null;
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -367,7 +373,7 @@ const AlbumDetail: React.FC = () => {
                 color: 'text.secondary',
               }}
             >
-              <ArtistCell artistNameRaw={artistName} variant="body2" />
+              <ArtistCell artistNameRaw={artistName} variant="body2" albumArtist={isAlbumArtist} />
               {releaseYear != null && releaseYear !== '' && (
                 <>
                   <Typography variant="body2" sx={{ mx: 0.5 }}>

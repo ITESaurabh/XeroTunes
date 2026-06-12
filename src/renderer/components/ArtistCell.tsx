@@ -7,9 +7,17 @@ const { ipcRenderer } = window.require('electron');
 interface Props {
   artistNameRaw: string | undefined | null;
   variant?: 'body2' | 'caption';
+  /**
+   * When true, clicking navigates to the album-artist page
+   * (`/album-artists/:id`) instead of the regular track-artist page
+   * (`/artists/:id`). Use this wherever the name represents an album artist,
+   * e.g. the album header, since album-artist-only entities have no
+   * track-level rows and would otherwise show "No tracks found".
+   */
+  albumArtist?: boolean;
 }
 
-const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2' }) => {
+const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2', albumArtist = false }) => {
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
 
@@ -28,12 +36,15 @@ const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2' }) => {
     async (name: string) => {
       try {
         const result = await ipcRenderer.invoke('find-artist-by-name', { name });
-        if (result?.id) navigate(`/main_window/artists/${result.id}`);
+        if (result?.id) {
+          const base = albumArtist ? 'album-artists' : 'artists';
+          navigate(`/main_window/${base}/${result.id}`);
+        }
       } catch {
         /* ignore */
       }
     },
-    [navigate]
+    [navigate, albumArtist]
   );
 
   const handleClick = useCallback(

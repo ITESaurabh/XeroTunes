@@ -1,4 +1,5 @@
-import { BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron';
+import { fileURLToPath } from 'url';
 import { prevIcon, nextIcon, playIcon, pauseIcon } from '../thumbarIcons';
 import dbModule from '../../database';
 import {
@@ -589,6 +590,95 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   if (!existingCols.includes('LastPlayedAt')) {
     db.prepare('ALTER TABLE Track ADD COLUMN LastPlayedAt BIGINT').run();
   }
+
+  ipcMain.handle('save-image', async (_e, { src, suggestedName }) => {
+    try {
+      if (!src || typeof src !== 'string') {
+        return { success: false, error: 'No image source' };
+      }
+
+      // Resolve the source to raw bytes + a sensible default extension.
+      let data: Buffer;
+      let ext = '.jpg';
+
+      if (src.startsWith('data:')) {
+        const match = /^data:(.*?);base64,(.*)$/s.exec(src);
+        if (!match) return { success: false, error: 'Unsupported image data' };
+        data = Buffer.from(match[2], 'base64');
+        const mime = match[1];
+        if (mime.includes('png')) ext = '.png';
+        else if (mime.includes('webp')) ext = '.webp';
+        else if (mime.includes('gif')) ext = '.gif';
+      } else if (src.startsWith('file://')) {
+        const filePath = fileURLToPath(src);
+        data = fs.readFileSync(filePath);
+        ext = path.extname(filePath) || ext;
+      } else if (src.startsWith('http://') || src.startsWith('https://')) {
+        const res = await fetch(src);
+        if (!res.ok) return { success: false, error: `Download failed (${res.status})` };
+        data = Buffer.from(await res.arrayBuffer());
+        ext = path.extname(new URL(src).pathname) || ext;
+      } else {
+        // Assume a bare local filesystem path.
+        data = fs.readFileSync(src);
+        ext = path.extname(src) || ext;
+      }
+
+      // Build a filesystem-safe default filename from the provided title.
+      const rawName = (typeof suggestedName === 'string' && suggestedName.trim()) || 'image';
+      const safeBase = rawName.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+      const defaultName = path.extname(safeBase) ? safeBase : `${safeBase}${ext}`;
+
+      let baseDir: string;
+      try {
+        baseDir = app.getPath('pictures');
+      } catch {
+        baseDir = app.getPath('downloads');
+      }
+
+      const result = await dialog.showSaveDialog(mainWin, {
+        title: 'Save Image',
+        defaultPath: path.join(baseDir, defaultName),
+        filters: [
+          { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] },
+          { name: 'All Files', extensions: ['*'] },
+        ],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      fs.writeFileSync(result.filePath, data);
+      return { success: true, filePath: result.filePath };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('show-confirm', async (_e, options) => {
+    const {
+      title = 'Confirm',
+      message = 'Are you sure?',
+      detail,
+      confirmLabel = 'OK',
+      cancelLabel = 'Cancel',
+      destructive = false,
+    } = options || {};
+
+    const result = await dialog.showMessageBox(mainWin, {
+      type: destructive ? 'warning' : 'question',
+      buttons: [confirmLabel, cancelLabel],
+      defaultId: destructive ? 1 : 0,
+      cancelId: 1,
+      title,
+      message,
+      detail,
+      noLink: true,
+    });
+
+    return { confirmed: result.response === 0 };
+  });
 
   ipcMain.handle('add-music-folder', async e => {
     const result = await dialog.showOpenDialog(mainWin, {

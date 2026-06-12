@@ -24,6 +24,7 @@ import { useScrollRestoration } from '../../utils/useScrollRestoration';
 import { Icon } from '@iconify/react';
 import ChevronDownIcon from '@iconify/icons-fluent/chevron-down-24-filled';
 import AppDialog from '../../components/AppDialog';
+import ImagePreviewDialog from '../../components/ImagePreviewDialog';
 
 interface ArtistDetailData {
   Id: number;
@@ -104,6 +105,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
   const menuOpen = Boolean(menuAnchorEl);
   const [biographyOpen, setBiographyOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const dropdownButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleSync = useCallback(async () => {
@@ -359,10 +361,23 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
             <Box
               component={motion.div}
               style={{ width: animatedImageSize, height: animatedImageSize }}
+              role={imageSrc ? 'button' : undefined}
+              tabIndex={imageSrc ? 0 : -1}
+              onClick={() => {
+                if (imageSrc) setPreviewOpen(true);
+              }}
+              onKeyDown={event => {
+                if (!imageSrc) return;
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setPreviewOpen(true);
+                }
+              }}
               sx={{
                 aspectRatio: '1 / 1',
                 borderRadius: 1,
                 overflow: 'hidden',
+                cursor: imageSrc ? 'zoom-in' : 'default',
               }}
             >
               {imageSrc ? (
@@ -488,6 +503,13 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
           </Box>
         </Box>
       </Box>
+
+      <ImagePreviewDialog
+        open={previewOpen}
+        onClose={() => setPreviewOpen(false)}
+        imageSrc={imageSrc}
+        imageAlt={artist.Name}
+      />
 
       <Box
         ref={scrollRef}

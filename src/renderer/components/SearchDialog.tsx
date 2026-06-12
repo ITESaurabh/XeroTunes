@@ -243,7 +243,20 @@ export default function SearchDialog() {
         | string
         | number
         | undefined;
-      navigate(yearVal != null ? `/main_window/years/${encodeURIComponent(String(yearVal))}` : category.href);
+      navigate(
+        yearVal != null
+          ? `/main_window/years/${encodeURIComponent(String(yearVal))}`
+          : category.href
+      );
+    } else if (category.type === 'folders') {
+      // Open folder results in the hierarchy view, deep-linked to the folder
+      // via the ?path= query param the view reads (not the flat folders list).
+      const folderPath = (result.id ?? result.title) as string | undefined;
+      navigate(
+        folderPath
+          ? `/main_window/folder-hierarchy?path=${encodeURIComponent(folderPath)}`
+          : '/main_window/folder-hierarchy'
+      );
     } else {
       navigate(category.href);
     }

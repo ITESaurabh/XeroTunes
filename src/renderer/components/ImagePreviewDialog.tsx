@@ -1,5 +1,17 @@
 import React from 'react';
-import { Box, Button, Dialog, Grow, Theme, Typography, useMediaQuery } from '@mui/material';
+import {
+  Box,
+  Button,
+  Dialog,
+  Grow,
+  Menu,
+  MenuItem,
+  Theme,
+  Typography,
+  useMediaQuery,
+} from '@mui/material';
+
+const { ipcRenderer } = window.require('electron');
 
 interface ImagePreviewDialogProps {
   open: boolean;
@@ -15,11 +27,30 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
   imageAlt = 'Preview image',
 }) => {
   const [resolution, setResolution] = React.useState<string>('');
+  const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
 
   React.useEffect(() => {
     setResolution('');
   }, [imageSrc]);
+
+  const handleContextMenu = (event: React.MouseEvent) => {
+    if (!imageSrc) return;
+    event.preventDefault();
+    setMenuPos({ top: event.clientY, left: event.clientX });
+  };
+
+  const handleCloseMenu = () => setMenuPos(null);
+
+  const handleSaveImage = async () => {
+    handleCloseMenu();
+    if (!imageSrc) return;
+    try {
+      await ipcRenderer.invoke('save-image', { src: imageSrc, suggestedName: imageAlt });
+    } catch {
+      /* ignore — user-facing failure is non-critical */
+    }
+  };
 
   return (
     <Dialog
@@ -61,6 +92,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           component="img"
           src={imageSrc}
           alt={imageAlt}
+          onContextMenu={handleContextMenu}
           onLoad={event => {
             const { naturalWidth, naturalHeight } = event.currentTarget;
             if (naturalWidth > 0 && naturalHeight > 0) {
@@ -106,6 +138,15 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           Close
         </Button>
       </Box>
+
+      <Menu
+        open={menuPos !== null}
+        onClose={handleCloseMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={menuPos ?? undefined}
+      >
+        <MenuItem onClick={handleSaveImage}>Save image…</MenuItem>
+      </Menu>
     </Dialog>
   );
 };

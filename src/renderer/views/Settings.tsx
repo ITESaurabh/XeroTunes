@@ -21,6 +21,8 @@ import {
   styled,
   Chip,
   Tooltip,
+  TextField,
+  Divider,
   useTheme,
 } from '@mui/material';
 import { Icon } from '@iconify/react';
@@ -39,6 +41,9 @@ import maximizeIcon from '@iconify/icons-fluent/maximize-16-regular';
 import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
+import artistIcon from '@iconify/icons-fluent/mic-24-regular';
+import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
+import addIcon from '@iconify/icons-fluent/add-24-regular';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
 import GnomeResizeIcon from 'svg-react-loader?name=GnomeResizeIcon!../../assets/icons/gnome-resize.svg';
@@ -55,8 +60,14 @@ import {
   getTitleBarStyle,
   getPauseOnAudioOutputChange,
   setPauseOnAudioOutputChange,
+  getMultiArtistSeparators,
+  setMultiArtistSeparators,
+  getMultiArtistExceptions,
+  setMultiArtistExceptions,
+  getThemeMode,
 } from '../utils/LocStoreUtil';
-import { WINDOW_SCALE_OPTIONS, TitleBarStyle } from '../../config/app_settings';
+import { WINDOW_SCALE_OPTIONS, TitleBarStyle, ThemeMode } from '../../config/app_settings';
+import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
 import { OS_MAC } from '../../config/constants';
 import os from 'os';
 
@@ -476,6 +487,86 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
   return card;
 };
 
+interface ChipListEditorProps {
+  values: string[];
+  onChange: (_next: string[]) => void;
+  placeholder: string;
+  ariaLabel: string;
+  /**
+   * When provided, removing a chip first asks for confirmation using the
+   * returned options (native dialog). Return value built per-item so the
+   * message can name the value being removed.
+   */
+  removeConfirm?: (_value: string) => ConfirmOptions;
+}
+
+const ChipListEditor: React.FC<ChipListEditorProps> = ({
+  values,
+  onChange,
+  placeholder,
+  ariaLabel,
+  removeConfirm,
+}) => {
+  const [input, setInput] = React.useState('');
+  const confirm = useConfirm();
+
+  const addValue = (): void => {
+    const value = input.trim();
+    if (!value) return;
+    // De-dupe case-insensitively to match how the scanner compares names.
+    if (!values.some(existing => existing.toLowerCase() === value.toLowerCase())) {
+      onChange([...values, value]);
+    }
+    setInput('');
+  };
+
+  const removeValue = async (target: string): Promise<void> => {
+    if (removeConfirm && !(await confirm(removeConfirm(target)))) return;
+    onChange(values.filter(v => v !== target));
+  };
+
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mb: 1 }}>
+        {values.length === 0 ? (
+          <Typography variant="caption" color="text.secondary">
+            None
+          </Typography>
+        ) : (
+          values.map(v => (
+            <Chip key={v} label={v} onDelete={() => void removeValue(v)} size="small" />
+          ))
+        )}
+      </Box>
+      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <TextField
+          size="small"
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addValue();
+            }
+          }}
+          placeholder={placeholder}
+          inputProps={{ 'aria-label': ariaLabel }}
+          sx={{ flex: 1, maxWidth: 420 }}
+        />
+        <Button
+          onClick={addValue}
+          variant="outlined"
+          size="small"
+          startIcon={<Icon icon={addIcon} height="1rem" />}
+          disabled={!input.trim()}
+        >
+          Add
+        </Button>
+      </Box>
+    </Box>
+  );
+};
+
 const Settings: React.FC = () => {
   const [expanded, setExpanded] = React.useState<boolean>(false);
   const [folders, setFolders] = React.useState<MusicFolder[]>([]);
@@ -488,7 +579,15 @@ const Settings: React.FC = () => {
   );
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
   const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
+  const [themeMode, setThemeModeState] = React.useState<ThemeMode>(getThemeMode());
+  const [artistSeparators, setArtistSeparatorsState] = React.useState<string[]>(
+    getMultiArtistSeparators
+  );
+  const [artistExceptions, setArtistExceptionsState] = React.useState<string[]>(
+    getMultiArtistExceptions
+  );
   const { invokeEventToMainProcess } = useIpc();
+  const confirm = useConfirm();
   const { state, dispatch } = useContext(store);
   const { isScanningLibrary } = state;
   const theme = useTheme();
@@ -512,6 +611,22 @@ const Settings: React.FC = () => {
 
   const handleExpansion = (): void => {
     setExpanded(prevExpanded => !prevExpanded);
+  };
+
+  const handleThemeModeChange = (mode: ThemeMode): void => {
+    setThemeModeState(mode);
+    // Dispatch applies the theme live and persists it via the reducer.
+    dispatch({ type: 'SET_THEME_MODE', payload: mode });
+  };
+
+  const handleSeparatorsChange = (next: string[]): void => {
+    setArtistSeparatorsState(next);
+    setMultiArtistSeparators(next);
+  };
+
+  const handleExceptionsChange = (next: string[]): void => {
+    setArtistExceptionsState(next);
+    setMultiArtistExceptions(next);
   };
 
   return (
@@ -660,7 +775,16 @@ const Settings: React.FC = () => {
                               variant="contained"
                               size="small"
                               disableElevation
-                              onClick={() => {
+                              onClick={async () => {
+                                const ok = await confirm({
+                                  title: 'Remove music folder?',
+                                  message: `Remove "${folder.Uri}" from your library?`,
+                                  detail:
+                                    'Its tracks will be removed from the library on the next scan. Files on disk are not deleted.',
+                                  confirmLabel: 'Remove',
+                                  destructive: true,
+                                });
+                                if (!ok) return;
                                 invokeEventToMainProcess('remove-music-folder', {
                                   Id: folder.Id,
                                 }).then(() =>
@@ -682,6 +806,73 @@ const Settings: React.FC = () => {
                 </AccordionDetails>
               </Accordion>
             </ListItem>
+
+            <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, width: '100%' }}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <Icon icon={artistIcon} width="1.5rem" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Artist Name Handling"
+                  secondary="Control how multi-artist tags are split into separate artists. Changes apply on the next rescan."
+                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                />
+              </Box>
+
+              <Box sx={{ pl: { xs: 0, sm: 6 }, width: '100%' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                  Separators
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mb: 1 }}
+                >
+                  Characters used to split a tag into multiple artists (e.g. &quot;,&quot; and
+                  &quot;&amp;&quot;).
+                </Typography>
+                <ChipListEditor
+                  values={artistSeparators}
+                  onChange={handleSeparatorsChange}
+                  placeholder="Add a separator, e.g. ;"
+                  ariaLabel="Add multi-artist separator"
+                  removeConfirm={value => ({
+                    title: 'Remove separator?',
+                    message: `Remove "${value}" from the multi-artist separators?`,
+                    detail: 'Artist tags will no longer be split on this character after the next rescan.',
+                    confirmLabel: 'Remove',
+                    destructive: true,
+                  })}
+                />
+
+                <Divider sx={{ my: 2 }} />
+
+                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                  Exceptions
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mb: 1 }}
+                >
+                  Names kept intact even when they contain a separator (e.g. &quot;AC/DC&quot;,
+                  &quot;Eminem &amp; Linkin Park&quot;).
+                </Typography>
+                <ChipListEditor
+                  values={artistExceptions}
+                  onChange={handleExceptionsChange}
+                  placeholder="Add an exception, e.g. Eminem & Linkin Park"
+                  ariaLabel="Add multi-artist exception"
+                  removeConfirm={value => ({
+                    title: 'Remove exception?',
+                    message: `Remove "${value}" from the artist name exceptions?`,
+                    detail: 'Multi-artist tags matching this name will be split again on the next rescan.',
+                    confirmLabel: 'Remove',
+                    destructive: true,
+                  })}
+                />
+              </Box>
+            </ListItem>
           </List>
 
           {/* ── Appearance ── */}
@@ -698,6 +889,27 @@ const Settings: React.FC = () => {
               </ListSubheader>
             }
           >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={darkThemeIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="select-theme-mode"
+                primary="Theme"
+                secondary="Choose light, dark, or follow the system"
+              />
+              <Select
+                size="small"
+                disabled
+                value={themeMode}
+                onChange={e => handleThemeModeChange(Number(e.target.value) as ThemeMode)}
+                sx={{ minWidth: 130, mr: 0.5 }}
+              >
+                <MenuItem value={0}>System</MenuItem>
+                <MenuItem value={1}>Light</MenuItem>
+                <MenuItem value={2}>Dark</MenuItem>
+              </Select>
+            </ListItem>
             <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, width: '100%' }}>
                 <ListItemIcon sx={{ minWidth: 36 }}>

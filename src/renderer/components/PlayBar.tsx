@@ -410,9 +410,13 @@ export default function PlayBar() {
   }, []);
 
   const artistNames = React.useMemo(() => {
+    // Split only on the comma that GROUP_CONCAT uses to join multiple distinct
+    // artists. Do NOT split on '&' — a single artist name can legitimately
+    // contain it (e.g. the "Eminem & Linkin Park" multi-artist exception), and
+    // such names are stored as one Artist row.
     const artistText = (state.track?.ArtistName as string) || '';
     return artistText
-      .split(/\s*[,&]\s*/)
+      .split(',')
       .map(name => name.trim())
       .filter(Boolean);
   }, [state.track?.ArtistName]);
@@ -798,7 +802,7 @@ export default function PlayBar() {
 
     const baseMeta = {
       title: (track.Title as string) || 'Unknown Title',
-      artist: (track.ArtistName as string) || 'Unknown Artist',
+      artist: artistNames.length ? artistNames.join(', ') : 'Unknown Artist',
       album: (track.AlbumTitle as string) || 'Unknown Album',
     };
     try {

@@ -316,7 +316,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, ...props }: CustomLink
   const resolved = useResolvedPath(item.href);
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { dispatch } = useContext(store);
-  const match = useMatch({ path: resolved.pathname, end: true });
+  const match = useMatch({ path: resolved.pathname, end: item.href === '/main_window' });
 
   return (
     <>
@@ -330,6 +330,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, ...props }: CustomLink
       >
         <ListItemButton
           component={Link}
+          className="no-drag"
           sx={{ borderRadius: 15, mb: 1 }}
           selected={!!match}
           onClick={
