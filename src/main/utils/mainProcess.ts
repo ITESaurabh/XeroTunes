@@ -1,4 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, screen, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  nativeTheme,
+  screen,
+  shell,
+  utilityProcess,
+} from 'electron';
 import { fileURLToPath } from 'url';
 import { prevIcon, nextIcon, playIcon, pauseIcon } from '../thumbarIcons';
 import dbModule from '../../database';
@@ -12,7 +21,6 @@ import {
 const db: any = dbModule;
 import path from 'path';
 import fs from 'fs';
-import { fork } from 'child_process';
 import {
   APP_CONF_FOLDER,
   MUSIC_DIR,
@@ -407,10 +415,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
     const config = { APP_CONF_FOLDER, MUSIC_DIR, ALBUM_ART_DIR, ARTIST_ART_DIR };
     const settings = readSettingsFile();
-    activeScanWorker = fork(
-      path.resolve(process.cwd(), 'src', 'main', 'utils', 'musicScanWorker.js')
-    );
-    activeScanWorker.send({ folders, config, mode, librarySettings: settings.library });
+    // utilityProcess, not child_process.fork: the RunAsNode fuse is off in the
+    // packaged app. Worker is bundled to .webpack/main alongside __dirname.
+    activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
+    activeScanWorker.postMessage({ folders, config, mode, librarySettings: settings.library });
     sendMessageToRendererProcess(mainWin, 'scan-start', null);
 
     let resolvePromise: (v: unknown) => void;
@@ -1801,11 +1809,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
     const settings = readSettingsFile();
 
-    activeScanWorker = fork(
-      path.resolve(process.cwd(), 'src', 'main', 'utils', 'musicScanWorker.js')
-    );
+    activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
     // Use basic/optimistic scan on startup — only process new files, skip known ones
-    activeScanWorker.send({
+    activeScanWorker.postMessage({
       folders,
       config,
       mode: 'basic',

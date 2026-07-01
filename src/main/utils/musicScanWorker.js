@@ -24,7 +24,7 @@ function getMM() {
   if (!mmPromise) {
     mmPromise = import('music-metadata').catch(err => {
       console.error('[worker] Failed to import music-metadata:', err);
-      process.send({
+      process.parentPort.postMessage({
         type: 'file-error',
         file: 'music-metadata import',
         error: String(err?.message || err),
@@ -521,7 +521,7 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   const total = newFiles.length;
   let scanned = 0;
   let processed = 0;
-  process.send({ type: 'progress', scanned: 0, total });
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
   for (const filePath of newFiles) {
     try {
@@ -531,10 +531,10 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
       scanned++;
     } catch (err) {
       console.error('[basic-scan] Insert error:', filePath, err?.message || err);
-      process.send({ type: 'file-error', file: filePath, error: String(err?.message || err) });
+      process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
     }
     processed++;
-    process.send({ type: 'progress', scanned, total, processed });
+    process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
   }
 
   // Cheap deletion pass: check if tracked files still exist on disk
@@ -568,7 +568,7 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   const total = allFiles.length;
   let scanned = 0;
   let processed = 0;
-  process.send({ type: 'progress', scanned: 0, total });
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
   for (const folder of folders) {
     const supportedFiles = getAllSupportedFiles(folder.Uri, supportedFileTypes);
@@ -587,10 +587,10 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
         folderScanned++;
       } catch (err) {
         console.error('[full-scan] DB Insert/Update Error:', filePath, err?.message || err);
-        process.send({ type: 'file-error', file: filePath, error: String(err?.message || err) });
+        process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
       }
       processed++;
-      process.send({ type: 'progress', scanned, total, processed });
+      process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
     }
     console.log(
       `[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`
@@ -621,7 +621,9 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-process.on('message', async ({ folders, config, mode, librarySettings }) => {
+// utilityProcess IPC arrives on parentPort, wrapped as { data }.
+process.parentPort.on('message', async ({ data }) => {
+  const { folders, config, mode, librarySettings } = data;
   applyLibrarySettings(librarySettings);
 
   const isFullScan = mode === 'full';
@@ -637,10 +639,10 @@ process.on('message', async ({ folders, config, mode, librarySettings }) => {
       ? await runFullScan(db, folders, config, supportedFileTypes)
       : await runBasicScan(db, folders, config, supportedFileTypes);
 
-    process.send({ success: true, scanned: result.scanned, removed: result.removed });
+    process.parentPort.postMessage({ success: true, scanned: result.scanned, removed: result.removed });
     process.exit(0);
   } catch (error) {
-    process.send({ success: false, error: error.message });
+    process.parentPort.postMessage({ success: false, error: error.message });
     process.exit(1);
   }
 });
