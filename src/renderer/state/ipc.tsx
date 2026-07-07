@@ -30,8 +30,11 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
     ipcRenderer
       .invoke('get-scan-status')
       .then((res: unknown) => {
-        const status = res as { isScanning: boolean };
-        dispatch({ type: 'SET_SCANNING', payload: status.isScanning });
+        const status = res as { isScanning: boolean; isFullScan?: boolean };
+        dispatch({
+          type: 'SET_SCANNING',
+          payload: { isScanning: status.isScanning, isFullScan: status.isFullScan },
+        });
       })
       .catch(() => undefined);
     // Fetch initial library stats
@@ -67,8 +70,11 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
   });
 
   useEffect(() => {
-    const handleScanStart = () => {
-      dispatch({ type: 'SET_SCANNING', payload: true });
+    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: 'basic' | 'full') => {
+      dispatch({
+        type: 'SET_SCANNING',
+        payload: { isScanning: true, isFullScan: mode === 'full' },
+      });
     };
     const handleScanProgress = (
       _event: Electron.IpcRendererEvent,
@@ -77,7 +83,7 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
       dispatch({ type: 'SET_SCAN_PROGRESS', payload: arg });
     };
     const handleScanEnd = () => {
-      dispatch({ type: 'SET_SCANNING', payload: false });
+      dispatch({ type: 'SET_SCANNING', payload: { isScanning: false } });
       // Refresh stats after scan completes
       ipcRenderer
         .invoke('get-library-stats')

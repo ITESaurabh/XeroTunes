@@ -184,6 +184,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // Tracks any running scan worker so we never spawn duplicates
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let activeScanWorker: any = null;
+  // Mode of the running scan, so the renderer can tell a heavy full rescan
+  // (which locks the nav) apart from a lightweight basic/auto scan.
+  let activeScanMode: 'basic' | 'full' | null = null;
 
   mainWin.on('minimize', () => {
     mainWin.setOpacity(1);
@@ -330,7 +333,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // }
 
   ipcMain.handle('get-scan-status', () => {
-    return { isScanning: activeScanWorker !== null };
+    return { isScanning: activeScanWorker !== null, isFullScan: activeScanMode === 'full' };
   });
 
   ipcMain.handle('get-library-stats', () => {
@@ -418,8 +421,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     // utilityProcess, not child_process.fork: the RunAsNode fuse is off in the
     // packaged app. Worker is bundled to .webpack/main alongside __dirname.
     activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
+    activeScanMode = mode;
     activeScanWorker.postMessage({ folders, config, mode, librarySettings: settings.library });
-    sendMessageToRendererProcess(mainWin, 'scan-start', null);
+    sendMessageToRendererProcess(mainWin, 'scan-start', mode);
 
     let resolvePromise: (v: unknown) => void;
     let rejectPromise: (e: unknown) => void;
@@ -459,6 +463,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     activeScanWorker.on('exit', (code: number) => {
       console.log(`[${mode}-scan] Worker exited with code ${code}`);
       activeScanWorker = null;
+      activeScanMode = null;
       sendMessageToRendererProcess(mainWin, 'scan-end', null);
       if (code !== 0) rejectPromise('Worker exited with code ' + code);
     });
@@ -1810,6 +1815,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     const settings = readSettingsFile();
 
     activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
+    activeScanMode = 'basic';
     // Use basic/optimistic scan on startup — only process new files, skip known ones
     activeScanWorker.postMessage({
       folders,
@@ -1817,7 +1823,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       mode: 'basic',
       librarySettings: settings.library,
     });
-    sendMessageToRendererProcess(mainWin, 'scan-start', null);
+    sendMessageToRendererProcess(mainWin, 'scan-start', 'basic');
 
     activeScanWorker.on('message', rawMsg => {
       const msg = rawMsg as {
@@ -1847,11 +1853,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     activeScanWorker.on('exit', (code: number) => {
       console.log(`[Auto-scan] Worker exited with code ${code}`);
       activeScanWorker = null;
+      activeScanMode = null;
       sendMessageToRendererProcess(mainWin, 'scan-end', null);
     });
     activeScanWorker.on('error', err => {
       console.error('[Auto-scan] Worker error:', err);
       activeScanWorker = null;
+      activeScanMode = null;
       sendMessageToRendererProcess(mainWin, 'scan-end', null);
     });
   });

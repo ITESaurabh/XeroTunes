@@ -103,6 +103,7 @@ export interface AppState {
   isPlayerBarVisible: boolean;
   isLyricsExpanded: boolean;
   isScanningLibrary: boolean;
+  isFullScan: boolean;
   scanProgress: ScanProgress | null;
   libraryStats: LibraryStats | null;
   queueSource: string | null;
@@ -127,7 +128,7 @@ export type AppAction =
   | { type: 'SET_PLAYER_BAR_VISIBLE'; payload: boolean }
   | { type: 'SET_LYRICS_EXPANDED'; payload: boolean }
   | { type: 'SET_SHUFFLE'; payload: boolean }
-  | { type: 'SET_SCANNING'; payload: boolean }
+  | { type: 'SET_SCANNING'; payload: { isScanning: boolean; isFullScan?: boolean } }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
   | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats };
 
@@ -169,6 +170,7 @@ const initialState: AppState = (() => {
     isPlayerBarVisible: true,
     isLyricsExpanded: false,
     isScanningLibrary: false,
+    isFullScan: false,
     scanProgress: null,
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
@@ -292,10 +294,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, isLyricsExpanded: action.payload };
     }
     case 'SET_SCANNING': {
+      const { isScanning, isFullScan } = action.payload;
       return {
         ...state,
-        isScanningLibrary: action.payload,
-        scanProgress: action.payload ? state.scanProgress : null,
+        isScanningLibrary: isScanning,
+        isFullScan: isScanning ? (isFullScan ?? state.isFullScan) : false,
+        scanProgress: isScanning ? state.scanProgress : null,
       };
     }
     case 'SET_SCAN_PROGRESS': {

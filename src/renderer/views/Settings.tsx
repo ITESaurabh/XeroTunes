@@ -580,16 +580,16 @@ const Settings: React.FC = () => {
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
   const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
   const [themeMode, setThemeModeState] = React.useState<ThemeMode>(getThemeMode());
-  const [artistSeparators, setArtistSeparatorsState] = React.useState<string[]>(
-    getMultiArtistSeparators
-  );
-  const [artistExceptions, setArtistExceptionsState] = React.useState<string[]>(
-    getMultiArtistExceptions
-  );
+  const [artistSeparators, setArtistSeparatorsState] =
+    React.useState<string[]>(getMultiArtistSeparators);
+  const [artistExceptions, setArtistExceptionsState] =
+    React.useState<string[]>(getMultiArtistExceptions);
   const { invokeEventToMainProcess } = useIpc();
   const confirm = useConfirm();
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary } = state;
+  const { isScanningLibrary, isFullScan } = state;
+  const basicScanning = isScanningLibrary && !isFullScan;
+  const fullScanning = isScanningLibrary && isFullScan;
   const theme = useTheme();
   const isDark = theme.palette.mode === 'dark';
   const currOs = os.type();
@@ -656,7 +656,7 @@ const Settings: React.FC = () => {
             <ListItem component={Stack} direction="row" spacing={2}>
               <Button
                 startIcon={
-                  isScanningLibrary ? (
+                  basicScanning ? (
                     <CircularProgress size={16} color="inherit" />
                   ) : (
                     <Icon icon={syncIcon} height={'1.5rem'} />
@@ -679,11 +679,11 @@ const Settings: React.FC = () => {
                     });
                 }}
               >
-                {isScanningLibrary ? 'Scanning…' : 'Rescan Media'}
+                {basicScanning ? 'Scanning…' : 'Rescan Media'}
               </Button>
               <Button
                 startIcon={
-                  isScanningLibrary ? (
+                  fullScanning ? (
                     <CircularProgress size={16} color="inherit" />
                   ) : (
                     <Icon icon={syncIcon} height={'1.5rem'} />
@@ -693,7 +693,16 @@ const Settings: React.FC = () => {
                 color="warning"
                 fullWidth
                 disabled={isScanningLibrary}
-                onClick={() => {
+                onClick={async () => {
+                  const ok = await confirm({
+                    title: 'Full rescan the library?',
+                    message: 'This rebuilds the entire library from scratch.',
+                    detail:
+                      "All track's metadata and album thumbnails will be rebuilt, and the “Recently Added” list will be reset. This can take a while for large libraries.",
+                    confirmLabel: 'Yes, Just do it!',
+                    destructive: true,
+                  });
+                  if (!ok) return;
                   invokeEventToMainProcess('full-rescan', undefined)
                     .then((data: unknown) => {
                       console.log('Full rescan completed:', data);
@@ -706,7 +715,7 @@ const Settings: React.FC = () => {
                     });
                 }}
               >
-                {isScanningLibrary ? 'Scanning…' : 'Full Rescan'}
+                {fullScanning ? 'Scanning…' : 'Full Rescan'}
               </Button>
             </ListItem>
             <ListItem disableGutters>
@@ -839,7 +848,8 @@ const Settings: React.FC = () => {
                   removeConfirm={value => ({
                     title: 'Remove separator?',
                     message: `Remove "${value}" from the multi-artist separators?`,
-                    detail: 'Artist tags will no longer be split on this character after the next rescan.',
+                    detail:
+                      'Artist tags will no longer be split on this character after the next rescan.',
                     confirmLabel: 'Remove',
                     destructive: true,
                   })}
@@ -866,7 +876,8 @@ const Settings: React.FC = () => {
                   removeConfirm={value => ({
                     title: 'Remove exception?',
                     message: `Remove "${value}" from the artist name exceptions?`,
-                    detail: 'Multi-artist tags matching this name will be split again on the next rescan.',
+                    detail:
+                      'Multi-artist tags matching this name will be split again on the next rescan.',
                     confirmLabel: 'Remove',
                     destructive: true,
                   })}

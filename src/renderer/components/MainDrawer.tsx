@@ -67,6 +67,7 @@ interface CustomLinkProps {
   stat?: number;
   showStat?: boolean;
   menuExpanded?: boolean;
+  disabled?: boolean;
   [key: string]: unknown;
 }
 
@@ -168,7 +169,7 @@ const menuItems: MenuItem[] = [
 
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, scanProgress, libraryStats, isMenuExpanded } = state;
+  const { isScanningLibrary, isFullScan, scanProgress, libraryStats, isMenuExpanded } = state;
   const theme = useTheme();
 
   const toggleDrawer = () => {
@@ -176,11 +177,20 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
   };
 
   return (
-    <>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+      }}
+    >
       <List
         sx={{
           width: '100%',
           position: 'relative',
+          flex: 1,
+          minHeight: 0,
           overflow: 'auto',
           overflowX: 'hidden',
           p: 1,
@@ -211,10 +221,11 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             stat={item.statKey && libraryStats ? libraryStats[item.statKey] : undefined}
             showStat={isMenuExpanded}
             menuExpanded={isMenuExpanded}
+            disabled={isFullScan}
           />
         ))}
       </List>
-      <List sx={{ mt: 'auto', p: 1, overflow: 'hidden' }}>
+      <List sx={{ flexShrink: 0, p: 1, overflow: 'hidden' }}>
         {/* Scan progress banner */}
         <AnimatePresence>
           {isScanningLibrary && (
@@ -306,13 +317,14 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             iconActive: settingsActiveIcon,
           }}
           menuExpanded={isMenuExpanded}
+          disabled={isFullScan}
         />
       </List>
-    </>
+    </Box>
   );
 }
 
-function CustomLink({ item, stat, showStat, menuExpanded, ...props }: CustomLinkProps) {
+function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: CustomLinkProps) {
   const resolved = useResolvedPath(item.href);
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { dispatch } = useContext(store);
@@ -333,6 +345,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, ...props }: CustomLink
           className="no-drag"
           sx={{ borderRadius: 15, mb: 1 }}
           selected={!!match}
+          disabled={disabled}
           onClick={
             isPhone ? () => dispatch({ type: 'SET_MENU_EXPANDED', payload: false }) : undefined
           }
