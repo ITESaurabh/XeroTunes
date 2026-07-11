@@ -183,6 +183,8 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
         flexDirection: 'column',
         height: '100%',
         minHeight: 0,
+        opacity: state.isWindowFocused ? 1 : 0.75,
+        transition: state.isWindowFocused ? 'opacity 0.05s ease-out' : 'opacity 0.3s ease-out',
       }}
     >
       <List

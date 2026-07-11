@@ -112,6 +112,11 @@ const Titlebar = memo(() => {
 
   const hasRightControls = effectiveStyle === 'windows' || effectiveStyle === 'linux-kde';
 
+  const inactiveChromeSx = {
+    opacity: state.isWindowFocused ? 1 : 0.75,
+    transition: state.isWindowFocused ? 'opacity 0.05s ease-out' : 'opacity 0.3s ease-out',
+  };
+
   // Track how many PUSH entries are in our in-app history stack.
   const [navDepth, setNavDepth] = useState(0);
   const isFirstRender = useRef(true);
@@ -167,7 +172,7 @@ const Titlebar = memo(() => {
         <div className="tb-controls">
           {/* macOS fake traffic lights */}
           {effectiveStyle === 'mac-fake' && (
-            <div className="traffic-light">
+            <div className="traffic-light" style={inactiveChromeSx}>
               <div onClick={() => sendMessageToNode('closeWindow', null)} className="close-unix">
                 close
               </div>
@@ -183,7 +188,7 @@ const Titlebar = memo(() => {
             display={'flex'}
             alignItems={'center'}
             direction={'row'}
-            sx={{ '-webkit-app-region': 'no-drag' }}
+            sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
             ml={'0.5rem'}
           >
             <Button
@@ -206,7 +211,14 @@ const Titlebar = memo(() => {
           </Stack>
         </div>
 
-        <Stack display={'flex'} alignItems={'center'} direction={'row'} spacing={'0.5rem'} ml={1}>
+        <Stack
+          display={'flex'}
+          alignItems={'center'}
+          direction={'row'}
+          spacing={'0.5rem'}
+          ml={1}
+          sx={inactiveChromeSx}
+        >
           <AppIcon width={18} height={18} />
           <Typography
             sx={{
@@ -244,7 +256,7 @@ const Titlebar = memo(() => {
 
         {/* Windows style controls */}
         {effectiveStyle === 'windows' && (
-          <Box sx={{ '-webkit-app-region': 'no-drag', height: '100%' }}>
+          <Box sx={{ '-webkit-app-region': 'no-drag', height: '100%', ...inactiveChromeSx }}>
             <NavButtons onClick={() => sendMessageToNode('minimize', null)}>
               <Icon icon={minimizeIcon} />
             </NavButtons>
@@ -265,6 +277,7 @@ const Titlebar = memo(() => {
               mr: 0.28,
               gap: 1.6,
               '-webkit-app-region': 'no-drag',
+              ...inactiveChromeSx,
             }}
           >
             <Box
@@ -312,6 +325,7 @@ const Titlebar = memo(() => {
               '-webkit-app-region': 'no-drag',
               pr: 1,
               gap: '14px',
+              ...inactiveChromeSx,
             }}
           >
             <KdeButton onClick={() => sendMessageToNode('minimize', null)}>

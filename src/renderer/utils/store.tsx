@@ -88,6 +88,7 @@ export interface LibraryStats {
 export interface AppState {
   isLightTheme: boolean;
   isMaximized: boolean;
+  isWindowFocused: boolean;
   isMenuExpanded: boolean;
   path: string | null;
   track: QueueTrack | null;
@@ -114,6 +115,7 @@ export type AppAction =
   | { type: 'SET_THEME_MODE'; payload: ThemeMode }
   | { type: 'SET_TITLEBAR_STYLE'; payload: TitleBarStyle }
   | { type: 'SET_IS_MAXIMIZED'; payload: boolean }
+  | { type: 'SET_WINDOW_FOCUSED'; payload: boolean }
   | { type: 'SET_SEARCH_ENABLED'; payload: boolean }
   | { type: 'SET_MENU_EXPANDED'; payload: boolean }
   | { type: 'SET_QUEUE'; payload: { queue: Track[]; index?: number; source?: string | null } }
@@ -156,6 +158,7 @@ const initialState: AppState = (() => {
   return {
     isLightTheme: true,
     isMaximized: false,
+    isWindowFocused: typeof document !== 'undefined' ? document.hasFocus() : true,
     isMenuExpanded: typeof window !== 'undefined' ? window.innerWidth >= 960 : true,
     path: null,
     track: restoredTrack,
@@ -202,6 +205,10 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'SET_IS_MAXIMIZED': {
       return { ...state, isMaximized: action.payload };
+    }
+    case 'SET_WINDOW_FOCUSED': {
+      if (state.isWindowFocused === action.payload) return state;
+      return { ...state, isWindowFocused: action.payload };
     }
     case 'SET_SEARCH_ENABLED': {
       return { ...state, searchEnabled: action.payload };

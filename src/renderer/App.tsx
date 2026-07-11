@@ -53,6 +53,21 @@ const App = () => {
     });
   }, []);
 
+  useEffect(() => {
+    const setFocused = (focused: boolean) =>
+      dispatch({ type: 'SET_WINDOW_FOCUSED', payload: focused });
+    const handleFocus = () => setFocused(true);
+    const handleBlur = () => setFocused(false);
+    // Sync in case focus changed before this effect ran.
+    setFocused(document.hasFocus());
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [dispatch]);
+
   // Refresh library list queries when the main process reports new/updated files.
   // Only invalidate the specific list keys — never nuke the whole cache, which
   // would force every active view to refetch in parallel and flash empty states.
