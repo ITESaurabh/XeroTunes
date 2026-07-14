@@ -32,6 +32,22 @@ import { fetchArtistProfileImage } from '../modules/artistArts';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
 
+const TRACK_ARTIST_NAMES = `(
+        SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY ta.Id)
+        FROM TrackArtist ta
+        JOIN Artist ar ON ar.Id = ta.ArtistId
+        WHERE ta.TrackId = Track.Id
+      ) AS ArtistName`;
+
+function albumArtistNames(alias: string): string {
+  return `(
+        SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY aa.Id)
+        FROM AlbumArtist aa
+        JOIN Artist ar ON ar.Id = aa.ArtistId
+        WHERE aa.AlbumId = Album.Id
+      ) AS ${alias}`;
+}
+
 function ensureAppConfFolder() {
   if (!fs.existsSync(APP_CONF_FOLDER)) {
     fs.mkdirSync(APP_CONF_FOLDER, { recursive: true });
@@ -839,12 +855,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Track.Duration,
           Track.AlbumId,
           Track.FolderPath,
-          GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+          ${TRACK_ARTIST_NAMES},
           Album.Title AS AlbumTitle,
           Genre.Name AS GenreName
         FROM Track
-        LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-        LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
         LEFT JOIN Album ON Track.AlbumId = Album.Id
         LEFT JOIN Genre ON Track.GenreId = Genre.Id
         WHERE Track.FolderPath = ?
@@ -879,12 +893,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.AlbumId,
         Track.FolderPath,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       WHERE Track.FolderPath = ? OR Track.FolderPath LIKE ?
@@ -938,12 +950,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.AlbumId,
         Track.GenreId,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       GROUP BY Track.Id
@@ -968,12 +978,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.AlbumId,
         Track.DateAdded,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       GROUP BY Track.Id
@@ -996,11 +1004,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           MIN(CAST(Track.ReleaseYear AS INTEGER)),
           MIN(CAST(Track.Year AS INTEGER))
         ) AS ReleaseYear,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${albumArtistNames('ArtistName')},
         COUNT(Track.Id) AS SongCount
       FROM Album
-      LEFT JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
-      LEFT JOIN Artist AS Artist2 ON AlbumArtist.ArtistId = Artist2.Id
       LEFT JOIN Track ON Album.Id = Track.AlbumId
       GROUP BY Album.Id
       ORDER BY Album.Title COLLATE NOCASE
@@ -1029,8 +1035,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.TrackNumber,
         Track.AlbumArt,
         Track.Duration,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
-        GROUP_CONCAT(DISTINCT AlbumArtist2.Name) AS AlbumArtistName,
+        ${TRACK_ARTIST_NAMES},
+        ${albumArtistNames('AlbumArtistName')},
         Album.Title AS AlbumTitle,
         Album.Id AS AlbumId,
         Genre.Name AS GenreName
@@ -1038,8 +1044,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
       JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
-      LEFT JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
-      LEFT JOIN Artist AS AlbumArtist2 ON AlbumArtist.ArtistId = AlbumArtist2.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       WHERE Track.AlbumId = ?
       GROUP BY Track.Id
@@ -1086,12 +1090,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.AlbumArt,
         Track.Duration,
         Track.AlbumId,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       WHERE Track.GenreId = ?
@@ -1135,12 +1137,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.AlbumId,
         Track.GenreId,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
       FROM Track
-      LEFT JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      LEFT JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
       LEFT JOIN Album ON Track.AlbumId = Album.Id
       LEFT JOIN Genre ON Track.GenreId = Genre.Id
       WHERE Track.Year = ?
@@ -1361,7 +1361,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.TrackNumber,
         Track.AlbumArt,
         Track.Duration,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Album.Id AS AlbumId,
         Genre.Name AS GenreName
@@ -1475,7 +1475,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.TrackNumber,
         Track.AlbumArt,
         Track.Duration,
-        GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+        ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Album.Id AS AlbumId,
         Genre.Name AS GenreName
@@ -1564,7 +1564,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Track.TrackNumber,
           Track.AlbumArt,
           Track.Duration,
-          GROUP_CONCAT(DISTINCT Artist2.Name) AS ArtistName,
+          ${TRACK_ARTIST_NAMES},
           Album.Id AS AlbumId,
           Album.Title AS AlbumTitle,
           Genre.Name AS GenreName

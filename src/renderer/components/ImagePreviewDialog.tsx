@@ -72,7 +72,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           boxShadow: 'none',
           border: 'none',
           overflow: 'visible',
-          maxWidth: '50%',
+          maxWidth: { xs: '92vw', md: '50%' },
           gap: 1,
         },
       }}
