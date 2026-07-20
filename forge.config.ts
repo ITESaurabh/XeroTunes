@@ -24,10 +24,10 @@ const config: ForgeConfig = {
           ]
         : './src/assets/logo/XeroTunesLogo',
 
-    executableName: 'xero-music-player',
+    executableName: 'xerotunes',
     asar: true,
     appCategoryType: 'public.app-category.music',
-    name: 'Xero Music Player',
+    name: 'XeroTunes',
     // Loose-shipped so the AUMID registration in src/index.ts can point
     // SMTC at a real file path (asar:// paths don't render).
     extraResource: [
@@ -38,7 +38,7 @@ const config: ForgeConfig = {
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      name: 'xero-music-player',
+      name: 'xerotunes',
       iconUrl: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
@@ -46,7 +46,7 @@ const config: ForgeConfig = {
     new MakerZIP({}, ['darwin']),
     new MakerDeb({
       options: {
-        name: 'xero-music-player',
+        name: 'xerotunes',
         section: 'sound',
         genericName: 'Music Player',
         categories: ['Audio'],
@@ -55,14 +55,14 @@ const config: ForgeConfig = {
     }),
     new MakerRpm({
       options: {
-        name: 'xero-music-player',
+        name: 'xerotunes',
         genericName: 'Music Player',
         categories: ['Audio'],
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
     new MakerDMG({
-      name: 'Xero Music Player',
+      name: 'XeroTunes',
       background: './src/assets/dmg-bg/background.tiff',
       // background: path.resolve(__dirname, 'src/assets/dmg-bg/bg.png'),
       additionalDMGOptions: {

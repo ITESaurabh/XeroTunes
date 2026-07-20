@@ -3,7 +3,7 @@ import minimist from 'minimist';
 import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import mainIpcs from './main/utils/mainProcess';
+import mainIpcs, { registerSettingsIpc } from './main/utils/mainProcess';
 import { OS_WINDOWS } from './config/constants';
 import os from 'os';
 const currOS = os.type();
@@ -46,8 +46,8 @@ function handleSquirrelEvent(): boolean {
     case '--squirrel-updated': {
       run(`"${updateExe}" --createShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
 
-      const ctxRoot = 'HKCU\\Software\\Classes\\*\\shell\\XeroMusicPlayer';
-      regWrite(ctxRoot, null, 'Open with Xero Music Player');
+      const ctxRoot = 'HKCU\\Software\\Classes\\*\\shell\\XeroTunes';
+      regWrite(ctxRoot, null, 'Open with XeroTunes');
       regWrite(ctxRoot, 'Icon', exePath);
       regWrite(`${ctxRoot}\\command`, null, `"${exePath}" "%1"`);
 
@@ -55,7 +55,7 @@ function handleSquirrelEvent(): boolean {
       // flyout. IconUri needs a real image file (the EXE renders a placeholder).
       const aumidRoot = 'HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp';
       const iconPath = path.join(path.dirname(exePath), 'resources', 'XeroTunesLogo.ico');
-      regWrite(aumidRoot, 'DisplayName', 'Xero Music Player');
+      regWrite(aumidRoot, 'DisplayName', 'XeroTunes');
       regWrite(aumidRoot, 'IconUri', fs.existsSync(iconPath) ? iconPath : exePath);
 
       app.quit();
@@ -64,7 +64,7 @@ function handleSquirrelEvent(): boolean {
 
     case '--squirrel-uninstall': {
       run(`"${updateExe}" --removeShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
-      regDelete('HKCU\\Software\\Classes\\*\\shell\\XeroMusicPlayer');
+      regDelete('HKCU\\Software\\Classes\\*\\shell\\XeroTunes');
       regDelete('HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp');
       app.quit();
       return true;
@@ -84,7 +84,7 @@ if (handleSquirrelEvent()) {
 
 // Display name used by macOS menu bar, Linux MPRIS Identity, and various OS
 // surfaces that don't read package.json's productName at runtime.
-app.setName('Xero Music Player');
+app.setName('XeroTunes');
 
 app.setAppUserModelId('com.itesaurabh.xmp');
 
@@ -138,6 +138,11 @@ app.on('second-instance', (_event, commandLine) => {
   }
 });
 
+// Settings IPC must exist in both modes — the mini player (--file launch)
+// never calls mainIpcs, which used to leave these handlers unregistered.
+// Registered here (not in createWindow) so macOS 'activate' can't double it.
+registerSettingsIpc();
+
 const createWindow = () => {
   loadingWin = new BrowserWindow({
     show: false,
@@ -190,10 +195,13 @@ const createWindow = () => {
         if (currOS === OS_WINDOWS) {
           miniWin!.setAppDetails({
             appId: 'com.itesaurabh.xmp',
-            relaunchDisplayName: 'Xero Mini Player',
+            relaunchDisplayName: 'XeroTunes Mini',
           });
         }
-        miniWin?.webContents.once('dom-ready', () => {
+        // Wait for the renderer to mount its play-mini listener before sending
+        // the track — dom-ready fires before React effects run, so sending
+        // there can drop the message and leave the player empty.
+        ipcMain.once('mini-player-ready', () => {
           miniWin!.show();
           miniWin!.webContents.send('play-mini', path.resolve(parsedArgs['file']));
           loadingWin!.hide();
@@ -260,7 +268,7 @@ const createWindow = () => {
     if (currOS === OS_WINDOWS) {
       mainWin!.setAppDetails({
         appId: 'com.itesaurabh.xmp',
-        relaunchDisplayName: 'Xero Music Player',
+        relaunchDisplayName: 'XeroTunes',
       });
     }
     mainWin!.once('ready-to-show', () => {

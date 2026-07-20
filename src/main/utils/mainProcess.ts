@@ -102,6 +102,18 @@ function writeSettingsFile(settings: AppSettings) {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
+// Registered separately from mainIpcs: the mini player (--file launch) runs
+// without a main window, but its renderer still reads/writes settings.
+export function registerSettingsIpc() {
+  ipcMain.on('read-app-settings-sync', event => {
+    event.returnValue = readSettingsFile();
+  });
+  ipcMain.on('write-app-settings-sync', (event, settings) => {
+    writeSettingsFile(settings);
+    event.returnValue = settings;
+  });
+}
+
 function sendMessageToRendererProcess(
   window: BrowserWindow,
   message: string,
@@ -241,13 +253,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
   ipcMain.handle('get-dark-mode', () => {
     return nativeTheme.shouldUseDarkColors;
-  });
-  ipcMain.on('read-app-settings-sync', event => {
-    event.returnValue = readSettingsFile();
-  });
-  ipcMain.on('write-app-settings-sync', (event, settings) => {
-    writeSettingsFile(settings);
-    event.returnValue = settings;
   });
   ipcMain.handle('set-window-scale', (_e, { scale }: { scale: number }) => {
     const safe = clampWindowScale(scale);

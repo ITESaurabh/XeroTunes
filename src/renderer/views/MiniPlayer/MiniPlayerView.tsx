@@ -212,7 +212,7 @@ export default function MiniPlayerView(): React.ReactElement {
           }}
         >
           <Typography fontSize={'0.875rem'} color={theme.palette.primary.main} fontWeight={500}>
-            {APP_NAME}
+            {APP_NAME} Mini
           </Typography>
           <Box
             display={'flex'}

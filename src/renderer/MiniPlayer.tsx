@@ -45,7 +45,7 @@ const App = () => {
 root.render(
   <React.StrictMode>
     <StateProvider>
-      <IpcProvider>
+      <IpcProvider mini>
         <App />
       </IpcProvider>
     </StateProvider>

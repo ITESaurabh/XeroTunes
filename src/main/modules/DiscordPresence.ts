@@ -94,7 +94,7 @@ function applyActivity(data: NowPlayingData) {
     state: stateStr || undefined,
     // Large image = app logo; tooltip shows album name like Spotify shows album art tooltip
     largeImageKey: 'app_icon',
-    largeImageText: 'Xero Music Player',
+    largeImageText: 'XeroTunes',
     // Small badge = play / pause indicator
     smallImageKey: data.isPlaying ? 'playing' : 'paused',
     smallImageText: data.isPlaying ? 'Playing' : 'Paused',

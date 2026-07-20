@@ -19,14 +19,17 @@ export const useIpc = (): IpcContextValue => {
 
 interface IpcProviderProps {
   children: ReactNode;
+  // The mini player runs without mainIpcs, so scan/library handlers don't
+  // exist there — invoking them just logs "No handler registered" errors.
+  mini?: boolean;
 }
 
-export const IpcProvider = ({ children }: IpcProviderProps) => {
+export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
   const { dispatch } = useContext(store);
 
   // Sync scan state on mount — the auto-scan may have started before React mounted
-  // Note: these handlers are only registered in the main window context, not the mini player.
   useEffect(() => {
+    if (mini) return;
     ipcRenderer
       .invoke('get-scan-status')
       .then((res: unknown) => {
@@ -52,6 +55,9 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
     };
 
     ipcRenderer.on('play-mini', handleIpcMessage);
+    // Tells main the listener is mounted so it can deliver the launch file.
+    // Harmless in the main window — nothing listens for it there.
+    ipcRenderer.send('mini-player-ready');
     return () => {
       ipcRenderer.removeAllListeners('play-mini');
     };
@@ -70,6 +76,7 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
   });
 
   useEffect(() => {
+    if (mini) return;
     const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: 'basic' | 'full') => {
       dispatch({
         type: 'SET_SCANNING',

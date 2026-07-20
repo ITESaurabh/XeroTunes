@@ -1,4 +1,4 @@
-export const APP_NAME = 'Xero Music Player';
+export const APP_NAME = 'XeroTunes';
 export const APP_VERSION: string | undefined = process.env.REACT_APP_VERSION;
 export const APP_EDITION = 'Beta';
 export const ORG_NAME = 'ITESoftcare';
