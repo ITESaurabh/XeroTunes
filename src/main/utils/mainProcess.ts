@@ -26,6 +26,7 @@ import {
   MUSIC_DIR,
   ALBUM_ART_DIR,
   ARTIST_ART_DIR,
+  FIRSTRUN_FILE,
 } from '../../config/core_config';
 import { AppSettings, DEFAULT_APP_SETTINGS, clampWindowScale } from '../../config/app_settings';
 import { fetchArtistProfileImage } from '../modules/artistArts';
@@ -111,6 +112,32 @@ export function registerSettingsIpc() {
   ipcMain.on('write-app-settings-sync', (event, settings) => {
     writeSettingsFile(settings);
     event.returnValue = settings;
+  });
+
+  ipcMain.on('get-onboarding-status', event => {
+    event.returnValue = fs.existsSync(FIRSTRUN_FILE);
+  });
+  ipcMain.on('complete-onboarding', (event, meta) => {
+    ensureAppConfFolder();
+    const payload = {
+      version: app.getVersion(),
+      completedAt: Date.now(),
+      ...(meta && typeof meta === 'object' ? meta : {}),
+    };
+    try {
+      fs.writeFileSync(FIRSTRUN_FILE, JSON.stringify(payload, null, 2));
+    } catch (error) {
+      console.warn('Failed to write firstrun file:', error);
+    }
+    event.returnValue = true;
+  });
+  ipcMain.on('reset-onboarding', event => {
+    try {
+      if (fs.existsSync(FIRSTRUN_FILE)) fs.unlinkSync(FIRSTRUN_FILE);
+    } catch (error) {
+      console.warn('Failed to remove firstrun file:', error);
+    }
+    event.returnValue = true;
   });
 }
 
@@ -714,7 +741,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return { confirmed: result.response === 0 };
   });
 
-  ipcMain.handle('add-music-folder', async e => {
+  ipcMain.handle('add-music-folder', async (e, opts?: { skipScan?: boolean }) => {
     const result = await dialog.showOpenDialog(mainWin, {
       title: 'Select Music Folder',
       properties: ['openDirectory'],
@@ -734,8 +761,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     );
     stmt.run(folderPath, folderName, stats.mtimeMs, itemsCount, 1);
 
-    // Auto-scan the new folder immediately
-    spawnScanWorker('basic').catch(err => console.error('[add-folder] Scan error:', err));
+    // Onboarding adds folders up front then scans once itself, so it opts out here.
+    if (!opts?.skipScan) {
+      spawnScanWorker('basic').catch(err => console.error('[add-folder] Scan error:', err));
+    }
 
     return {
       success: true,
@@ -921,11 +950,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     const remaining = db.prepare('SELECT COUNT(*) AS cnt FROM MusicFolder').get() as {
       cnt: number;
     };
-    if (remaining.cnt === 0) {
+    const wiped = remaining.cnt === 0;
+    if (wiped) {
       db.prepare('DELETE FROM Track').run();
       db.prepare('DELETE FROM Album').run();
       db.prepare('DELETE FROM Artist').run();
       db.prepare('DELETE FROM Genre').run();
+      // The artist / album-artist stats count these join tables directly.
+      db.prepare('DELETE FROM TrackArtist').run();
+      db.prepare('DELETE FROM AlbumArtist').run();
       // Remove all saved album art files
       try {
         const files = fs.readdirSync(ALBUM_ART_DIR);
@@ -937,7 +970,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       }
     }
 
-    return { success: true };
+    // Removal runs no scan, so tell the renderer to refresh caches/stats itself;
+    // `wiped` also signals it to drop the now-dangling playback queue.
+    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: wiped ? 1 : 0, wiped });
+
+    return { success: true, wiped };
   });
 
   ipcMain.handle('get-all-songs', () => {

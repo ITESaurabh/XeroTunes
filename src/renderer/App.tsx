@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
-import { getThemeSettings } from './utils/LocStoreUtil';
+import { getThemeSettings, getOnboardingComplete } from './utils/LocStoreUtil';
+import Onboarding from './views/Onboarding';
 import { useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
@@ -30,6 +31,7 @@ const queryClient = new QueryClient({
 const App = () => {
   const { state, dispatch } = useContext(store);
   const [systemIsDark, setSystemIsDark] = useState(true);
+  const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete());
   const themeSettings = getThemeSettings();
 
   // console.log('Re Render Core');
@@ -51,6 +53,11 @@ const App = () => {
     ipcRenderer.invoke('get-dark-mode').then(darkMode => {
       setSystemIsDark(darkMode);
     });
+    // Follow OS light/dark changes at runtime for the Auto theme.
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
   useEffect(() => {
@@ -113,8 +120,12 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Titlebar />
-        {element}
+        <Titlebar minimal={!onboardingComplete} />
+        {onboardingComplete ? (
+          element
+        ) : (
+          <Onboarding onFinish={() => setOnboardingComplete(true)} />
+        )}
       </ThemeProvider>
     </QueryClientProvider>
   );

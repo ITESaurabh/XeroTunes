@@ -89,9 +89,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     ) => {
       dispatch({ type: 'SET_SCAN_PROGRESS', payload: arg });
     };
-    const handleScanEnd = () => {
-      dispatch({ type: 'SET_SCANNING', payload: { isScanning: false } });
-      // Refresh stats after scan completes
+    const refreshStats = () => {
       ipcRenderer
         .invoke('get-library-stats')
         .then((res: unknown) => {
@@ -99,14 +97,29 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
         })
         .catch(() => undefined);
     };
+    const handleScanEnd = () => {
+      dispatch({ type: 'SET_SCANNING', payload: { isScanning: false } });
+      refreshStats();
+    };
+
+    // Non-scan mutations (e.g. folder removal) fire this without a scan-end.
+    const handleLibraryUpdated = (
+      _event: Electron.IpcRendererEvent,
+      payload?: { wiped?: boolean }
+    ) => {
+      refreshStats();
+      if (payload?.wiped) dispatch({ type: 'RESET_PLAYBACK' });
+    };
 
     ipcRenderer.on('scan-start', handleScanStart);
     ipcRenderer.on('scan-progress', handleScanProgress);
     ipcRenderer.on('scan-end', handleScanEnd);
+    ipcRenderer.on('library-updated', handleLibraryUpdated);
     return () => {
       ipcRenderer.removeListener('scan-start', handleScanStart);
       ipcRenderer.removeListener('scan-progress', handleScanProgress);
       ipcRenderer.removeListener('scan-end', handleScanEnd);
+      ipcRenderer.removeListener('library-updated', handleLibraryUpdated);
     };
   }, []);
 

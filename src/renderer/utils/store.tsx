@@ -132,7 +132,8 @@ export type AppAction =
   | { type: 'SET_SHUFFLE'; payload: boolean }
   | { type: 'SET_SCANNING'; payload: { isScanning: boolean; isFullScan?: boolean } }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
-  | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats };
+  | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats }
+  | { type: 'RESET_PLAYBACK' };
 
 export interface StoreContextValue {
   state: AppState;
@@ -314,6 +315,20 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'SET_LIBRARY_STATS': {
       return { ...state, libraryStats: action.payload };
+    }
+    case 'RESET_PLAYBACK': {
+      // Clear the persisted queue too, so no track lingers across reloads.
+      setQueueState([], 0, null, null);
+      return {
+        ...state,
+        queue: [],
+        queueIndex: 0,
+        originalOrder: [],
+        track: null,
+        isPlaying: false,
+        position: 0,
+        queueSource: null,
+      };
     }
     case 'SET_SHUFFLE': {
       setPlaybackShuffle(!!action.payload);

@@ -96,7 +96,12 @@ const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
   '&:hover': { filter: hoverFilter },
 });
 
-const Titlebar = memo(() => {
+interface TitlebarProps {
+  /** Onboarding chrome: window controls only — no nav menu or back button. */
+  minimal?: boolean;
+}
+
+const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
   const currOs = os.type();
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const theme = useTheme();
@@ -140,7 +145,7 @@ const Titlebar = memo(() => {
 
   return (
     <>
-      {isPhone && (
+      {isPhone && !minimal && (
         <Drawer
           open={state.isMenuExpanded}
           PaperProps={{
@@ -191,15 +196,17 @@ const Titlebar = memo(() => {
             sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
             ml={'0.5rem'}
           >
-            <Button
-              disabled={!canGoBack}
-              onClick={() => navigate(-1)}
-              sx={{ minWidth: '2.5rem', borderRadius: '0.4rem' }}
-              size="small"
-            >
-              <Icon icon={arrowleftIcon} height="1.4em" />
-            </Button>
-            {isPhone && (
+            {!minimal && (
+              <Button
+                disabled={!canGoBack}
+                onClick={() => navigate(-1)}
+                sx={{ minWidth: '2.5rem', borderRadius: '0.4rem' }}
+                size="small"
+              >
+                <Icon icon={arrowleftIcon} height="1.4em" />
+              </Button>
+            )}
+            {isPhone && !minimal && (
               <Button
                 onClick={toggleDrawer}
                 sx={{ minWidth: '2.5rem', borderRadius: '0.4rem' }}

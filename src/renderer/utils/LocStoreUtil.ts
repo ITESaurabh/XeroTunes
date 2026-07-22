@@ -39,6 +39,31 @@ export function resetApp(): void {
   writeQueueState(null);
 }
 
+export function getOnboardingComplete(): boolean {
+  try {
+    return ipcRenderer.sendSync('get-onboarding-status') === true;
+  } catch {
+    // On error, skip onboarding rather than trapping the user in it.
+    return true;
+  }
+}
+
+export function completeOnboarding(meta?: { skipped?: boolean }): void {
+  try {
+    ipcRenderer.sendSync('complete-onboarding', meta ?? {});
+  } catch {
+    /* ignore */
+  }
+}
+
+export function resetOnboarding(): void {
+  try {
+    ipcRenderer.sendSync('reset-onboarding');
+  } catch {
+    /* ignore */
+  }
+}
+
 function parseSettingsObject(raw: unknown): AppSettings {
   if (!raw) return DEFAULT_APP_SETTINGS;
 

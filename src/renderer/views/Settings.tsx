@@ -911,7 +911,6 @@ const Settings: React.FC = () => {
               />
               <Select
                 size="small"
-                disabled
                 value={themeMode}
                 onChange={e => handleThemeModeChange(Number(e.target.value) as ThemeMode)}
                 sx={{ minWidth: 130, mr: 0.5 }}
