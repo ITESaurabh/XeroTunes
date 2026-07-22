@@ -21,14 +21,18 @@ runs.
 
 ## Cutting a release
 
-1. Bump `version` in `package.json` and commit.
-2. Tag and push:
-   ```
-   git tag v0.10.0        # or v0.10.0-beta.1 for beta
-   git push origin v0.10.0
-   ```
-3. The workflow builds on Windows, macOS, and Linux and uploads installers to a
-   GitHub Release matching the tag.
+The tag is authoritative: CI sets the build version from it (`npm version` in the
+workflow), so the release always matches the tag. No need to bump `package.json`
+first — though keeping it roughly in sync is fine for local dev.
+
+```
+git tag v0.10.0            # stable, from main
+git tag v0.10.0-beta.1     # beta, from development
+git push origin v0.10.0
+```
+
+The workflow builds on Windows, macOS, and Linux and uploads installers to a
+GitHub Release named after the tag.
 
 ## Secrets per channel
 

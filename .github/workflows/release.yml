@@ -81,6 +81,15 @@ jobs:
       - name: Enable Corepack
         run: corepack enable
 
+      # The GitHub publisher names the release after package.json's version, not
+      # the git tag. Sync them so the tag you push is the release you get.
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Building version $VERSION"
+
       - name: Install dependencies
         run: yarn install --immutable
 
