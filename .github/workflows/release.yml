@@ -12,7 +12,32 @@ permissions:
   contents: write
 
 jobs:
+  # Tags aren't tied to a branch. Stable releases must come from main, beta
+  # prereleases (hyphen tags) from development.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require tag to be on its channel's branch
+        run: |
+          if [[ "${{ github.ref_name }}" == *-* ]]; then
+            branch=development
+          else
+            branch=main
+          fi
+          git fetch origin "$branch"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+            echo "::error::Tag ${{ github.ref_name }} ($GITHUB_SHA) is not on $branch; refusing to release."
+            exit 1
+          fi
+
   release:
+    needs: guard
+    # Selects which set of environment secrets (DISCORD_CLIENT_ID, ...) to use.
+    # Beta tags read the "beta" environment, stable tags "production".
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
     strategy:
       fail-fast: false
       matrix:

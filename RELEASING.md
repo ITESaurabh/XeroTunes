@@ -15,6 +15,10 @@ The tag shape picks the channel:
 
 A tag containing a hyphen is treated as a prerelease.
 
+Each channel's tag must be on its branch — stable on `main`, beta on
+`development`. A tag on the wrong branch fails the guard job before any build
+runs.
+
 ## Cutting a release
 
 1. Bump `version` in `package.json` and commit.
@@ -26,11 +30,17 @@ A tag containing a hyphen is treated as a prerelease.
 3. The workflow builds on Windows, macOS, and Linux and uploads installers to a
    GitHub Release matching the tag.
 
-## Required repository secret
+## Secrets per channel
 
-- `DISCORD_CLIENT_ID` — injected at build time via `dotenv-webpack`
-  (`systemvars: true`), replacing the gitignored `.env.*` files that supply it
-  locally. `GITHUB_TOKEN` is provided automatically by Actions.
+Channel-specific values live in two GitHub **Environments**, `beta` and
+`production`. The release job selects one from the tag, so the same secret name
+resolves to a different value per channel:
+
+- `DISCORD_CLIENT_ID` — set once in each environment. Injected at build time via
+  `dotenv-webpack` (`systemvars: true`), replacing the gitignored `.env.*` files
+  that supply it locally.
+
+`GITHUB_TOKEN` is provided automatically by Actions and is not per-channel.
 
 ## Auto-update
 
