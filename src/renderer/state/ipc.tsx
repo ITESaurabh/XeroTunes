@@ -1,4 +1,4 @@
-import React, { useEffect, useContext, createContext, ReactNode } from 'react';
+import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 'react';
 import { store, LibraryStats } from '../utils/store';
 import { debounce } from '../utils/misc';
 
@@ -19,21 +19,34 @@ export const useIpc = (): IpcContextValue => {
 
 interface IpcProviderProps {
   children: ReactNode;
+  // The mini player runs without mainIpcs, so scan/library handlers don't
+  // exist there — invoking them just logs "No handler registered" errors.
+  mini?: boolean;
 }
 
-export const IpcProvider = ({ children }: IpcProviderProps) => {
+export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
   const { dispatch } = useContext(store);
 
   // Sync scan state on mount — the auto-scan may have started before React mounted
   useEffect(() => {
-    ipcRenderer.invoke('get-scan-status').then((res: unknown) => {
-      const status = res as { isScanning: boolean };
-      dispatch({ type: 'SET_SCANNING', payload: status.isScanning });
-    });
+    if (mini) return;
+    ipcRenderer
+      .invoke('get-scan-status')
+      .then((res: unknown) => {
+        const status = res as { isScanning: boolean; isFullScan?: boolean };
+        dispatch({
+          type: 'SET_SCANNING',
+          payload: { isScanning: status.isScanning, isFullScan: status.isFullScan },
+        });
+      })
+      .catch(() => undefined);
     // Fetch initial library stats
-    ipcRenderer.invoke('get-library-stats').then((res: unknown) => {
-      dispatch({ type: 'SET_LIBRARY_STATS', payload: res as LibraryStats });
-    });
+    ipcRenderer
+      .invoke('get-library-stats')
+      .then((res: unknown) => {
+        dispatch({ type: 'SET_LIBRARY_STATS', payload: res as LibraryStats });
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -42,6 +55,9 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
     };
 
     ipcRenderer.on('play-mini', handleIpcMessage);
+    // Tells main the listener is mounted so it can deliver the launch file.
+    // Harmless in the main window — nothing listens for it there.
+    ipcRenderer.send('mini-player-ready');
     return () => {
       ipcRenderer.removeAllListeners('play-mini');
     };
@@ -60,41 +76,66 @@ export const IpcProvider = ({ children }: IpcProviderProps) => {
   });
 
   useEffect(() => {
-    const handleScanStart = () => {
-      dispatch({ type: 'SET_SCANNING', payload: true });
+    if (mini) return;
+    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: 'basic' | 'full') => {
+      dispatch({
+        type: 'SET_SCANNING',
+        payload: { isScanning: true, isFullScan: mode === 'full' },
+      });
     };
-    const handleScanProgress = (_event: Electron.IpcRendererEvent, arg: { scanned: number; total: number; processed: number }) => {
+    const handleScanProgress = (
+      _event: Electron.IpcRendererEvent,
+      arg: { scanned: number; total: number; processed: number }
+    ) => {
       dispatch({ type: 'SET_SCAN_PROGRESS', payload: arg });
     };
+    const refreshStats = () => {
+      ipcRenderer
+        .invoke('get-library-stats')
+        .then((res: unknown) => {
+          dispatch({ type: 'SET_LIBRARY_STATS', payload: res as LibraryStats });
+        })
+        .catch(() => undefined);
+    };
     const handleScanEnd = () => {
-      dispatch({ type: 'SET_SCANNING', payload: false });
-      // Refresh stats after scan completes
-      ipcRenderer.invoke('get-library-stats').then((res: unknown) => {
-        dispatch({ type: 'SET_LIBRARY_STATS', payload: res as LibraryStats });
-      });
+      dispatch({ type: 'SET_SCANNING', payload: { isScanning: false } });
+      refreshStats();
+    };
+
+    // Non-scan mutations (e.g. folder removal) fire this without a scan-end.
+    const handleLibraryUpdated = (
+      _event: Electron.IpcRendererEvent,
+      payload?: { wiped?: boolean }
+    ) => {
+      refreshStats();
+      if (payload?.wiped) dispatch({ type: 'RESET_PLAYBACK' });
     };
 
     ipcRenderer.on('scan-start', handleScanStart);
     ipcRenderer.on('scan-progress', handleScanProgress);
     ipcRenderer.on('scan-end', handleScanEnd);
+    ipcRenderer.on('library-updated', handleLibraryUpdated);
     return () => {
       ipcRenderer.removeListener('scan-start', handleScanStart);
       ipcRenderer.removeListener('scan-progress', handleScanProgress);
       ipcRenderer.removeListener('scan-end', handleScanEnd);
+      ipcRenderer.removeListener('library-updated', handleLibraryUpdated);
     };
   }, []);
 
-  const sendEventToMainProcess = (event: string, payload: unknown): void => {
-    ipcRenderer.send(event, payload);
-  };
-
-  const invokeEventToMainProcess = (event: string, payload: unknown): Promise<unknown> => {
-    return ipcRenderer.invoke(event, payload);
-  };
-
-  return (
-    <IpcContext.Provider value={{ sendEventToMainProcess, invokeEventToMainProcess }}>
-      {children}
-    </IpcContext.Provider>
+  // Memoize so consumers using these as effect deps don't re-fire on every
+  // store dispatch (provider re-renders → new fn refs → cascading effect runs).
+  const value = useMemo<IpcContextValue>(
+    () => ({
+      sendEventToMainProcess: (event: string, payload: unknown): void => {
+        ipcRenderer.send(event, payload);
+      },
+      invokeEventToMainProcess: (event: string, payload: unknown): Promise<unknown> => {
+        return ipcRenderer.invoke(event, payload);
+      },
+    }),
+    []
   );
+
+  return <IpcContext.Provider value={value}>{children}</IpcContext.Provider>;
 };

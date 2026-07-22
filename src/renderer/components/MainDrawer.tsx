@@ -12,6 +12,11 @@ import {
   LinearProgress,
   Typography,
   CircularProgress,
+  Tooltip,
+  Zoom,
+  styled,
+  TooltipProps,
+  tooltipClasses,
 } from '@mui/material';
 import SearchBar from './SearchBar';
 import { Link, useMatch, useResolvedPath } from 'react-router';
@@ -36,6 +41,8 @@ import genresIcon from '@iconify/icons-fluent/guitar-24-regular';
 import genresActiveIcon from '@iconify/icons-fluent/guitar-24-filled';
 import yearsIcon from '@iconify/icons-fluent/timer-24-regular';
 import yearsActiveIcon from '@iconify/icons-fluent/timer-24-filled';
+import recentIcon from '@iconify/icons-fluent/add-circle-24-regular';
+import recentActiveIcon from '@iconify/icons-fluent/add-circle-24-filled';
 import settingsIcon from '@iconify/icons-fluent/settings-24-regular';
 import settingsActiveIcon from '@iconify/icons-fluent/settings-24-filled';
 import { store, LibraryStats } from '../utils/store';
@@ -59,8 +66,24 @@ interface CustomLinkProps {
   item: MenuItem;
   stat?: number;
   showStat?: boolean;
+  menuExpanded?: boolean;
+  disabled?: boolean;
   [key: string]: unknown;
 }
+
+const MenuTooltip = styled(({ className, ...props }: TooltipProps) => (
+  <Tooltip {...props} classes={{ popper: className }} />
+))(({ theme }) => ({
+  [`& .${tooltipClasses.tooltip}`]: {
+    backgroundColor: theme.palette.background.paper,
+    color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.87)' : 'rgba(0, 0, 0, 0.87)',
+    boxShadow: theme.shadows[1],
+    fontSize: 16,
+    borderRadius: 50,
+    margin: 0,
+    paddingInline: 16,
+  },
+}));
 
 const menuItems: MenuItem[] = [
   {
@@ -82,8 +105,15 @@ const menuItems: MenuItem[] = [
     href: '/main_window/playlists',
     icon: playlistIcon,
     iconActive: playlistActiveIcon,
-    divider: true,
     statKey: 'playlists',
+  },
+  {
+    title: 'Recently Added',
+    href: '/main_window/recently-added',
+    icon: recentIcon,
+    iconActive: recentActiveIcon,
+    divider: true,
+    statKey: 'recentlyAdded',
   },
   {
     title: 'Albums',
@@ -139,7 +169,7 @@ const menuItems: MenuItem[] = [
 
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, scanProgress, libraryStats, isMenuExpanded } = state;
+  const { isScanningLibrary, isFullScan, scanProgress, libraryStats, isMenuExpanded } = state;
   const theme = useTheme();
 
   const toggleDrawer = () => {
@@ -147,12 +177,24 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
   };
 
   return (
-    <>
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        minHeight: 0,
+        opacity: state.isWindowFocused ? 1 : 0.75,
+        transition: state.isWindowFocused ? 'opacity 0.05s ease-out' : 'opacity 0.3s ease-out',
+      }}
+    >
       <List
         sx={{
           width: '100%',
           position: 'relative',
+          flex: 1,
+          minHeight: 0,
           overflow: 'auto',
+          overflowX: 'hidden',
           p: 1,
           '& ul': { padding: 0 },
           '&::-webkit-scrollbar': { display: 'none' },
@@ -180,10 +222,12 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             item={item}
             stat={item.statKey && libraryStats ? libraryStats[item.statKey] : undefined}
             showStat={isMenuExpanded}
+            menuExpanded={isMenuExpanded}
+            disabled={isFullScan}
           />
         ))}
       </List>
-      <List sx={{ mt: 'auto', p: 1 }}>
+      <List sx={{ flexShrink: 0, p: 1, overflow: 'hidden' }}>
         {/* Scan progress banner */}
         <AnimatePresence>
           {isScanningLibrary && (
@@ -274,54 +318,67 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             icon: settingsIcon,
             iconActive: settingsActiveIcon,
           }}
+          menuExpanded={isMenuExpanded}
+          disabled={isFullScan}
         />
       </List>
-    </>
+    </Box>
   );
 }
 
-function CustomLink({ item, stat, showStat, ...props }: CustomLinkProps) {
+function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: CustomLinkProps) {
   const resolved = useResolvedPath(item.href);
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { dispatch } = useContext(store);
-  const match = useMatch({ path: resolved.pathname, end: true });
+  const match = useMatch({ path: resolved.pathname, end: item.href === '/main_window' });
 
   return (
     <>
-      <ListItemButton
-        component={Link}
-        sx={{ borderRadius: 15, mb: 1 }}
-        selected={!!match}
-        onClick={
-          isPhone ? () => dispatch({ type: 'SET_MENU_EXPANDED', payload: false }) : undefined
-        }
-        to={item.href}
-        {...(props as object)}
+      <MenuTooltip
+        title={item.title}
+        placement="right"
+        TransitionComponent={Zoom}
+        disableFocusListener={menuExpanded}
+        disableHoverListener={menuExpanded}
+        disableTouchListener={menuExpanded}
       >
-        <ListItemIcon sx={{ mr: -1 }}>
-          <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
-        </ListItemIcon>
-        <ListItemText primary={item.title} />
-        {showStat && stat !== undefined && stat > 0 && (
-          <Typography
-            variant="caption"
-            sx={{
-              ml: 1,
-              px: 1,
-              py: 0.25,
-              borderRadius: 10,
-              bgcolor: match ? 'action.selected' : 'action.hover',
-              color: 'text.secondary',
-              fontWeight: 600,
-              minWidth: 24,
-              textAlign: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {stat}
-          </Typography>
-        )}
-      </ListItemButton>
+        <ListItemButton
+          component={Link}
+          className="no-drag"
+          sx={{ borderRadius: 15, mb: 1 }}
+          selected={!!match}
+          disabled={disabled}
+          onClick={
+            isPhone ? () => dispatch({ type: 'SET_MENU_EXPANDED', payload: false }) : undefined
+          }
+          to={item.href}
+          {...(props as object)}
+        >
+          <ListItemIcon sx={{ mr: -1 }}>
+            <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
+          </ListItemIcon>
+          <ListItemText primary={item.title} />
+          {showStat && stat !== undefined && stat > 0 && (
+            <Typography
+              variant="caption"
+              sx={{
+                ml: 1,
+                px: 1,
+                py: 0.25,
+                borderRadius: 10,
+                bgcolor: match ? 'action.selected' : 'action.hover',
+                color: 'text.secondary',
+                fontWeight: 600,
+                minWidth: 24,
+                textAlign: 'center',
+                flexShrink: 0,
+              }}
+            >
+              {stat}
+            </Typography>
+          )}
+        </ListItemButton>
+      </MenuTooltip>
       {item.divider && <Divider sx={{ mb: 1 }} />}
     </>
   );

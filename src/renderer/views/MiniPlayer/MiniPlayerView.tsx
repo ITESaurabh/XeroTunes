@@ -13,53 +13,12 @@ import fastForward16Filled from '@iconify/icons-fluent/fast-forward-16-filled';
 import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
-import { APP_NAME, DEFAULT_AA } from '../../../config/constants';
+import { APP_NAME, APP_EDITION, DEFAULT_AA } from '../../../config/constants';
 import MuiImage from 'mui-image';
-import { ArrayBuff2ImgBuff } from '../../../main/utils/misc';
+import { parseFile } from 'music-metadata';
 import Marquee from 'react-fast-marquee';
 import { formatTime } from '../../utils/misc';
 import { getVolumeLevel, setVolumeLevel } from '../../utils/LocStoreUtil';
-
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const jsmediatags = require('jsmediatags') as {
-  read: (
-    _path: string,
-    _callbacks: {
-      onSuccess: (_tag: { type: string; tags: JsMediaTagsResult }) => void;
-      onError: (_error: unknown) => void;
-    }
-  ) => void;
-};
-
-interface JsMediaTagsResult {
-  title?: string;
-  artist?: string;
-  album?: string;
-  track?: string;
-  genre?: string;
-  year?: string;
-  picture?: {
-    data: number[];
-    format?: string;
-    type?: string;
-  };
-}
-
-interface ParsedMusic {
-  fileInfo: {
-    tagType: string;
-    path: string;
-  };
-  tags: {
-    title: string;
-    artist: string;
-    album: string;
-    track: string;
-    genre: string;
-    year: string;
-    albumArt: string;
-  };
-}
 
 interface SongMeta {
   title: string;
@@ -68,50 +27,24 @@ interface SongMeta {
   albumArt: string;
 }
 
-const parseMusic = async (musicPath: string): Promise<ParsedMusic> => {
-  return await new Promise((resolve, reject) => {
-    const music: ParsedMusic = {
-      fileInfo: {
-        tagType: '',
-        path: musicPath,
-      },
-      tags: {
-        title: '',
-        artist: '',
-        album: '',
-        track: '',
-        genre: '',
-        year: '',
-        albumArt: '',
-      },
-    };
-
-    jsmediatags.read(musicPath, {
-      onSuccess: function (tag: { type: string; tags: JsMediaTagsResult }) {
-        const { type, tags } = tag;
-        music.fileInfo.tagType = type;
-        music.tags.title = tags.title ?? '';
-        music.tags.artist = tags.artist ?? '';
-        music.tags.album = tags.album ?? '';
-        music.tags.track = tags.track ?? '';
-        music.tags.genre = tags.genre ?? '';
-        music.tags.year = tags.year ?? '';
-        if (tag && tags.picture && tags.picture.data) {
-          tags.picture.type = tags.picture.type ? tags.picture.type.replace(/image\//g, '') : 'jpg';
-          const base64Img = ArrayBuff2ImgBuff({
-            data: tags.picture.data,
-            format: tags.picture.format ?? tags.picture.type ?? 'jpg',
-            type: tags.picture.type,
-          });
-          music.tags.albumArt = String(base64Img);
-        }
-        resolve(music);
-      },
-      onError: function (error: unknown) {
-        reject(error);
-      },
-    });
-  });
+const parseMusic = async (musicPath: string): Promise<SongMeta> => {
+  const metadata = await parseFile(musicPath);
+  const picture = metadata.common.picture?.[0] ?? null;
+  let albumArt = DEFAULT_AA;
+  if (picture) {
+    const b64 = Buffer.from(picture.data).toString('base64');
+    albumArt = `data:${picture.format};base64,${b64}`;
+  }
+  return {
+    title: metadata.common.title || '',
+    artist: (metadata.common.artist || '')
+      .split(',')
+      .map(n => n.trim())
+      .filter(Boolean)
+      .join(', '),
+    album: metadata.common.album || '',
+    albumArt,
+  };
 };
 
 const maxCharacters = 20;
@@ -234,31 +167,22 @@ export default function MiniPlayerView(): React.ReactElement {
   useEffect(() => {
     if (path) {
       const audioElement = audioRef.current;
-      // Convert file path to file:// URL for proper audio loading
-      const fileUrl = `file://${path.replace(/\\/g, '/')}`;
+      // Convert file path to file:/// URL — Windows absolute paths need 3 slashes
+      // (2 for the empty authority + 1 for the path root), otherwise "C:" is
+      // treated as the hostname and the audio element won't load the file.
+      const fileUrl = `file:///${path.replace(/\\/g, '/')}`;
       audioElement.src = fileUrl;
 
-      const res = parseMusic(path);
-
-      res
-        .then(({ tags }) => {
-          console.log(tags);
-
-          if (tags) {
-            setSongMeta({
-              title: tags.title ? tags.title : initialMeta.title,
-              artist: tags.artist ? tags.artist : initialMeta.artist,
-              album: tags.album ? tags.album : initialMeta.album,
-              albumArt: tags.albumArt ? tags.albumArt : initialMeta.albumArt,
-            });
-          } else {
-            setSongMeta(initialMeta);
-          }
+      parseMusic(path)
+        .then(meta => {
+          setSongMeta({
+            title: meta.title || initialMeta.title,
+            artist: meta.artist || initialMeta.artist,
+            album: meta.album || initialMeta.album,
+            albumArt: meta.albumArt || initialMeta.albumArt,
+          });
         })
-        .catch((err: unknown) => {
-          console.log(err);
-          setSongMeta(initialMeta);
-        });
+        .catch(() => setSongMeta(initialMeta));
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     }
   }, [path]);
@@ -289,6 +213,7 @@ export default function MiniPlayerView(): React.ReactElement {
         >
           <Typography fontSize={'0.875rem'} color={theme.palette.primary.main} fontWeight={500}>
             {APP_NAME}
+            {APP_EDITION ? ` ${APP_EDITION}` : ''} Mini
           </Typography>
           <Box
             display={'flex'}
@@ -483,7 +408,7 @@ export default function MiniPlayerView(): React.ReactElement {
         </Box>
       </Grid>
 
-      <Grid sx={{ height: '3rem', alignItems: 'center', display: 'flex', mx: 2 }}>
+      <Grid sx={{ width: '92%', height: '3rem', alignItems: 'center', display: 'flex', mx: 2 }}>
         <Typography className="no-select no-drag" fontSize={'0.75rem'} mr={2}>
           {formatTime(position)}
         </Typography>

@@ -96,5 +96,9 @@ out1/
 test/
 notes.txt
 .vscode
+.yarn/install-state.gz
 
 docs
+.claude/
+.cursor/
+memory/

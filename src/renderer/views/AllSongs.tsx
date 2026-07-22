@@ -10,10 +10,11 @@ import {
   Typography,
   ListItemButton,
 } from '@mui/material';
-import { useNavigate } from 'react-router';
+import { useNavigate, useLocation } from 'react-router';
 import filterIcon from '@iconify/icons-fluent/filter-24-filled';
 import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
+import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -22,6 +23,7 @@ import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import { useScrollRestoration } from '../utils/useScrollRestoration';
 
 interface Column {
   label: string;
@@ -43,8 +45,26 @@ const columns: Column[] = [
     flex: 2,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
-  { label: 'Year', key: 'Year', width: 100, align: 'center', flex: 1 },
-  { label: 'Genre', key: 'GenreName', width: 130, align: 'left', flex: 2 },
+  {
+    label: 'Year',
+    key: 'Year',
+    width: 100,
+    align: 'center',
+    flex: 1,
+    getNavPath: song =>
+      song.Year != null && song.Year !== ''
+        ? `/main_window/years/${encodeURIComponent(song.Year as string)}`
+        : null,
+  },
+  {
+    label: 'Genre',
+    key: 'GenreName',
+    width: 130,
+    align: 'left',
+    flex: 2,
+    getNavPath: song =>
+      song.GenreId != null ? `/main_window/genres/${song.GenreId as string | number}` : null,
+  },
   { label: 'Duration', key: 'Duration', width: 80, align: 'right', flex: 1 },
 ];
 
@@ -119,8 +139,18 @@ const AllSongs: React.FC = () => {
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
-  const handleScroll = useScrollHidePlayerBar();
+  const scrollHide = useScrollHidePlayerBar();
+  const { initialScrollOffset, saveScrollPosition } = useScrollRestoration('all_songs');
+  const handleScroll = React.useCallback(
+    (args: { scrollOffset: number }) => {
+      saveScrollPosition(args.scrollOffset);
+      scrollHide(args);
+    },
+    [saveScrollPosition, scrollHide]
+  );
   const navigate = useNavigate();
+  const location = useLocation();
+  const listRef = React.useRef<FixedSizeList | null>(null);
 
   const {
     data: songs = [] as Track[],
@@ -143,13 +173,26 @@ const AllSongs: React.FC = () => {
     (clickedIndex: number): void => {
       dispatch({
         type: 'SET_QUEUE',
-        payload: { queue: songs, index: clickedIndex },
+        payload: {
+          queue: songs,
+          index: clickedIndex,
+          source: location.pathname + location.search,
+        },
       });
       dispatch({ type: 'SET_CURR_TRACK', payload: songs[clickedIndex] });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     },
-    [songs, dispatch]
+    [songs, dispatch, location.pathname, location.search]
   );
+
+  // Focus-scroll: when navigated here from PlayBar with a focusTrackId, scroll to it.
+  const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
+  const focusTs = (location.state as { _ts?: number } | null)?._ts;
+  useEffect(() => {
+    if (focusTrackId == null || !songs.length || !listRef.current) return;
+    const idx = songs.findIndex(s => s.Id === focusTrackId);
+    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+  }, [focusTrackId, focusTs, songs]);
 
   const Row = React.useCallback(
     ({ index, style }: ListChildComponentProps) => {
@@ -193,7 +236,9 @@ const AllSongs: React.FC = () => {
                   textOverflow: 'ellipsis',
                 }}
               >
-                {navPath ? (
+                {col.key === 'ArtistName' ? (
+                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
+                ) : navPath ? (
                   <Typography
                     variant="body2"
                     noWrap
@@ -262,15 +307,17 @@ const AllSongs: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         <HeaderRow isPhone={isPhone} />
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
           <AutoSizer>
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList
+                ref={listRef}
                 height={height}
                 overscanCount={100}
                 itemCount={songs.length}
                 itemSize={43}
                 width={width}
+                initialScrollOffset={initialScrollOffset}
                 onScroll={handleScroll}
                 outerElementType={ScrollContainer}
               >

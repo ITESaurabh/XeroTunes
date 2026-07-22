@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
-import { getTheme } from './utils/LocStoreUtil';
+import { getThemeSettings, getOnboardingComplete } from './utils/LocStoreUtil';
+import Onboarding from './views/Onboarding';
 import { useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
@@ -12,15 +13,18 @@ import { getBaseTheme } from '../config/theme';
 import { ipcRenderer } from 'electron';
 import Titlebar from './components/Titlebar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
+import { APP_DISPLAY_NAME } from '../config/constants';
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      // Data is considered fresh for 5 minutes → no refetch on re-mount
-      staleTime: 5 * 60 * 1000,
-      // Unused query cache is released after 2 minutes
-      gcTime: 2 * 60 * 1000,
+      // Data stays fresh for 1 min → no refetch on quick re-mount
+      staleTime: 60 * 1000,
+      // Unused query cache is released after 30 s — keeps RAM tight while
+      // still feeling instant for fast back-and-forth navigation.
+      gcTime: 30 * 1000,
     },
   },
 });
@@ -28,10 +32,15 @@ const queryClient = new QueryClient({
 const App = () => {
   const { state, dispatch } = useContext(store);
   const [systemIsDark, setSystemIsDark] = useState(true);
-  const currTheme = getTheme();
+  const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete());
+  const themeSettings = getThemeSettings();
 
   // console.log('Re Render Core');
-  const themePref = useMemo(() => (systemIsDark ? 'dark' : 'light'), [systemIsDark]);
+  const themePref = useMemo(() => {
+    if (themeSettings.mode === 1) return 'light';
+    if (themeSettings.mode === 2) return 'dark';
+    return systemIsDark ? 'dark' : 'light';
+  }, [themeSettings.mode, systemIsDark]);
   const finalRoutes = useMemo(() => routes, []);
 
   const element = useRoutes(finalRoutes);
@@ -45,12 +54,47 @@ const App = () => {
     ipcRenderer.invoke('get-dark-mode').then(darkMode => {
       setSystemIsDark(darkMode);
     });
+    // Follow OS light/dark changes at runtime for the Auto theme.
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
   }, []);
 
-  // Refresh all queries when the main process reports new/updated library files
+  useEffect(() => {
+    const setFocused = (focused: boolean) =>
+      dispatch({ type: 'SET_WINDOW_FOCUSED', payload: focused });
+    const handleFocus = () => setFocused(true);
+    const handleBlur = () => setFocused(false);
+    // Sync in case focus changed before this effect ran.
+    setFocused(document.hasFocus());
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('blur', handleBlur);
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('blur', handleBlur);
+    };
+  }, [dispatch]);
+
+  // Refresh library list queries when the main process reports new/updated files.
+  // Only invalidate the specific list keys — never nuke the whole cache, which
+  // would force every active view to refetch in parallel and flash empty states.
   useEffect(() => {
     const handler = () => {
-      queryClient.invalidateQueries();
+      const listKeys = [
+        QUERY_KEYS.ALL_SONGS,
+        QUERY_KEYS.ALL_ALBUMS,
+        QUERY_KEYS.ALL_ARTISTS,
+        QUERY_KEYS.RECENTLY_ADDED,
+        QUERY_KEYS.FOLDERS_WITH_SONGS,
+        QUERY_KEYS.FOLDER_CHILDREN,
+        QUERY_KEYS.FOLDER_SONGS,
+        QUERY_KEYS.ALL_GENRES,
+        QUERY_KEYS.ALL_YEARS,
+      ];
+      listKeys.forEach(key => {
+        queryClient.invalidateQueries({ queryKey: [key], refetchType: 'active' });
+      });
     };
     ipcRenderer.on('library-updated', handler);
     return () => {
@@ -59,12 +103,15 @@ const App = () => {
   }, []);
 
   useEffect(() => {
-    if (currTheme === undefined) {
-      dispatch({ type: 'SET_THEME', payload: false });
-    } else {
-      dispatch({ type: 'SET_THEME', payload: currTheme });
-    }
-  }, [currTheme, dispatch]);
+    dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
+  }, [themeSettings.mode, dispatch]);
+
+  useEffect(() => {
+    const title = state.track?.Title;
+    document.title = title
+      ? `${state.queueIndex + 1}. ${title} - ${APP_DISPLAY_NAME}`
+      : APP_DISPLAY_NAME;
+  }, [state.track, state.queueIndex]);
 
   // Register keyboard shortcuts
   useKeyboardShortcuts(
@@ -81,8 +128,12 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Titlebar />
-        {element}
+        <Titlebar minimal={!onboardingComplete} />
+        {onboardingComplete ? (
+          element
+        ) : (
+          <Onboarding onFinish={() => setOnboardingComplete(true)} />
+        )}
       </ThemeProvider>
     </QueryClientProvider>
   );

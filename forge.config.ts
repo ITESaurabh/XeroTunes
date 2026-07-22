@@ -4,33 +4,89 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { PublisherGitHub } from '@electron-forge/publisher-github';
 
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
+import { CHANNEL, IDENTITY } from './src/config/channel';
 
 const config: ForgeConfig = {
   packagerConfig: {
-    icon: './src/assets/logo/XeroTunesLogo',
-    executableName: 'xero-music-player',
+    icon:
+      process.platform === 'darwin'
+        ? [
+            './src/assets/logo/XeroTunesLogo',
+            './src/assets/logo/XeroTunesLogo.icns',
+            './src/assets/logo/XeroTunesLogo.icon',
+          ]
+        : './src/assets/logo/XeroTunesLogo',
+
+    executableName: IDENTITY.installName,
     asar: true,
     appCategoryType: 'public.app-category.music',
-    name: 'Xero Music Player',
+    name: IDENTITY.productName,
+    // Loose-shipped so the AUMID registration in src/index.ts can point
+    // SMTC at a real file path (asar:// paths don't render).
+    extraResource: ['./src/assets/logo/XeroTunesLogo.ico', './src/assets/logo/XeroTunesLogo.png'],
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      name: 'xero-music-player',
+      name: IDENTITY.installName,
       iconUrl: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
     }),
     new MakerZIP({}, ['darwin']),
-    new MakerDeb({ options: { name: 'xero-music-player' } }),
-    new MakerRpm({ options: { name: 'xero-music-player' } }),
+    new MakerDeb({
+      options: {
+        name: IDENTITY.installName,
+        section: 'sound',
+        genericName: 'Music Player',
+        categories: ['Audio'],
+        icon: './src/assets/logo/XeroTunesLogo.png',
+      },
+    }),
+    new MakerRpm({
+      options: {
+        name: IDENTITY.installName,
+        genericName: 'Music Player',
+        categories: ['Audio'],
+        icon: './src/assets/logo/XeroTunesLogo.png',
+      },
+    }),
+    new MakerDMG({
+      name: IDENTITY.productName,
+      background: './src/assets/dmg-bg/background.tiff',
+      // background: path.resolve(__dirname, 'src/assets/dmg-bg/bg.png'),
+      additionalDMGOptions: {
+        window: {
+          size: { width: 480, height: 320 },
+        },
+      },
+      contents(opts) {
+        return [
+          {
+            x: 45,
+            y: 150,
+            path: path.resolve(opts.appPath, '..', `${opts.name}.app`),
+            type: 'file',
+          },
+          {
+            x: 270,
+            y: 70,
+            path: '/Applications',
+            type: 'link',
+          },
+        ];
+      },
+      overwrite: true,
+    }),
   ],
   plugins: [
     new AutoUnpackNativesPlugin({}),
@@ -74,6 +130,15 @@ const config: ForgeConfig = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
+    }),
+  ],
+  publishers: [
+    new PublisherGitHub({
+      repository: { owner: 'ITESaurabh', name: 'xero-music-player' },
+      // Beta is the default channel, so an un-opted build is a prerelease.
+      // A stable release must be built with APP_CHANNEL=stable (yarn publish:prod).
+      prerelease: CHANNEL === 'beta',
+      draft: false,
     }),
   ],
 };

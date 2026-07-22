@@ -21,11 +21,13 @@ export function useScrollHidePlayerBar<T extends Record<string, number>>(
   options: { threshold?: number; field?: keyof T } = {}
 ): (_args: T) => void {
   const { threshold = 250, field = 'scrollOffset' as keyof T } = options;
-  const { dispatch } = useContext(store);
+  const { state, dispatch } = useContext(store);
   const lastPos = useRef<number>(0);
 
   return useCallback(
     (args: T) => {
+      // Don't hide the player bar while lyrics panel is open
+      if (state.isLyricsExpanded) return;
       const pos = args[field] as number;
       if (pos > threshold) {
         if (pos > lastPos.current) {
@@ -38,6 +40,6 @@ export function useScrollHidePlayerBar<T extends Record<string, number>>(
       }
       lastPos.current = pos;
     },
-    [dispatch, threshold, field]
+    [state.isLyricsExpanded, dispatch, threshold, field]
   );
 }

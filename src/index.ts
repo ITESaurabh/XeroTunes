@@ -1,8 +1,11 @@
+import './config/appIdentity';
 import { app, BrowserWindow, ipcMain, screen, nativeTheme, Menu } from 'electron';
+import minimist from 'minimist';
+import { IDENTITY } from './config/channel';
 import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
-import mainIpcs from './main/utils/mainProcess';
+import mainIpcs, { registerSettingsIpc } from './main/utils/mainProcess';
 import { OS_WINDOWS } from './config/constants';
 import os from 'os';
 const currOS = os.type();
@@ -45,14 +48,17 @@ function handleSquirrelEvent(): boolean {
     case '--squirrel-updated': {
       run(`"${updateExe}" --createShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
 
-      const ctxRoot = 'HKCU\\Software\\Classes\\*\\shell\\XeroMusicPlayer';
-      regWrite(ctxRoot, null, 'Open with Xero Music Player');
+      const ctxRoot = `HKCU\\Software\\Classes\\*\\shell\\${IDENTITY.menuKey}`;
+      regWrite(ctxRoot, null, `Open with ${IDENTITY.productName}`);
       regWrite(ctxRoot, 'Icon', exePath);
       regWrite(`${ctxRoot}\\command`, null, `"${exePath}" "%1"`);
 
-      const aumidRoot = 'HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp';
-      regWrite(aumidRoot, 'DisplayName', 'Xero Music Player');
-      regWrite(aumidRoot, 'IconUri', exePath);
+      // SMTC reads DisplayName + IconUri off this key for the "Now playing"
+      // flyout. IconUri needs a real image file (the EXE renders a placeholder).
+      const aumidRoot = `HKCU\\Software\\Classes\\AppUserModelId\\${IDENTITY.appId}`;
+      const iconPath = path.join(path.dirname(exePath), 'resources', 'XeroTunesLogo.ico');
+      regWrite(aumidRoot, 'DisplayName', IDENTITY.productName);
+      regWrite(aumidRoot, 'IconUri', fs.existsSync(iconPath) ? iconPath : exePath);
 
       app.quit();
       return true;
@@ -60,8 +66,8 @@ function handleSquirrelEvent(): boolean {
 
     case '--squirrel-uninstall': {
       run(`"${updateExe}" --removeShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
-      regDelete('HKCU\\Software\\Classes\\*\\shell\\XeroMusicPlayer');
-      regDelete('HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp');
+      regDelete(`HKCU\\Software\\Classes\\*\\shell\\${IDENTITY.menuKey}`);
+      regDelete(`HKCU\\Software\\Classes\\AppUserModelId\\${IDENTITY.appId}`);
       app.quit();
       return true;
     }
@@ -78,7 +84,7 @@ if (handleSquirrelEvent()) {
   // Squirrel lifecycle event handled — app will quit, nothing more to do.
 }
 
-app.setAppUserModelId('com.itesaurabh.xmp');
+// app.setName + setAppUserModelId run in ./config/appIdentity (imported first).
 
 const isDarkMode = nativeTheme.shouldUseDarkColors;
 
@@ -87,19 +93,38 @@ let miniWin: BrowserWindow | null = null;
 let loadingWin: BrowserWindow | null = null;
 Menu.setApplicationMenu(null);
 
-const minimist = require('minimist');
 const parsedArgs = minimist(process.argv.slice(1), {
   boolean: ['help', 'version'],
   string: ['file'],
   alias: { help: 'h', version: 'v', file: 'f' },
 });
 
-let isSingleInstance = app.requestSingleInstanceLock();
+const isSingleInstance = app.requestSingleInstanceLock();
 if (!isSingleInstance) {
   app.quit();
 }
 
+function focusExistingWindow() {
+  const win =
+    mainWin && !mainWin.isDestroyed()
+      ? mainWin
+      : miniWin && !miniWin.isDestroyed()
+        ? miniWin
+        : BrowserWindow.getAllWindows()[0];
+  if (!win) return;
+
+  if (win.isMinimized()) {
+    win.restore();
+  }
+
+  win.show();
+  win.focus();
+}
+
 app.on('second-instance', (_event, commandLine) => {
+  // Bring existing window to front when a second instance is attempted
+  focusExistingWindow();
+
   if (process.platform !== 'darwin') {
     const args = commandLine.slice(1);
     if (args.length > 1) {
@@ -110,6 +135,11 @@ app.on('second-instance', (_event, commandLine) => {
     }
   }
 });
+
+// Settings IPC must exist in both modes — the mini player (--file launch)
+// never calls mainIpcs, which used to leave these handlers unregistered.
+// Registered here (not in createWindow) so macOS 'activate' can't double it.
+registerSettingsIpc();
 
 const createWindow = () => {
   loadingWin = new BrowserWindow({
@@ -162,15 +192,27 @@ const createWindow = () => {
         });
         if (currOS === OS_WINDOWS) {
           miniWin!.setAppDetails({
-            appId: 'com.itesaurabh.xmp',
-            relaunchDisplayName: 'Xero Mini Player',
+            appId: IDENTITY.appId,
+            relaunchDisplayName: `${IDENTITY.productName} Mini`,
           });
         }
-        miniWin!.webContents.once('dom-ready', () => {
+        // Wait for the renderer to mount its play-mini listener before sending
+        // the track — dom-ready fires before React effects run, so sending
+        // there can drop the message and leave the player empty.
+        ipcMain.once('mini-player-ready', () => {
           miniWin!.show();
           miniWin!.webContents.send('play-mini', path.resolve(parsedArgs['file']));
           loadingWin!.hide();
           loadingWin!.close();
+        });
+        miniWin!.webContents.on('before-input-event', (event, input) => {
+          if (
+            (input.control && input.shift && input.key.toLowerCase() === 'i') ||
+            input.key === 'F12'
+          ) {
+            miniWin!.webContents.openDevTools();
+            event.preventDefault();
+          }
         });
         ipcMain.on('minimize', () => miniWin!.minimize());
         ipcMain.on('maximize', () => {
@@ -223,8 +265,8 @@ const createWindow = () => {
     mainWin!.setMenu(null);
     if (currOS === OS_WINDOWS) {
       mainWin!.setAppDetails({
-        appId: 'com.itesaurabh.xmp',
-        relaunchDisplayName: 'Xero Music Player',
+        appId: IDENTITY.appId,
+        relaunchDisplayName: IDENTITY.productName,
       });
     }
     mainWin!.once('ready-to-show', () => {
@@ -250,5 +292,9 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
+    return;
   }
+
+  // Focus the existing window when clicking the app icon (macOS dock, etc.)
+  focusExistingWindow();
 });

@@ -9,6 +9,7 @@ function PageToolbar({ title, action }: { title: string; action?: React.ReactNod
       color="transparent"
       sx={{
         borderRadius: 10,
+        zIndex: 0,
         backgroundColor: theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
       }}
       elevation={0}

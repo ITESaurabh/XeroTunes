@@ -14,6 +14,7 @@ import {
   Grid,
   Collapse,
   CircularProgress,
+  ListItemButton,
 } from '@mui/material';
 import { Icon, IconifyIcon } from '@iconify/react';
 import searchIcon from '@iconify/icons-fluent/search-24-filled';
@@ -29,6 +30,7 @@ import { store, Track } from '../utils/store';
 import { useNavigate } from 'react-router';
 import { useIpc } from '../state/ipc';
 import { Theme } from '@mui/material/styles';
+import { useKeyboardShortcuts, KeyboardShortcut } from '../utils/useKeyboardShortcuts';
 
 interface SearchCategory {
   title: string;
@@ -37,16 +39,22 @@ interface SearchCategory {
   href: string;
 }
 
+interface SearchResultTrack extends Track {
+  CoverUri?: string;
+  AlbumCoverUri?: string;
+  AlbumArt?: string;
+}
+
 interface SearchResults {
-  songs: Track[];
-  albums: Track[];
-  artists: Track[];
-  albumArtists: Track[];
-  genres: Track[];
-  years: Track[];
-  folders: Track[];
-  playlists: Track[];
-  [key: string]: Track[];
+  songs: SearchResultTrack[];
+  albums: SearchResultTrack[];
+  artists: SearchResultTrack[];
+  albumArtists: SearchResultTrack[];
+  genres: SearchResultTrack[];
+  years: SearchResultTrack[];
+  folders: SearchResultTrack[];
+  playlists: SearchResultTrack[];
+  [key: string]: SearchResultTrack[];
 }
 
 const searchCategories: SearchCategory[] = [
@@ -107,8 +115,31 @@ export default function SearchDialog() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedResultIndex, setSelectedResultIndex] = useState<number>(-1);
+  const resultRefs = React.useRef<Array<HTMLElement | null>>([]);
+
   const navigate = useNavigate();
   const { invokeEventToMainProcess } = useIpc();
+
+  const flattenedSearchResults = React.useMemo(() => {
+    if (!searchResults) return [];
+
+    const flattened: Array<{
+      category: SearchCategory;
+      result: SearchResultTrack;
+      key: React.Key;
+    }> = [];
+
+    searchCategories.forEach(category => {
+      const results = searchResults[category.type] || [];
+      results.forEach(result => {
+        const resultId = result.Id ?? result.id ?? `${category.type}-${flattened.length}`;
+        flattened.push({ category, result, key: resultId as React.Key });
+      });
+    });
+
+    return flattened;
+  }, [searchResults]);
 
   const handleEntered = () => {
     if (ref.current) {
@@ -120,19 +151,112 @@ export default function SearchDialog() {
     dispatch({ type: 'SET_SEARCH_ENABLED', payload: false });
     setSearchQuery('');
     setSearchResults(null);
+    setSelectedResultIndex(-1);
   };
+
+  React.useEffect(() => {
+    if (flattenedSearchResults.length > 0) {
+      setSelectedResultIndex(0);
+    } else {
+      setSelectedResultIndex(-1);
+    }
+  }, [flattenedSearchResults]);
+
+  const shortcuts: KeyboardShortcut[] = [
+    {
+      key: 'Escape',
+      action: event => {
+        if (!state.searchEnabled) return;
+        event.preventDefault();
+        handleClose();
+      },
+    },
+    {
+      key: 'ArrowDown',
+      action: event => {
+        if (!state.searchEnabled || flattenedSearchResults.length === 0) return;
+        event.preventDefault();
+        setSelectedResultIndex(prev =>
+          Math.min(flattenedSearchResults.length - 1, Math.max(0, prev + 1))
+        );
+      },
+    },
+    {
+      key: 'ArrowUp',
+      action: event => {
+        if (!state.searchEnabled || flattenedSearchResults.length === 0) return;
+        event.preventDefault();
+        setSelectedResultIndex(prev => Math.max(0, prev - 1));
+      },
+    },
+    {
+      key: 'Enter',
+      action: event => {
+        if (!state.searchEnabled || flattenedSearchResults.length === 0) return;
+        if (selectedResultIndex < 0) return;
+        event.preventDefault();
+        const selected = flattenedSearchResults[selectedResultIndex];
+        if (selected) {
+          handleResultClick(selected.category, selected.result);
+        }
+      },
+    },
+  ];
+
+  useKeyboardShortcuts(shortcuts, {
+    isSearchEnabled: state.searchEnabled,
+    flattenedSearchResults,
+    selectedResultIndex,
+  });
+
+  React.useEffect(() => {
+    if (selectedResultIndex >= 0 && resultRefs.current[selectedResultIndex]) {
+      resultRefs.current[selectedResultIndex]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [selectedResultIndex]);
 
   const handleResultClick = (category: SearchCategory, result: Track) => {
     if (category.type === 'songs') {
       dispatch({
         type: 'SET_QUEUE',
-        payload: { queue: [result], index: 0 },
+        payload: { queue: [result], index: 0, source: null },
       });
       dispatch({ type: 'SET_CURR_TRACK', payload: result });
       dispatch({ type: 'SET_IS_PLAYING', payload: true });
     } else if (category.type === 'albums') {
       const id = result.Id ?? result.id;
       navigate(id != null ? `/main_window/albums/${id}` : category.href);
+    } else if (category.type === 'artists') {
+      const id = result.Id ?? result.id;
+      navigate(id != null ? `/main_window/artists/${id}` : category.href);
+    } else if (category.type === 'albumArtists') {
+      const id = result.Id ?? result.id;
+      navigate(id != null ? `/main_window/album-artists/${id}` : category.href);
+    } else if (category.type === 'genres') {
+      const id = result.Id ?? result.id;
+      navigate(id != null ? `/main_window/genres/${id}` : category.href);
+    } else if (category.type === 'years') {
+      const yearVal = (result.Title ?? result.title ?? result.Name ?? result.name) as
+        | string
+        | number
+        | undefined;
+      navigate(
+        yearVal != null
+          ? `/main_window/years/${encodeURIComponent(String(yearVal))}`
+          : category.href
+      );
+    } else if (category.type === 'folders') {
+      // Open folder results in the hierarchy view, deep-linked to the folder
+      // via the ?path= query param the view reads (not the flat folders list).
+      const folderPath = (result.id ?? result.title) as string | undefined;
+      navigate(
+        folderPath
+          ? `/main_window/folder-hierarchy?path=${encodeURIComponent(folderPath)}`
+          : '/main_window/folder-hierarchy'
+      );
     } else {
       navigate(category.href);
     }
@@ -172,10 +296,168 @@ export default function SearchDialog() {
     return () => clearTimeout(timeoutId);
   }, [searchQuery, invokeEventToMainProcess]);
 
-  const getSearchResults = (category: string): Track[] => {
+  const getSearchResults = (category: string): SearchResultTrack[] => {
     if (!searchResults) return [];
     return searchResults[category] || [];
   };
+
+  const renderedSearchCategories = React.useMemo(() => {
+    let globalItemIndex = 0;
+
+    return searchCategories.map(category => {
+      const results = getSearchResults(category.type);
+      if (results.length === 0) return null;
+
+      return (
+        <Box key={category.type} sx={{ mb: 3 }}>
+          <Typography
+            variant="overline"
+            sx={{
+              px: 0.5,
+              pb: 1.5,
+              display: 'block',
+              color: 'text.secondary',
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+            }}
+          >
+            {category.title}
+          </Typography>
+          <Grid container spacing={1}>
+            {results.map(result => {
+              const resultId = result.Id ?? result.id;
+              const title = (result.Title ?? result.title) as string | undefined;
+              const artistName = (result.ArtistName ?? result.artist) as string | undefined;
+              const albumTitle = (result.AlbumTitle ?? result.album) as string | undefined;
+              const songCount = result.songCount as number | undefined;
+              const albumCount = result.albumCount as number | undefined;
+              const itemIndex = globalItemIndex++;
+              const isSelected = itemIndex === selectedResultIndex;
+              const coverUri = result.CoverUri || result.AlbumCoverUri || result.AlbumArt;
+              const coverSrc = coverUri
+                ? coverUri.startsWith('file://')
+                  ? coverUri
+                  : `file:///${coverUri.replace(/\\/g, '/')}`
+                : undefined;
+
+              return (
+                <Grid item xs={12} key={`${category.type}-${resultId ?? itemIndex}`}>
+                  <Paper
+                    component={ListItemButton}
+                    ref={el => {
+                      resultRefs.current[itemIndex] = el;
+                    }}
+                    onClick={() => {
+                      setSelectedResultIndex(itemIndex);
+                      handleResultClick(category, result);
+                    }}
+                    selected={isSelected}
+                    onMouseEnter={() => setSelectedResultIndex(itemIndex)}
+                    tabIndex={0}
+                    sx={{
+                      width: '100%',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 2,
+                      px: 2,
+                      py: 0.5,
+                      borderRadius: 2,
+                      textAlign: 'left',
+                      backgroundColor: (theme: Theme) =>
+                        isSelected
+                          ? undefined
+                          : theme.palette.mode === 'dark'
+                            ? 'rgba(255,255,255,0.05)'
+                            : 'rgba(0,0,0,0.03)',
+                      // color: isSelected ? (theme: Theme) => theme.palette.text.primary : undefined,
+                      transition: 'all 0.2s',
+                      '&:hover': {
+                        backgroundColor: (theme: Theme) =>
+                          theme.palette.mode === 'dark'
+                            ? 'rgba(255,255,255,0.08)'
+                            : 'rgba(0,0,0,0.06)',
+                      },
+                    }}
+                    elevation={0}
+                  >
+                    {coverSrc ? (
+                      <Box
+                        sx={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 1,
+                          overflow: 'hidden',
+                          flexShrink: 0,
+                          backgroundColor: (theme: Theme) =>
+                            theme.palette.mode === 'dark'
+                              ? 'rgba(255,255,255,0.08)'
+                              : 'rgba(0,0,0,0.08)',
+                        }}
+                      >
+                        <img
+                          src={coverSrc}
+                          alt={title || 'album art'}
+                          style={{
+                            width: '100%',
+                            height: '100%',
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
+                        />
+                      </Box>
+                    ) : (
+                      <Icon
+                        icon={category.icon}
+                        height="1.5rem"
+                        style={{ flexShrink: 0, opacity: 0.7 }}
+                      />
+                    )}
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          fontWeight: 500,
+                          fontSize: '0.95rem',
+                          mb: artistName || songCount || albumCount ? 0.25 : 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {title}
+                      </Typography>
+                      {(artistName || songCount || albumCount) && (
+                        <Typography
+                          variant="body2"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: '0.85rem',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {artistName
+                            ? `${artistName}${albumTitle ? ` • ${albumTitle}` : ''}`
+                            : songCount
+                              ? `${songCount} song${songCount !== 1 ? 's' : ''}`
+                              : albumCount
+                                ? `${albumCount} album${albumCount !== 1 ? 's' : ''}`
+                                : ''}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Paper>
+                </Grid>
+              );
+            })}
+          </Grid>
+        </Box>
+      );
+    });
+  }, [searchResults, selectedResultIndex]);
 
   return (
     <Dialog
@@ -268,111 +550,7 @@ export default function SearchDialog() {
         </Collapse>
         <Collapse in={!!searchQuery} timeout={{ enter: 1000, exit: 500 }}>
           <Box sx={{ p: 2 }}>
-            {searchCategories.map(category => {
-              const results = getSearchResults(category.type);
-              if (results.length === 0) return null;
-              return (
-                <Box key={category.type} sx={{ mb: 3 }}>
-                  <Typography
-                    variant="overline"
-                    sx={{
-                      px: 0.5,
-                      pb: 1.5,
-                      display: 'block',
-                      color: 'text.secondary',
-                      fontSize: '0.7rem',
-                      fontWeight: 700,
-                      letterSpacing: '0.1em',
-                      textTransform: 'uppercase',
-                    }}
-                  >
-                    {category.title}
-                  </Typography>
-                  <Grid container spacing={1}>
-                    {results.map(result => {
-                      const resultId = result.Id ?? result.id;
-                      const title = (result.Title ?? result.title) as string | undefined;
-                      const artistName = (result.ArtistName ?? result.artist) as string | undefined;
-                      const albumTitle = (result.AlbumTitle ?? result.album) as string | undefined;
-                      const songCount = result.songCount as number | undefined;
-                      const albumCount = result.albumCount as number | undefined;
-                      return (
-                        <Grid item xs={12} key={resultId as React.Key}>
-                          <Paper
-                            component={ButtonBase}
-                            onClick={() => handleResultClick(category, result)}
-                            sx={{
-                              width: '100%',
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 2,
-                              px: 2,
-                              py: 0.5,
-                              borderRadius: 2,
-                              textAlign: 'left',
-                              backgroundColor: (theme: Theme) =>
-                                theme.palette.mode === 'dark'
-                                  ? 'rgba(255,255,255,0.05)'
-                                  : 'rgba(0,0,0,0.03)',
-                              transition: 'all 0.2s',
-                              '&:hover': {
-                                backgroundColor: (theme: Theme) =>
-                                  theme.palette.mode === 'dark'
-                                    ? 'rgba(255,255,255,0.08)'
-                                    : 'rgba(0,0,0,0.06)',
-                                transform: 'translateY(-1px)',
-                              },
-                            }}
-                            elevation={0}
-                          >
-                            <Icon
-                              icon={category.icon}
-                              height="1.5rem"
-                              style={{ flexShrink: 0, opacity: 0.7 }}
-                            />
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography
-                                variant="body1"
-                                sx={{
-                                  fontWeight: 500,
-                                  fontSize: '0.95rem',
-                                  mb: artistName || songCount || albumCount ? 0.25 : 0,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                  whiteSpace: 'nowrap',
-                                }}
-                              >
-                                {title}
-                              </Typography>
-                              {(artistName || songCount || albumCount) && (
-                                <Typography
-                                  variant="body2"
-                                  color="text.secondary"
-                                  sx={{
-                                    fontSize: '0.85rem',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                  }}
-                                >
-                                  {artistName
-                                    ? `${artistName}${albumTitle ? ` • ${albumTitle}` : ''}`
-                                    : songCount
-                                      ? `${songCount} song${songCount !== 1 ? 's' : ''}`
-                                      : albumCount
-                                        ? `${albumCount} album${albumCount !== 1 ? 's' : ''}`
-                                        : ''}
-                                </Typography>
-                              )}
-                            </Box>
-                          </Paper>
-                        </Grid>
-                      );
-                    })}
-                  </Grid>
-                </Box>
-              );
-            })}
+            {renderedSearchCategories}
             {!isSearching &&
               searchResults &&
               searchCategories.every(cat => getSearchResults(cat.type).length === 0) && (

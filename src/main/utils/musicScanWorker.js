@@ -2,106 +2,188 @@
 /* eslint-disable @typescript-eslint/no-var-requires */
 const path = require('path');
 const fs = require('fs');
-const jsmediatags = require('jsmediatags');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
 
-function removeMIME(str) {
-  return str.replace(/(\.mp3)|(\.m4a)|(\.ogg)|(\.wav)/gi, '');
+let multiArtistSeparators = [',', '&'];
+let multiArtistExceptions = ['AC/DC', '+/-'];
+
+function applyLibrarySettings(librarySettings) {
+  if (!librarySettings) return;
+  if (Array.isArray(librarySettings.multiArtistSeparators)) {
+    multiArtistSeparators = librarySettings.multiArtistSeparators;
+  }
+  if (Array.isArray(librarySettings.multiArtistExceptions)) {
+    multiArtistExceptions = librarySettings.multiArtistExceptions;
+  }
 }
 
-function arrayBuff2ImgBuff(picture) {
-  // Convert jsmediatags picture to base64 string
-  const base64String = Buffer.from(picture.data).toString('base64');
-  return `data:image/${picture.type || 'jpg'};base64,${base64String}`;
-}
-
-function parseMusicWorker(filePath, config) {
-  return new Promise((resolve, reject) => {
-    let music = {
-      fileInfo: {
-        tagType: '',
-        path: filePath,
-        fileName: path.parse(filePath).name,
-        fileExt: path.parse(filePath).ext,
-        fileSize: fs.statSync(filePath).size,
-        folderName: path.parse(path.parse(filePath).dir).base,
-        folderpath: path.parse(filePath).dir,
-      },
-      tags: {
-        title: '',
-        artist: '',
-        album: '',
-        track: '',
-        genre: '',
-        year: '',
-        albumArt: '', // will be set later
-        picture: null, // keep raw picture for later
-        duration: 0,
-      },
-    };
-    jsmediatags.read(filePath, {
-      onSuccess: async function (tag) {
-        let { type, tags } = tag;
-        music.fileInfo.tagType = type;
-        music.tags.title = tags.title;
-        music.tags.artist = tags.artist;
-        music.tags.album = tags.album;
-        music.tags.track = tags.track;
-        music.tags.genre = tags.genre;
-        music.tags.year = tags.year;
-        if (tag && tags.picture && tags.picture.data) {
-          music.tags.picture = tags.picture;
-        }
-        try {
-          const mm = await import('music-metadata');
-          const mmMeta = await mm.parseFile(filePath, { skipCovers: true });
-          music.tags.duration = Math.round(mmMeta.format.duration || 0);
-        } catch (e) {
-          music.tags.duration = 0;
-        }
-        resolve(music);
-      },
-      onError: async function (error) {
-        // Fallback to music-metadata (dynamic import for Node < 22)
-        try {
-          const mm = await import('music-metadata');
-          const metadata = await mm.parseFile(filePath);
-          music.tags.title = metadata.common?.title || music.fileInfo.fileName;
-          music.tags.artist = metadata.common?.artist || '';
-          music.tags.album = metadata.common?.album || '';
-          music.tags.track = metadata.common?.track?.no || '';
-          music.tags.genre = (metadata.common?.genre && metadata.common.genre.join(',')) || '';
-          music.tags.year = metadata.common?.year || '';
-          music.tags.duration = Math.round(metadata.format?.duration || 0);
-          // Album art fallback
-          if (metadata.common.picture && metadata.common.picture.length > 0) {
-            const picture = metadata.common.picture[0];
-            const albumArtPath = path.join(
-              config.ALBUM_ART_DIR,
-              `${music.tags.album ? music.tags.album : removeMIME(music.fileInfo.fileName)}.${
-                picture.format || 'jpg'
-              }`
-            );
-            fs.writeFileSync(String(albumArtPath), Buffer.from(picture.data));
-            music.tags.albumArt = albumArtPath;
-          }
-        } catch (err) {
-          // If both fail, just resolve with basic info
-        }
-        resolve(music);
-      },
+// Cache the ESM import so it's resolved once for all files
+let mmPromise = null;
+function getMM() {
+  if (!mmPromise) {
+    mmPromise = import('music-metadata').catch(err => {
+      console.error('[worker] Failed to import music-metadata:', err);
+      process.parentPort.postMessage({
+        type: 'file-error',
+        file: 'music-metadata import',
+        error: String(err?.message || err),
+      });
+      throw err;
     });
+  }
+  return mmPromise;
+}
+
+function normalizeTrackNumber(track) {
+  if (track === null || track === undefined || track === '') return null;
+  const trackStr = String(track);
+  const numPart = trackStr.split('/')[0];
+  const parsed = parseInt(numPart, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeArtistName(raw) {
+  if (!raw) return '';
+
+  if (typeof raw === 'object') {
+    if (typeof raw.name === 'string' && raw.name.trim()) {
+      return raw.name.trim().replace(/\s+/g, ' ');
+    }
+    if (typeof raw.artist === 'string' && raw.artist.trim()) {
+      return raw.artist.trim().replace(/\s+/g, ' ');
+    }
+    return String(raw).trim().replace(/\s+/g, ' ');
+  }
+
+  return String(raw).trim().replace(/\s+/g, ' ');
+}
+
+function splitArtists(rawArtist) {
+  const artistList = [];
+
+  if (!rawArtist) return artistList;
+
+  if (Array.isArray(rawArtist)) {
+    rawArtist.forEach(item => {
+      const normalized = normalizeArtistName(item);
+      if (normalized) artistList.push(normalized);
+    });
+  } else {
+    artistList.push(normalizeArtistName(rawArtist));
+  }
+
+  // Flatten comma/ampersand separators but preserve exceptions (AC/DC, +/- etc.)
+  const result = [];
+
+  artistList.forEach(raw => {
+    const normalized = normalizeArtistName(raw);
+    if (!normalized) return;
+
+    if (multiArtistExceptions.some(exc => exc.toLowerCase() === normalized.toLowerCase())) {
+      result.push(normalized);
+      return;
+    }
+
+    const sepPattern = multiArtistSeparators.map(escapeRegex).join('|');
+    const pieces = normalized.split(new RegExp(`\\s*(?:${sepPattern})\\s*`, 'g'));
+
+    if (pieces.length > 1) {
+      pieces.forEach(piece => {
+        const p = normalizeArtistName(piece);
+        if (p && !multiArtistExceptions.some(exc => exc.toLowerCase() === p.toLowerCase())) {
+          result.push(p);
+        } else if (p) {
+          result.push(p);
+        }
+      });
+    } else {
+      result.push(normalized);
+    }
   });
+
+  return [...new Set(result.filter(Boolean))];
+}
+
+async function parseMusicWorker(filePath) {
+  const mm = await getMM();
+  const metadata = await mm.parseFile(filePath);
+  const picture = metadata.common.picture?.[0] || null;
+  return {
+    fileInfo: {
+      tagType: metadata.format.tagTypes?.[0] || '',
+      path: filePath,
+      fileName: path.parse(filePath).name,
+      fileExt: path.parse(filePath).ext,
+      fileSize: fs.statSync(filePath).size,
+      folderName: path.parse(path.parse(filePath).dir).base,
+      folderpath: path.parse(filePath).dir,
+    },
+    tags: {
+      title: metadata.common.title || '',
+      artist: metadata.common.artist || metadata.common.artists || '',
+      albumArtist:
+        metadata.common.albumartist ||
+        metadata.common.albumArtist ||
+        metadata.common.albumartists ||
+        '',
+      album: metadata.common.album || '',
+      track: normalizeTrackNumber(metadata.common.track?.no ?? null),
+      genre: metadata.common.genre?.length ? metadata.common.genre.join(', ') : '',
+      year: metadata.common.year ? String(metadata.common.year) : '',
+      albumArt: '',
+      picture: picture,
+      duration: Math.round(metadata.format.duration || 0),
+      bitrate: metadata.format.bitrate ? Math.round(metadata.format.bitrate) : null,
+      sampleRate: metadata.format.sampleRate || null,
+      channels: metadata.format.numberOfChannels || null,
+      discNumber: metadata.common.disk?.no || null,
+      releaseYear: metadata.common.year || null,
+    },
+  };
 }
 
 function getOrCreate(db, table, column, value, extra = {}) {
-  let row = db.prepare(`SELECT Id FROM ${table} WHERE ${column} = ?`).get(value);
-  if (row) return row.Id;
+  const selectCols = extra.ReleaseYear != null ? 'Id, ReleaseYear' : 'Id';
+  let row = db
+    .prepare(`SELECT ${selectCols} FROM ${table} WHERE ${column} = ? COLLATE NOCASE`)
+    .get(value);
+  if (row) {
+    if (extra.ReleaseYear != null && row.ReleaseYear == null) {
+      db.prepare(`UPDATE ${table} SET ReleaseYear = ? WHERE Id = ?`).run(extra.ReleaseYear, row.Id);
+    }
+    return row.Id;
+  }
   const cols = [column, ...Object.keys(extra)].join(', ');
   const vals = [value, ...Object.values(extra)];
   const placeholders = vals.map(() => '?').join(', ');
   const stmt = db.prepare(`INSERT INTO ${table} (${cols}) VALUES (${placeholders})`);
+  const info = stmt.run(...vals);
+  return info.lastInsertRowid;
+}
+
+function getOrCreateAlbum(db, title, artistId, extra = {}) {
+  if (!title) return null;
+  const selectCols = extra.ReleaseYear != null ? 'Id, ReleaseYear' : 'Id';
+  const row = db
+    .prepare(
+      `SELECT ${selectCols} FROM Album WHERE Title = ? COLLATE NOCASE AND ((ArtistId = ?) OR (ArtistId IS NULL AND ? IS NULL))`
+    )
+    .get(title, artistId, artistId);
+  if (row) {
+    if (extra.ReleaseYear != null && row.ReleaseYear == null) {
+      db.prepare('UPDATE Album SET ReleaseYear = ? WHERE Id = ?').run(extra.ReleaseYear, row.Id);
+    }
+    return row.Id;
+  }
+  const cols = ['Title', ...Object.keys(extra)].join(', ');
+  const vals = [title, ...Object.values(extra)];
+  const placeholders = vals.map(() => '?').join(', ');
+  const stmt = db.prepare(`INSERT INTO Album (${cols}) VALUES (${placeholders})`);
   const info = stmt.run(...vals);
   return info.lastInsertRowid;
 }
@@ -136,16 +218,48 @@ function getAllSupportedFiles(dir, supportedFileTypes) {
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
 function insertTrack(db, config, filePath, musicInfo, fileHash) {
-  const artistId = musicInfo.tags.artist
-    ? getOrCreate(db, 'Artist', 'Name', musicInfo.tags.artist)
+  const allArtistNames = splitArtists(musicInfo.tags.artist);
+  const primaryArtistName = allArtistNames[0] || '';
+  const primaryArtistId = primaryArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
     : null;
+
+  const artistIds = new Set();
+  if (allArtistNames.length > 0) {
+    allArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      artistIds.add(id);
+    });
+  } else if (primaryArtistId) {
+    artistIds.add(primaryArtistId);
+  }
+
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
+
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
+  const primaryAlbumArtistId = primaryAlbumArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
+    : null;
+
+  const albumArtistIds = new Set();
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
+
   let albumId = null;
   if (musicInfo.tags.album) {
-    albumId = getOrCreate(db, 'Album', 'Title', musicInfo.tags.album, {
-      ArtistId: artistId,
+    albumId = getOrCreateAlbum(db, musicInfo.tags.album, primaryAlbumArtistId, {
+      ArtistId: primaryAlbumArtistId,
       GenreId: genreId,
     });
   }
@@ -153,11 +267,7 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
   if (albumId && musicInfo.tags.picture) {
     const albumArtPath = path.join(config.ALBUM_ART_DIR, `${albumId}.jpg`);
     if (!fs.existsSync(albumArtPath)) {
-      const base64Img = arrayBuff2ImgBuff(musicInfo.tags.picture);
-      const base64Data = base64Img.split(',')[1];
-      if (base64Data) {
-        fs.writeFileSync(String(albumArtPath), Buffer.from(base64Data, 'base64'));
-      }
+      fs.writeFileSync(String(albumArtPath), Buffer.from(musicInfo.tags.picture.data));
     }
     albumArt = albumArtPath;
   }
@@ -167,39 +277,105 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
       ? musicInfo.tags.title
       : musicInfo.fileInfo.fileName;
 
-  db.prepare(
-    `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, DateAdded, Version, FolderPath)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    filePath,
-    musicInfo.fileInfo.fileExt,
-    trackTitle,
-    artistId,
+  const trackInfo = db
+    .prepare(
+      `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, BitRate, SampleRate, Channels, DiscNumber, ReleaseYear, DateAdded, Version, FolderPath)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      filePath,
+      musicInfo.fileInfo.fileExt,
+      trackTitle,
+      primaryArtistId,
+      albumId,
+      genreId,
+      musicInfo.tags.track,
+      musicInfo.tags.year,
+      albumArt,
+      fileHash,
+      musicInfo.tags.duration || null,
+      musicInfo.tags.bitrate,
+      musicInfo.tags.sampleRate,
+      musicInfo.tags.channels,
+      musicInfo.tags.discNumber,
+      musicInfo.tags.releaseYear,
+      Date.now(),
+      1,
+      folderpath
+    );
+
+  const trackId = trackInfo.lastInsertRowid;
+
+  if (trackId && artistIds.size > 0) {
+    const insertTrackArtist = db.prepare(
+      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of artistIds) {
+      insertTrackArtist.run(trackId, aid);
+    }
+  }
+
+  if (albumId && albumArtistIds.size > 0) {
+    const insertAlbumArtist = db.prepare(
+      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of albumArtistIds) {
+      insertAlbumArtist.run(albumId, aid);
+    }
+  }
+
+  return {
+    artistId: primaryArtistId,
     albumId,
     genreId,
-    musicInfo.tags.track,
-    musicInfo.tags.year,
     albumArt,
-    fileHash,
-    musicInfo.tags.duration || null,
-    Date.now(),
-    1,
-    folderpath
-  );
-  return { artistId, albumId, genreId, albumArt, trackTitle };
+    trackTitle,
+  };
 }
 
 function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
-  const artistId = musicInfo.tags.artist
-    ? getOrCreate(db, 'Artist', 'Name', musicInfo.tags.artist)
+  const allArtistNames = splitArtists(musicInfo.tags.artist);
+  const primaryArtistName = allArtistNames[0] || '';
+  const primaryArtistId = primaryArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
     : null;
+
+  const artistIds = new Set();
+  if (allArtistNames.length > 0) {
+    allArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      artistIds.add(id);
+    });
+  } else if (primaryArtistId) {
+    artistIds.add(primaryArtistId);
+  }
+
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
+
+  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
+  const primaryAlbumArtistName = albumArtistNames[0] || '';
+  const primaryAlbumArtistId = primaryAlbumArtistName
+    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
+    : null;
+
+  const albumArtistIds = new Set();
+  if (albumArtistNames.length > 0) {
+    albumArtistNames.forEach(name => {
+      if (!name) return;
+      const id = getOrCreate(db, 'Artist', 'Name', name);
+      albumArtistIds.add(id);
+    });
+  } else if (primaryAlbumArtistId) {
+    albumArtistIds.add(primaryAlbumArtistId);
+  }
+
   let albumId = null;
   if (musicInfo.tags.album) {
-    albumId = getOrCreate(db, 'Album', 'Title', musicInfo.tags.album, {
-      ArtistId: artistId,
+    albumId = getOrCreateAlbum(db, musicInfo.tags.album, primaryAlbumArtistId, {
+      ArtistId: primaryAlbumArtistId,
       GenreId: genreId,
     });
   }
@@ -207,11 +383,7 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
   if (albumId && musicInfo.tags.picture) {
     const albumArtPath = path.join(config.ALBUM_ART_DIR, `${albumId}.jpg`);
     if (!fs.existsSync(albumArtPath)) {
-      const base64Img = arrayBuff2ImgBuff(musicInfo.tags.picture);
-      const base64Data = base64Img.split(',')[1];
-      if (base64Data) {
-        fs.writeFileSync(String(albumArtPath), Buffer.from(base64Data, 'base64'));
-      }
+      fs.writeFileSync(String(albumArtPath), Buffer.from(musicInfo.tags.picture.data));
     }
     albumArt = albumArtPath;
   }
@@ -222,11 +394,11 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
       : musicInfo.fileInfo.fileName;
 
   db.prepare(
-    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, DateAdded = ?, Version = ?, FolderPath = ? WHERE Id = ?`
+    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, BitRate = ?, SampleRate = ?, Channels = ?, DiscNumber = ?, ReleaseYear = ?, DateAdded = ?, Version = ?, FolderPath = ? WHERE Id = ?`
   ).run(
     musicInfo.fileInfo.fileExt,
     trackTitle,
-    artistId,
+    primaryArtistId,
     albumId,
     genreId,
     musicInfo.tags.track,
@@ -234,17 +406,98 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     albumArt,
     fileHash,
     musicInfo.tags.duration || null,
+    musicInfo.tags.bitrate,
+    musicInfo.tags.sampleRate,
+    musicInfo.tags.channels,
+    musicInfo.tags.discNumber,
+    musicInfo.tags.releaseYear,
     Date.now(),
     1,
     folderpath,
     trackId
   );
+
+  if (trackId) {
+    db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
+    const insertTrackArtist = db.prepare(
+      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of artistIds) {
+      insertTrackArtist.run(trackId, aid);
+    }
+  }
+
+  if (albumId) {
+    db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
+    const insertAlbumArtist = db.prepare(
+      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
+    );
+    for (const aid of albumArtistIds) {
+      insertAlbumArtist.run(albumId, aid);
+    }
+  }
 }
 
-function cleanupOrphans(db) {
-  db.prepare('DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)').run();
-  db.prepare('DELETE FROM Artist WHERE Id NOT IN (SELECT ArtistId FROM Track WHERE ArtistId IS NOT NULL)').run();
-  db.prepare('DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)').run();
+// Sweep an art directory: remove every <id>.jpg whose id is not in liveIds.
+// Authoritative — catches both freshly-orphaned files and any leftovers from
+// earlier scans / older builds that didn't clean up properly.
+function sweepOrphanArt(dir, liveIds) {
+  if (!dir) return 0;
+  let removed = 0;
+  try {
+    if (!fs.existsSync(dir)) return 0;
+    const live = liveIds instanceof Set ? liveIds : new Set(liveIds);
+    for (const file of fs.readdirSync(dir)) {
+      // Only consider <number>.jpg — leave anything else untouched.
+      const m = /^(\d+)\.jpg$/i.exec(file);
+      if (!m) continue;
+      const id = Number(m[1]);
+      if (live.has(id)) continue;
+      try {
+        fs.unlinkSync(path.join(dir, file));
+        removed++;
+      } catch (err) {
+        console.warn('[cleanup] Failed to remove', file, err?.message || err);
+      }
+    }
+  } catch (err) {
+    console.warn('[cleanup] Sweep failed for', dir, err?.message || err);
+  }
+  return removed;
+}
+
+function cleanupOrphans(db, config = {}) {
+  db.prepare(
+    'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
+  ).run();
+  db.prepare('DELETE FROM TrackArtist WHERE TrackId NOT IN (SELECT Id FROM Track)').run();
+  db.prepare('DELETE FROM AlbumArtist WHERE AlbumId NOT IN (SELECT Id FROM Album)').run();
+  db.prepare('DELETE FROM AlbumArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
+  db.prepare(
+    `DELETE FROM Artist
+     WHERE Id NOT IN (
+       SELECT ArtistId FROM TrackArtist WHERE ArtistId IS NOT NULL
+       UNION
+       SELECT ArtistId FROM AlbumArtist WHERE ArtistId IS NOT NULL
+     )`
+  ).run();
+  db.prepare(
+    'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
+  ).run();
+
+  // Now that the DB reflects reality, delete any cover/profile art file whose
+  // owning row no longer exists. We diff disk against the DB rather than
+  // tracking which rows we just deleted, so this also fixes art left behind
+  // by older scan logic that never cleaned up.
+  const liveAlbumIds = db.prepare('SELECT Id FROM Album').all().map(r => r.Id);
+  const liveArtistIds = db.prepare('SELECT Id FROM Artist').all().map(r => r.Id);
+  const albumArtRemoved = sweepOrphanArt(config.ALBUM_ART_DIR, liveAlbumIds);
+  const artistArtRemoved = sweepOrphanArt(config.ARTIST_ART_DIR, liveArtistIds);
+  if (albumArtRemoved > 0 || artistArtRemoved > 0) {
+    console.log(
+      `[cleanup] Removed ${albumArtRemoved} album art file(s), ${artistArtRemoved} artist art file(s).`
+    );
+  }
 }
 
 // ─── Basic (optimistic) scan ─────────────────────────────────────────────────
@@ -268,19 +521,20 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   const total = newFiles.length;
   let scanned = 0;
   let processed = 0;
-  process.send({ type: 'progress', scanned: 0, total });
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
   for (const filePath of newFiles) {
     try {
       const fileHash = await getFileHash(filePath);
-      const musicInfo = await parseMusicWorker(filePath, config);
+      const musicInfo = await parseMusicWorker(filePath);
       insertTrack(db, config, filePath, musicInfo, fileHash);
       scanned++;
     } catch (err) {
-      console.error('[basic-scan] Insert error:', err);
+      console.error('[basic-scan] Insert error:', filePath, err?.message || err);
+      process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
     }
     processed++;
-    process.send({ type: 'progress', scanned, total, processed });
+    process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
   }
 
   // Cheap deletion pass: check if tracked files still exist on disk
@@ -291,19 +545,22 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
       removed++;
     }
   }
-  if (removed > 0) {
-    console.log(`[basic-scan] Removed ${removed} deleted track(s).`);
-    cleanupOrphans(db);
-  }
+  if (removed > 0) console.log(`[basic-scan] Removed ${removed} deleted track(s).`);
+  // Always run — also handles orphan art files left behind by older scans.
+  cleanupOrphans(db, config);
 
   console.log(`[basic-scan] Done. Inserted ${scanned} new track(s), removed ${removed}.`);
-  return scanned;
+  return { scanned, removed };
 }
 
 // ─── Full rescan ──────────────────────────────────────────────────────────────
 // Hashes + parses every file, inserts new and updates changed, removes stale.
 
 async function runFullScan(db, folders, config, supportedFileTypes) {
+  // Rebuild album artist relationships from current file metadata.
+  // This clears stale associations that may have been created by older scan logic.
+  db.prepare('DELETE FROM AlbumArtist').run();
+
   let allFiles = [];
   for (const folder of folders) {
     allFiles = allFiles.concat(getAllSupportedFiles(folder.Uri, supportedFileTypes));
@@ -311,7 +568,7 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   const total = allFiles.length;
   let scanned = 0;
   let processed = 0;
-  process.send({ type: 'progress', scanned: 0, total });
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
   for (const folder of folders) {
     const supportedFiles = getAllSupportedFiles(folder.Uri, supportedFileTypes);
@@ -319,24 +576,25 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
     for (const filePath of supportedFiles) {
       try {
         const fileHash = await getFileHash(filePath);
-        const trackRow = db.prepare('SELECT Id, FileHash, Duration FROM Track WHERE Uri = ?').get(filePath);
-        if (!trackRow || trackRow.FileHash !== fileHash || trackRow.Duration == null) {
-          const musicInfo = await parseMusicWorker(filePath, config);
-          if (!trackRow) {
-            insertTrack(db, config, filePath, musicInfo, fileHash);
-          } else {
-            updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
-          }
-          scanned++;
-          folderScanned++;
+        const trackRow = db.prepare('SELECT Id FROM Track WHERE Uri = ?').get(filePath);
+        const musicInfo = await parseMusicWorker(filePath);
+        if (!trackRow) {
+          insertTrack(db, config, filePath, musicInfo, fileHash);
+        } else {
+          updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
         }
+        scanned++;
+        folderScanned++;
       } catch (err) {
-        console.error('[full-scan] DB Insert/Update Error:', err);
+        console.error('[full-scan] DB Insert/Update Error:', filePath, err?.message || err);
+        process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
       }
       processed++;
-      process.send({ type: 'progress', scanned, total, processed });
+      process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
     }
-    console.log(`[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`);
+    console.log(
+      `[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`
+    );
   }
 
   // Remove tracks whose files no longer exist
@@ -355,15 +613,19 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
     }
   }
   if (removed > 0) console.log(`[full-scan] Removed ${removed} stale track(s).`);
-  cleanupOrphans(db);
+  cleanupOrphans(db, config);
 
   console.log(`[full-scan] Done. Processed ${scanned} new/updated track(s).`);
-  return scanned;
+  return { scanned, removed };
 }
 
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
-process.on('message', async ({ folders, config, mode }) => {
+// utilityProcess IPC arrives on parentPort, wrapped as { data }.
+process.parentPort.on('message', async ({ data }) => {
+  const { folders, config, mode, librarySettings } = data;
+  applyLibrarySettings(librarySettings);
+
   const isFullScan = mode === 'full';
   console.log(`Starting music scan worker (mode: ${isFullScan ? 'full' : 'basic'})...`);
 
@@ -373,14 +635,14 @@ process.on('message', async ({ folders, config, mode }) => {
   const supportedFileTypes = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.webm', '.m4a'];
 
   try {
-    const scanned = isFullScan
+    const result = isFullScan
       ? await runFullScan(db, folders, config, supportedFileTypes)
       : await runBasicScan(db, folders, config, supportedFileTypes);
 
-    process.send({ success: true, scanned });
+    process.parentPort.postMessage({ success: true, scanned: result.scanned, removed: result.removed });
     process.exit(0);
   } catch (error) {
-    process.send({ success: false, error: error.message });
+    process.parentPort.postMessage({ success: false, error: error.message });
     process.exit(1);
   }
 });

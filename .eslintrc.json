@@ -29,7 +29,8 @@
         "varsIgnorePattern": "^_",
         "caughtErrorsIgnorePattern": "^_"
       }
-    ]
+    ],
+    "no-var-requires": 0
     // "node/no-unsupported-features/es-syntax": [
     //   0,
     //   {

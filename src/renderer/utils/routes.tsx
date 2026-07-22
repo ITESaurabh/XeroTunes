@@ -6,8 +6,17 @@ import { Box, CircularProgress } from '@mui/material';
 const AllSongs = lazy(() => import('../views/AllSongs'));
 const Albums = lazy(() => import('../views/Albums'));
 const AlbumDetail = lazy(() => import('../views/AlbumDetail'));
+const AllArtists = lazy(() => import('../views/artists/AllArtists'));
+const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
 const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
+const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
+const Folders = lazy(() => import('../views/Folders'));
+const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
+const Genres = lazy(() => import('../views/Genres'));
+const GenreDetail = lazy(() => import('../views/GenreDetail'));
+const Years = lazy(() => import('../views/Years'));
+const YearDetail = lazy(() => import('../views/YearDetail'));
 
 const BigLoader = () => {
   return (
@@ -73,7 +82,15 @@ const routes = [
         path: 'artists',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <AllArtists />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'artists/:artistId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <ArtistDetail />
           </React.Suspense>
         ),
       },
@@ -81,7 +98,15 @@ const routes = [
         path: 'album-artists',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <AllArtists showAlbumsOnly />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'album-artists/:artistId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <ArtistDetail showAlbumArtist />
           </React.Suspense>
         ),
       },
@@ -89,7 +114,7 @@ const routes = [
         path: 'folders',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Folders />
           </React.Suspense>
         ),
       },
@@ -97,7 +122,7 @@ const routes = [
         path: 'folder-hierarchy',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <FolderHierarchy />
           </React.Suspense>
         ),
       },
@@ -105,7 +130,15 @@ const routes = [
         path: 'genres',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Genres />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'genres/:genreId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <GenreDetail />
           </React.Suspense>
         ),
       },
@@ -113,7 +146,23 @@ const routes = [
         path: 'years',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Years />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'years/:year',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <YearDetail />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'recently-added',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <RecentlyAdded />
           </React.Suspense>
         ),
       },
