@@ -15,6 +15,10 @@ The tag shape picks the channel:
 
 A tag containing a hyphen is treated as a prerelease.
 
+Each channel's tag must be on its branch — stable on `main`, beta on
+`development`. A tag on the wrong branch fails the guard job before any build
+runs.
+
 ## Cutting a release
 
 1. Bump `version` in `package.json` and commit.
