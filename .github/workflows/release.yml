@@ -35,6 +35,9 @@ jobs:
 
   release:
     needs: guard
+    # Selects which set of environment secrets (DISCORD_CLIENT_ID, ...) to use.
+    # Beta tags read the "beta" environment, stable tags "production".
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
     strategy:
       fail-fast: false
       matrix:
