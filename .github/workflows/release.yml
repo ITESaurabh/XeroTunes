@@ -59,17 +59,6 @@ jobs:
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Verify channel secrets are present
-        shell: bash
-        env:
-          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
-        run: |
-          if [ -z "$DISCORD_CLIENT_ID" ]; then
-            echo "::error::DISCORD_CLIENT_ID is empty for environment '${{ contains(github.ref_name, '-') && 'beta' || 'production' }}'. Add it as an environment secret."
-            exit 1
-          fi
-          echo "DISCORD_CLIENT_ID is set (length ${#DISCORD_CLIENT_ID})."
-
       - name: Install Linux maker dependencies
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
