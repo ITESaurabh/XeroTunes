@@ -8,9 +8,12 @@
   "scripts": {
     "start": "electron-forge start --",
     "package": "electron-forge package",
+    "package:prod": "cross-env APP_CHANNEL=stable electron-forge package",
     "rebuildlib": "electron-rebuild -f",
     "make": "electron-forge make",
+    "make:prod": "cross-env APP_CHANNEL=stable electron-forge make",
     "publish": "electron-forge publish",
+    "publish:prod": "cross-env APP_CHANNEL=stable electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "lint2": "eslint --max-warnings=0 src",
     "typecheck": "tsc --noEmit"
@@ -51,6 +54,7 @@
     "@vercel/webpack-asset-relocator-loader": "1.7.3",
     "babel-loader": "^9.2.1",
     "copy-webpack-plugin": "^12.0.2",
+    "cross-env": "^10.1.0",
     "css-loader": "^6.0.0",
     "dotenv-webpack": "^9.0.0",
     "electron": "43.1.0",

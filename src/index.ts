@@ -1,5 +1,7 @@
+import './config/appIdentity';
 import { app, BrowserWindow, ipcMain, screen, nativeTheme, Menu } from 'electron';
 import minimist from 'minimist';
+import { IDENTITY } from './config/channel';
 import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
@@ -46,16 +48,16 @@ function handleSquirrelEvent(): boolean {
     case '--squirrel-updated': {
       run(`"${updateExe}" --createShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
 
-      const ctxRoot = 'HKCU\\Software\\Classes\\*\\shell\\XeroTunes';
-      regWrite(ctxRoot, null, 'Open with XeroTunes');
+      const ctxRoot = `HKCU\\Software\\Classes\\*\\shell\\${IDENTITY.menuKey}`;
+      regWrite(ctxRoot, null, `Open with ${IDENTITY.productName}`);
       regWrite(ctxRoot, 'Icon', exePath);
       regWrite(`${ctxRoot}\\command`, null, `"${exePath}" "%1"`);
 
       // SMTC reads DisplayName + IconUri off this key for the "Now playing"
       // flyout. IconUri needs a real image file (the EXE renders a placeholder).
-      const aumidRoot = 'HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp';
+      const aumidRoot = `HKCU\\Software\\Classes\\AppUserModelId\\${IDENTITY.appId}`;
       const iconPath = path.join(path.dirname(exePath), 'resources', 'XeroTunesLogo.ico');
-      regWrite(aumidRoot, 'DisplayName', 'XeroTunes');
+      regWrite(aumidRoot, 'DisplayName', IDENTITY.productName);
       regWrite(aumidRoot, 'IconUri', fs.existsSync(iconPath) ? iconPath : exePath);
 
       app.quit();
@@ -64,8 +66,8 @@ function handleSquirrelEvent(): boolean {
 
     case '--squirrel-uninstall': {
       run(`"${updateExe}" --removeShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
-      regDelete('HKCU\\Software\\Classes\\*\\shell\\XeroTunes');
-      regDelete('HKCU\\Software\\Classes\\AppUserModelId\\com.itesaurabh.xmp');
+      regDelete(`HKCU\\Software\\Classes\\*\\shell\\${IDENTITY.menuKey}`);
+      regDelete(`HKCU\\Software\\Classes\\AppUserModelId\\${IDENTITY.appId}`);
       app.quit();
       return true;
     }
@@ -82,11 +84,7 @@ if (handleSquirrelEvent()) {
   // Squirrel lifecycle event handled — app will quit, nothing more to do.
 }
 
-// Display name used by macOS menu bar, Linux MPRIS Identity, and various OS
-// surfaces that don't read package.json's productName at runtime.
-app.setName('XeroTunes');
-
-app.setAppUserModelId('com.itesaurabh.xmp');
+// app.setName + setAppUserModelId run in ./config/appIdentity (imported first).
 
 const isDarkMode = nativeTheme.shouldUseDarkColors;
 
@@ -194,8 +192,8 @@ const createWindow = () => {
         });
         if (currOS === OS_WINDOWS) {
           miniWin!.setAppDetails({
-            appId: 'com.itesaurabh.xmp',
-            relaunchDisplayName: 'XeroTunes Mini',
+            appId: IDENTITY.appId,
+            relaunchDisplayName: `${IDENTITY.productName} Mini`,
           });
         }
         // Wait for the renderer to mount its play-mini listener before sending
@@ -267,8 +265,8 @@ const createWindow = () => {
     mainWin!.setMenu(null);
     if (currOS === OS_WINDOWS) {
       mainWin!.setAppDetails({
-        appId: 'com.itesaurabh.xmp',
-        relaunchDisplayName: 'XeroTunes',
+        appId: IDENTITY.appId,
+        relaunchDisplayName: IDENTITY.productName,
       });
     }
     mainWin!.once('ready-to-show', () => {

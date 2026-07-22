@@ -12,6 +12,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
+import { IDENTITY } from './src/config/channel';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -24,21 +25,18 @@ const config: ForgeConfig = {
           ]
         : './src/assets/logo/XeroTunesLogo',
 
-    executableName: 'xerotunes',
+    executableName: IDENTITY.installName,
     asar: true,
     appCategoryType: 'public.app-category.music',
-    name: 'XeroTunes',
+    name: IDENTITY.productName,
     // Loose-shipped so the AUMID registration in src/index.ts can point
     // SMTC at a real file path (asar:// paths don't render).
-    extraResource: [
-      './src/assets/logo/XeroTunesLogo.ico',
-      './src/assets/logo/XeroTunesLogo.png',
-    ],
+    extraResource: ['./src/assets/logo/XeroTunesLogo.ico', './src/assets/logo/XeroTunesLogo.png'],
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({
-      name: 'xerotunes',
+      name: IDENTITY.installName,
       iconUrl: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
@@ -46,7 +44,7 @@ const config: ForgeConfig = {
     new MakerZIP({}, ['darwin']),
     new MakerDeb({
       options: {
-        name: 'xerotunes',
+        name: IDENTITY.installName,
         section: 'sound',
         genericName: 'Music Player',
         categories: ['Audio'],
@@ -55,14 +53,14 @@ const config: ForgeConfig = {
     }),
     new MakerRpm({
       options: {
-        name: 'xerotunes',
+        name: IDENTITY.installName,
         genericName: 'Music Player',
         categories: ['Audio'],
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
     new MakerDMG({
-      name: 'XeroTunes',
+      name: IDENTITY.productName,
       background: './src/assets/dmg-bg/background.tiff',
       // background: path.resolve(__dirname, 'src/assets/dmg-bg/bg.png'),
       additionalDMGOptions: {

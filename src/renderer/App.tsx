@@ -15,6 +15,7 @@ import Titlebar from './components/Titlebar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
+import { APP_DISPLAY_NAME } from '../config/constants';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -104,6 +105,13 @@ const App = () => {
   useEffect(() => {
     dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
   }, [themeSettings.mode, dispatch]);
+
+  useEffect(() => {
+    const title = state.track?.Title;
+    document.title = title
+      ? `${state.queueIndex + 1}. ${title} - ${APP_DISPLAY_NAME}`
+      : APP_DISPLAY_NAME;
+  }, [state.track, state.queueIndex]);
 
   // Register keyboard shortcuts
   useKeyboardShortcuts(

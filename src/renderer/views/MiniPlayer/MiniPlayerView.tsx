@@ -13,7 +13,7 @@ import fastForward16Filled from '@iconify/icons-fluent/fast-forward-16-filled';
 import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
-import { APP_NAME, DEFAULT_AA } from '../../../config/constants';
+import { APP_NAME, APP_EDITION, DEFAULT_AA } from '../../../config/constants';
 import MuiImage from 'mui-image';
 import { parseFile } from 'music-metadata';
 import Marquee from 'react-fast-marquee';
@@ -212,7 +212,8 @@ export default function MiniPlayerView(): React.ReactElement {
           }}
         >
           <Typography fontSize={'0.875rem'} color={theme.palette.primary.main} fontWeight={500}>
-            {APP_NAME} Mini
+            {APP_NAME}
+            {APP_EDITION ? ` ${APP_EDITION}` : ''} Mini
           </Typography>
           <Box
             display={'flex'}

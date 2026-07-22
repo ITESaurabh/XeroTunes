@@ -1,6 +1,9 @@
+import { IDENTITY } from './channel';
+
 export const APP_NAME = 'XeroTunes';
 export const APP_VERSION: string | undefined = process.env.REACT_APP_VERSION;
-export const APP_EDITION = 'Beta';
+export const APP_EDITION = IDENTITY.label;
+export const APP_DISPLAY_NAME = IDENTITY.productName;
 export const ORG_NAME = 'ITESoftcare';
 export const ORG_SITE = 'https://github.com/ITESoftcare';
 export const SESSION_TIME = 30; // In Days

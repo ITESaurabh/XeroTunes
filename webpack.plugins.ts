@@ -3,6 +3,7 @@ import type IForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin';
 import Dotenv from 'dotenv-webpack';
 import path from 'path';
 import fs from 'fs';
+import { CHANNEL } from './src/config/channel';
 
 // Toggle this to enable/disable real-time TypeScript type checking during builds
 const ENABLE_TYPE_CHECKING = false;
@@ -10,10 +11,12 @@ const ENABLE_TYPE_CHECKING = false;
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const ForkTsCheckerWebpackPlugin: typeof IForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 
-// Resolve which .env file to load: prefer .env.local, fall back to .env
-const envLocalPath = path.resolve(__dirname, '.env.local');
-const envPath = path.resolve(__dirname, '.env');
-const dotenvPath = fs.existsSync(envLocalPath) ? envLocalPath : envPath;
+// Real env vars (APP_CHANNEL from make:prod) win over these file values because
+// dotenv-webpack copies systemvars in before reading the .env file.
+const channelEnvFile = CHANNEL === 'stable' ? '.env.production' : '.env.local';
+const dotenvPath =
+  [channelEnvFile, '.env'].map(f => path.resolve(__dirname, f)).find(fs.existsSync) ??
+  path.resolve(__dirname, '.env');
 
 export const plugins: WebpackPluginInstance[] = [
   ...(ENABLE_TYPE_CHECKING
