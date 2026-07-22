@@ -1,0 +1,56 @@
+name: Release
+
+# Push a semver tag to cut a release. A prerelease tag (contains a hyphen, e.g.
+# v0.10.0-beta.1) builds the beta channel and publishes a GitHub prerelease; a
+# clean tag (v0.10.0) builds stable and publishes a full release.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine channel from tag
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${{ github.ref_name }}" == *-* ]]; then
+            echo "script=publish" >> "$GITHUB_OUTPUT"
+            echo "app_env=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "script=publish:prod" >> "$GITHUB_OUTPUT"
+            echo "app_env=stable" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install Linux maker dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Publish
+        run: yarn ${{ steps.channel.outputs.script }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APP_ENV: ${{ steps.channel.outputs.app_env }}
+          DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}

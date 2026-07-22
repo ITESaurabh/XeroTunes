@@ -9,10 +9,11 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { PublisherGitHub } from '@electron-forge/publisher-github';
 
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
-import { IDENTITY } from './src/config/channel';
+import { CHANNEL, IDENTITY } from './src/config/channel';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -129,6 +130,15 @@ const config: ForgeConfig = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
+    }),
+  ],
+  publishers: [
+    new PublisherGitHub({
+      repository: { owner: 'ITESaurabh', name: 'xero-music-player' },
+      // Beta is the default channel, so an un-opted build is a prerelease.
+      // A stable release must be built with APP_CHANNEL=stable (yarn publish:prod).
+      prerelease: CHANNEL === 'beta',
+      draft: false,
     }),
   ],
 };
