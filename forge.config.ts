@@ -15,6 +15,28 @@ import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 import { CHANNEL, IDENTITY } from './src/config/channel';
 
+const AUDIO_MIME_TYPES = [
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/aac',
+  'audio/aacp',
+  'audio/flac',
+  'audio/x-flac',
+  'audio/ogg',
+  'audio/x-vorbis+ogg',
+  'audio/opus',
+  'audio/x-opus+ogg',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/x-m4a',
+  'audio/mp3',
+  'audio/x-mpeg',
+  // 'audio/aiff', 
+  // 'audio/x-aiff',
+  'audio/webm',
+  // 'audio/x-ms-wma',
+];
+
 const config: ForgeConfig = {
   packagerConfig: {
     icon:
@@ -50,7 +72,8 @@ const config: ForgeConfig = {
         bin: IDENTITY.installName,
         section: 'sound',
         genericName: 'Music Player',
-        categories: ['Audio'],
+        categories: ['AudioVideo', 'Audio'],
+        mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
@@ -60,7 +83,8 @@ const config: ForgeConfig = {
         // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
         bin: IDENTITY.installName,
         genericName: 'Music Player',
-        categories: ['Audio'],
+        categories: ['AudioVideo', 'Audio'],
+        mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
@@ -138,7 +162,7 @@ const config: ForgeConfig = {
   ],
   publishers: [
     new PublisherGitHub({
-      repository: { owner: 'ITESaurabh', name: 'xero-music-player' },
+      repository: { owner: 'ITESaurabh', name: 'XeroTunes' },
       // Beta is the default channel, so an un-opted build is a prerelease.
       // A stable release must be built with APP_CHANNEL=stable (yarn publish:prod).
       prerelease: CHANNEL === 'beta',

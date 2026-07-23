@@ -1,7 +1,7 @@
 {
   "name": "xerotunes",
   "productName": "XeroTunes",
-  "version": "0.10.0",
+  "version": "0.10.2",
   "description": "An open source cross platform music player application.",
   "main": ".webpack/main",
   "private": true,
