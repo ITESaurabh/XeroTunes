@@ -46,6 +46,8 @@ const config: ForgeConfig = {
     new MakerDeb({
       options: {
         name: IDENTITY.installName,
+        // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
+        bin: IDENTITY.installName,
         section: 'sound',
         genericName: 'Music Player',
         categories: ['Audio'],
@@ -55,6 +57,8 @@ const config: ForgeConfig = {
     new MakerRpm({
       options: {
         name: IDENTITY.installName,
+        // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
+        bin: IDENTITY.installName,
         genericName: 'Music Player',
         categories: ['Audio'],
         icon: './src/assets/logo/XeroTunesLogo.png',
