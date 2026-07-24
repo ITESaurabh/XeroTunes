@@ -208,6 +208,17 @@ export function setPauseOnAudioOutputChange(enabled: boolean): void {
   updateSettings({ playback: { ...getPlaybackSettings(), pauseOnAudioOutputChange: enabled } });
 }
 
+export const AUDIO_OUTPUT_DEVICE_EVENT = 'xt-audio-output-device-change';
+
+export function getAudioOutputDeviceId(): string {
+  return getPlaybackSettings().audioOutputDeviceId;
+}
+
+export function setAudioOutputDeviceId(deviceId: string): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), audioOutputDeviceId: deviceId } });
+  window.dispatchEvent(new CustomEvent(AUDIO_OUTPUT_DEVICE_EVENT, { detail: deviceId }));
+}
+
 export function getLibrarySettings(): LibrarySettings {
   return getSettings().library;
 }

@@ -31,6 +31,7 @@ import PageToolbar from '../components/PageToolbar';
 import foldersIcon from '@iconify/icons-fluent/folder-24-regular';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
 import headphonesIcon from '@iconify/icons-fluent/headphones-20-regular';
+import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
 import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import zoomIcon from '@iconify/icons-fluent/zoom-in-24-regular';
@@ -60,6 +61,8 @@ import {
   getTitleBarStyle,
   getPauseOnAudioOutputChange,
   setPauseOnAudioOutputChange,
+  getAudioOutputDeviceId,
+  setAudioOutputDeviceId,
   getMultiArtistSeparators,
   setMultiArtistSeparators,
   getMultiArtistExceptions,
@@ -577,6 +580,8 @@ const Settings: React.FC = () => {
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
+  const [outputDevices, setOutputDevices] = React.useState<MediaDeviceInfo[]>([]);
+  const [outputDeviceId, setOutputDeviceIdState] = React.useState<string>(getAudioOutputDeviceId);
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
   const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
   const [themeMode, setThemeModeState] = React.useState<ThemeMode>(getThemeMode());
@@ -609,9 +614,38 @@ const Settings: React.FC = () => {
       });
   }, []);
 
+  React.useEffect(() => {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    let cancelled = false;
+    const refresh = async (): Promise<void> => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (!cancelled) setOutputDevices(devices.filter(d => d.kind === 'audiooutput'));
+      } catch (err) {
+        console.error('Error enumerating audio output devices:', err);
+      }
+    };
+    void refresh();
+    navigator.mediaDevices.addEventListener('devicechange', refresh);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices.removeEventListener('devicechange', refresh);
+    };
+  }, []);
+
   const handleExpansion = (): void => {
     setExpanded(prevExpanded => !prevExpanded);
   };
+
+  const handleOutputDeviceChange = (deviceId: string): void => {
+    setOutputDeviceIdState(deviceId);
+    setAudioOutputDeviceId(deviceId);
+  };
+
+  // Fall back to default when the saved device is gone, so the Select value stays in range.
+  const outputDeviceValue = outputDevices.some(d => d.deviceId === outputDeviceId)
+    ? outputDeviceId
+    : 'default';
 
   const handleThemeModeChange = (mode: ThemeMode): void => {
     setThemeModeState(mode);
@@ -815,74 +849,82 @@ const Settings: React.FC = () => {
                 </AccordionDetails>
               </Accordion>
             </ListItem>
+          </List>
 
-            <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, width: '100%' }}>
-                <ListItemIcon sx={{ minWidth: 36 }}>
-                  <Icon icon={artistIcon} width="1.5rem" />
+          <List
+            subheader={
+              <ListSubheader
+                color="inherit"
+                sx={{
+                  bgcolor: theme =>
+                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
+                }}
+              >
+                Playback
+              </ListSubheader>
+            }
+          >
+            <ListItem
+              sx={{
+                flexDirection: { xs: 'column', sm: 'row' },
+                alignItems: { xs: 'stretch', sm: 'center' },
+                gap: { xs: 1, sm: 0 },
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, width: '100%' }}>
+                <ListItemIcon>
+                  <Icon icon={speakerIcon} width={'2rem'} />
                 </ListItemIcon>
                 <ListItemText
-                  primary="Artist Name Handling"
-                  secondary="Control how multi-artist tags are split into separate artists. Changes apply on the next rescan."
-                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                  id="select-audio-output-device"
+                  primary="Output Device"
+                  secondary="Where playback audio is sent"
                 />
               </Box>
-
-              <Box sx={{ pl: { xs: 0, sm: 6 }, width: '100%' }}>
-                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
-                  Separators
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mb: 1 }}
-                >
-                  Characters used to split a tag into multiple artists (e.g. &quot;,&quot; and
-                  &quot;&amp;&quot;).
-                </Typography>
-                <ChipListEditor
-                  values={artistSeparators}
-                  onChange={handleSeparatorsChange}
-                  placeholder="Add a separator, e.g. ;"
-                  ariaLabel="Add multi-artist separator"
-                  removeConfirm={value => ({
-                    title: 'Remove separator?',
-                    message: `Remove "${value}" from the multi-artist separators?`,
-                    detail:
-                      'Artist tags will no longer be split on this character after the next rescan.',
-                    confirmLabel: 'Remove',
-                    destructive: true,
-                  })}
-                />
-
-                <Divider sx={{ my: 2 }} />
-
-                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
-                  Exceptions
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ display: 'block', mb: 1 }}
-                >
-                  Names kept intact even when they contain a separator (e.g. &quot;AC/DC&quot;,
-                  &quot;Eminem &amp; Linkin Park&quot;).
-                </Typography>
-                <ChipListEditor
-                  values={artistExceptions}
-                  onChange={handleExceptionsChange}
-                  placeholder="Add an exception, e.g. Eminem & Linkin Park"
-                  ariaLabel="Add multi-artist exception"
-                  removeConfirm={value => ({
-                    title: 'Remove exception?',
-                    message: `Remove "${value}" from the artist name exceptions?`,
-                    detail:
-                      'Multi-artist tags matching this name will be split again on the next rescan.',
-                    confirmLabel: 'Remove',
-                    destructive: true,
-                  })}
-                />
-              </Box>
+              <Select
+                size="small"
+                value={outputDeviceValue}
+                onChange={e => handleOutputDeviceChange(String(e.target.value))}
+                sx={{
+                  minWidth: 200,
+                  maxWidth: { xs: 'none', sm: 300, lg: 'none' },
+                  mr: { xs: 0, sm: 0.5 },
+                  width: { xs: '100%', sm: 'auto' },
+                }}
+              >
+                {outputDevices.length === 0 ? (
+                  <MenuItem value="default">System Default</MenuItem>
+                ) : (
+                  outputDevices.map(device => (
+                    <MenuItem key={device.deviceId} value={device.deviceId}>
+                      {device.label ||
+                        (device.deviceId === 'default'
+                          ? 'System Default'
+                          : `Output (${device.deviceId.slice(0, 8)})`)}
+                    </MenuItem>
+                  ))
+                )}
+              </Select>
+            </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={headphonesIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="switch-list-label-pause-on-output-change"
+                primary="Pause on audio output change"
+                secondary="Automatically pause when headphones are unplugged or a Bluetooth device disconnects"
+              />
+              <IOSSwitch
+                checked={pauseOnOutputChange}
+                onChange={e => {
+                  setPauseOnOutputChangeState(e.target.checked);
+                  setPauseOnAudioOutputChange(e.target.checked);
+                }}
+                sx={{
+                  mr: 0.5,
+                }}
+              />
             </ListItem>
           </List>
 
@@ -900,20 +942,28 @@ const Settings: React.FC = () => {
               </ListSubheader>
             }
           >
-            <ListItem>
-              <ListItemIcon>
-                <Icon icon={darkThemeIcon} width={'2rem'} />
-              </ListItemIcon>
-              <ListItemText
-                id="select-theme-mode"
-                primary="Theme"
-                secondary="Choose light, dark, or follow the system"
-              />
+            <ListItem
+              sx={{
+                flexDirection: { xs: 'column', sm: 'row' },
+                alignItems: { xs: 'stretch', sm: 'center' },
+                gap: { xs: 1, sm: 0 },
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', flex: 1, width: '100%' }}>
+                <ListItemIcon>
+                  <Icon icon={darkThemeIcon} width={'2rem'} />
+                </ListItemIcon>
+                <ListItemText
+                  id="select-theme-mode"
+                  primary="Theme"
+                  secondary="Choose light, dark, or follow the system"
+                />
+              </Box>
               <Select
                 size="small"
                 value={themeMode}
                 onChange={e => handleThemeModeChange(Number(e.target.value) as ThemeMode)}
-                sx={{ minWidth: 130, mr: 0.5 }}
+                sx={{ minWidth: 130, mr: { xs: 0, sm: 0.5 }, width: { xs: '100%', sm: 'auto' } }}
               >
                 <MenuItem value={0}>System</MenuItem>
                 <MenuItem value={1}>Light</MenuItem>
@@ -1019,29 +1069,76 @@ const Settings: React.FC = () => {
                     theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
                 }}
               >
-                Playback
+                Artist Name Handling
               </ListSubheader>
             }
           >
-            <ListItem>
-              <ListItemIcon>
-                <Icon icon={headphonesIcon} width={'2rem'} />
-              </ListItemIcon>
-              <ListItemText
-                id="switch-list-label-pause-on-output-change"
-                primary="Pause on audio output change"
-                secondary="Automatically pause when headphones are unplugged or a Bluetooth device disconnects"
-              />
-              <IOSSwitch
-                checked={pauseOnOutputChange}
-                onChange={e => {
-                  setPauseOnOutputChangeState(e.target.checked);
-                  setPauseOnAudioOutputChange(e.target.checked);
-                }}
-                sx={{
-                  mr: 0.5,
-                }}
-              />
+            <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, width: '100%' }}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <Icon icon={artistIcon} width="1.5rem" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Artist Name Handling"
+                  secondary="Control how multi-artist tags are split into separate artists. Changes apply on the next rescan."
+                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                />
+              </Box>
+
+              <Box sx={{ pl: { xs: 0, sm: 6 }, width: '100%' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                  Separators
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mb: 1 }}
+                >
+                  Characters used to split a tag into multiple artists (e.g. &quot;,&quot; and
+                  &quot;&amp;&quot;).
+                </Typography>
+                <ChipListEditor
+                  values={artistSeparators}
+                  onChange={handleSeparatorsChange}
+                  placeholder="Add a separator"
+                  ariaLabel="Add multi-artist separator"
+                  removeConfirm={value => ({
+                    title: 'Remove separator?',
+                    message: `Remove "${value}" from the multi-artist separators?`,
+                    detail:
+                      'Artist tags will no longer be split on this character after the next rescan.',
+                    confirmLabel: 'Remove',
+                    destructive: true,
+                  })}
+                />
+
+                <Divider sx={{ my: 2 }} />
+
+                <Typography variant="subtitle2" sx={{ mb: 0.25 }}>
+                  Exceptions
+                </Typography>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: 'block', mb: 1 }}
+                >
+                  Names kept intact even when they contain a separator (e.g. &quot;AC/DC&quot;).
+                </Typography>
+                <ChipListEditor
+                  values={artistExceptions}
+                  onChange={handleExceptionsChange}
+                  placeholder="Add an exception"
+                  ariaLabel="Add multi-artist exception"
+                  removeConfirm={value => ({
+                    title: 'Remove exception?',
+                    message: `Remove "${value}" from the artist name exceptions?`,
+                    detail:
+                      'Multi-artist tags matching this name will be split again on the next rescan.',
+                    confirmLabel: 'Remove',
+                    destructive: true,
+                  })}
+                />
+              </Box>
             </ListItem>
           </List>
           <List

@@ -31,6 +31,8 @@ export interface PlaybackSettings {
   shuffle: boolean;
   repeatMode: PlaybackRepeatMode;
   pauseOnAudioOutputChange: boolean;
+  /** MediaDevices deviceId for the output sink; 'default' follows the system default. */
+  audioOutputDeviceId: string;
 }
 
 export interface LibrarySettings {
@@ -84,6 +86,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     shuffle: false,
     repeatMode: 'off',
     pauseOnAudioOutputChange: true,
+    audioOutputDeviceId: 'default',
   },
   library: {
     multiArtistSeparators: [',', '&'],

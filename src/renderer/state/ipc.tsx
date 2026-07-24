@@ -1,8 +1,14 @@
 import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 'react';
+import { parseFile } from 'music-metadata';
 import { store, LibraryStats } from '../utils/store';
 import { debounce } from '../utils/misc';
 
 const { ipcRenderer } = window.require('electron');
+
+function fileTitle(filePath: string): string {
+  const base = filePath.split(/[\\/]/).pop() ?? filePath;
+  return base.replace(/\.[^.]+$/, '');
+}
 
 interface IpcContextValue {
   sendEventToMainProcess: (event: string, payload?: unknown) => void;
@@ -62,6 +68,37 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
       ipcRenderer.removeAllListeners('play-mini');
     };
   }, []);
+
+  // "Open with" while the full player is running: play here instead of
+  // spawning a mini player. The file may be outside the library, so build a
+  // transient one-track queue from its tags.
+  useEffect(() => {
+    if (mini) return;
+    const handlePlayExternal = async (_event: Electron.IpcRendererEvent, filePath: string) => {
+      if (!filePath) return;
+      let title = fileTitle(filePath);
+      let artist = '';
+      let album = '';
+      try {
+        const meta = await parseFile(filePath, { skipCovers: true });
+        title = meta.common.title || title;
+        artist = meta.common.artist || '';
+        album = meta.common.album || '';
+      } catch {
+        /* unreadable tags — filename fallback already set above */
+      }
+      // Id doubles as the queue key; the path is unique and won't collide with
+      // library rows (numeric ids), so play-count updates simply no-op.
+      const track = { Id: filePath, Title: title, ArtistName: artist, AlbumTitle: album, Uri: filePath };
+      dispatch({ type: 'SET_QUEUE', payload: { queue: [track], index: 0, source: null } });
+      dispatch({ type: 'SET_CURR_TRACK', payload: track });
+      dispatch({ type: 'SET_IS_PLAYING', payload: true });
+    };
+    ipcRenderer.on('play-external-file', handlePlayExternal);
+    return () => {
+      ipcRenderer.removeListener('play-external-file', handlePlayExternal);
+    };
+  }, [mini, dispatch]);
 
   useEffect(() => {
     const handleExpandMessage = debounce((_event: Electron.IpcRendererEvent, arg: boolean) => {

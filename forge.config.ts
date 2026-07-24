@@ -31,7 +31,7 @@ const AUDIO_MIME_TYPES = [
   'audio/x-m4a',
   'audio/mp3',
   'audio/x-mpeg',
-  // 'audio/aiff', 
+  // 'audio/aiff',
   // 'audio/x-aiff',
   'audio/webm',
   // 'audio/x-ms-wma',
@@ -89,9 +89,7 @@ const config: ForgeConfig = {
       },
     }),
     new MakerDMG({
-      name: IDENTITY.productName,
       background: './src/assets/dmg-bg/background.tiff',
-      // background: path.resolve(__dirname, 'src/assets/dmg-bg/bg.png'),
       additionalDMGOptions: {
         window: {
           size: { width: 480, height: 320 },

@@ -6,7 +6,15 @@ import Slider from '@mui/material/Slider';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 
-import { Card, Collapse, useMediaQuery } from '@mui/material';
+import {
+  Card,
+  Collapse,
+  useMediaQuery,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+} from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import {
@@ -16,6 +24,8 @@ import {
   getDiscordEnabled,
   setDiscordEnabled,
   getPauseOnAudioOutputChange,
+  getAudioOutputDeviceId,
+  AUDIO_OUTPUT_DEVICE_EVENT,
 } from '../utils/LocStoreUtil';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
@@ -31,7 +41,13 @@ import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
 import info24Regular from '@iconify/icons-fluent/info-24-regular';
-import info24Filled from '@iconify/icons-fluent/info-24-filled';
+import moreHorizontal24Regular from '@iconify/icons-fluent/more-horizontal-24-regular';
+import moreHorizontal24Filled from '@iconify/icons-fluent/more-horizontal-24-filled';
+import options24Regular from '@iconify/icons-fluent/options-24-regular';
+import topSpeed24Regular from '@iconify/icons-fluent/top-speed-24-regular';
+import cast24Regular from '@iconify/icons-fluent/cast-24-regular';
+import speaker224Regular from '@iconify/icons-fluent/speaker-2-24-regular';
+import chevronRight20Regular from '@iconify/icons-fluent/chevron-right-20-regular';
 import shuffle24Filled from '@iconify/icons-fluent/arrow-shuffle-24-filled';
 import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-filled';
 import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
@@ -43,6 +59,7 @@ import { useNavigate, useLocation } from 'react-router';
 import { parseFile } from 'music-metadata';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
+import AudioOutputMenu from './AudioOutputMenu';
 import Marquee from './Marquee';
 import PlaybackProgress from './PlaybackProgress';
 import LyricsPanel from './LyricsPanel';
@@ -446,16 +463,35 @@ export default function PlayBar() {
     }
   }, [trackUri]);
 
+  // setSinkId persists across src changes, but the audio element mounts lazily
+  // with the first track, so re-apply on each load and on the change event below.
+  const applySinkId = useCallback(async (): Promise<void> => {
+    const deviceId = getAudioOutputDeviceId();
+    for (const el of [audioRef.current, silentAudioRef.current]) {
+      const sinkable = el as
+        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
+        | null;
+      if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
+      try {
+        await sinkable.setSinkId(deviceId);
+      } catch {
+        // Device vanished; fall back to the system default so audio keeps playing.
+        if (deviceId !== 'default') await sinkable.setSinkId('default').catch(() => undefined);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
       audio.src = `file://${songPath.replace(/\\/g, '/')}`;
       audio.volume = muteVolumeRef.current ? 0 : volumeRef.current;
+      void applySinkId();
       // Kick playback off immediately rather than waiting for loadedmetadata
       // so the new track starts at canplay instead of an extra round-trip later.
       if (!pausedRef.current) audio.play().catch(() => undefined);
     }
-  }, [songPath]);
+  }, [songPath, applySinkId]);
 
   useEffect(() => {
     if (!songPath) {
@@ -658,6 +694,13 @@ export default function PlayBar() {
       navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
     };
   }, []);
+
+  // Re-route live when the output device is changed in Settings.
+  useEffect(() => {
+    const handler = (): void => void applySinkId();
+    window.addEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
+    return () => window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
+  }, [applySinkId]);
 
   // Sync audio play/pause with smooth fade
   useEffect(() => {
@@ -1088,6 +1131,38 @@ export default function PlayBar() {
 
   const handleOpenSongInfo = useCallback(() => setSongInfoOpen(true), []);
   const handleCloseSongInfo = useCallback(() => setSongInfoOpen(false), []);
+
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const menuOpen = Boolean(menuAnchorEl) || Boolean(menuPosition);
+  const [deviceMenuAnchorEl, setDeviceMenuAnchorEl] = useState<HTMLElement | null>(null);
+
+  const handleOpenMenuButton = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    setMenuPosition(null);
+    setMenuAnchorEl(e.currentTarget);
+  }, []);
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuAnchorEl(null);
+    setMenuPosition({ top: e.clientY, left: e.clientX });
+  }, []);
+  const handleCloseMenu = useCallback(() => {
+    setMenuAnchorEl(null);
+    setMenuPosition(null);
+    setDeviceMenuAnchorEl(null);
+  }, []);
+  const runMenuAction = useCallback(
+    (action: () => void) => () => {
+      handleCloseMenu();
+      action();
+    },
+    [handleCloseMenu]
+  );
+  const handleOpenDeviceMenu = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => setDeviceMenuAnchorEl(e.currentTarget),
+    []
+  );
+
   const handleHidePlayBar = useCallback(
     () => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false }),
     [dispatch]
@@ -1103,7 +1178,7 @@ export default function PlayBar() {
 
   return (
     <PlayBarRoot isPhone={isPhone}>
-      <PlayerCard container elevation={3} component={Card}>
+      <PlayerCard container elevation={3} component={Card} onContextMenu={handleContextMenu}>
         <LyricsCollapse in={isLyricsExpanded} mountOnEnter unmountOnExit>
           <LyricsPanel
             audioRef={audioRef}
@@ -1354,12 +1429,15 @@ export default function PlayBar() {
           <SideButtonsRow container>
             <Grid xs={6}>
               <IconButton
-                onClick={handleOpenSongInfo}
-                aria-label="song info"
-                title="Song info / tags"
+                onClick={handleOpenMenuButton}
+                aria-label="track menu"
+                title="More"
                 disabled={!state.track}
               >
-                <Icon icon={songInfoOpen ? info24Filled : info24Regular} width={22} />
+                <Icon
+                  icon={menuOpen ? moreHorizontal24Filled : moreHorizontal24Regular}
+                  width={22}
+                />
               </IconButton>
             </Grid>
             <Grid xs={6}>
@@ -1379,6 +1457,52 @@ export default function PlayBar() {
         onClose={handleCloseSongInfo}
         track={state.track}
         songPath={songPath}
+      />
+      <Menu
+        open={menuOpen}
+        onClose={handleCloseMenu}
+        anchorReference={menuPosition ? 'anchorPosition' : 'anchorEl'}
+        anchorEl={menuAnchorEl}
+        anchorPosition={menuPosition ?? undefined}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <MenuItem onClick={runMenuAction(handleOpenSongInfo)}>
+          <ListItemIcon>
+            <Icon icon={info24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Properties</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleCloseMenu} disabled>
+          <ListItemIcon>
+            <Icon icon={options24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Equalizer</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleCloseMenu} disabled>
+          <ListItemIcon>
+            <Icon icon={topSpeed24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Tempo</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleOpenDeviceMenu}>
+          <ListItemIcon>
+            <Icon icon={speaker224Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Audio output</ListItemText>
+          <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
+        </MenuItem>
+        <MenuItem onClick={handleCloseMenu} disabled>
+          <ListItemIcon>
+            <Icon icon={cast24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Cast to device</ListItemText>
+        </MenuItem>
+      </Menu>
+      <AudioOutputMenu
+        anchorEl={deviceMenuAnchorEl}
+        open={Boolean(deviceMenuAnchorEl)}
+        onClose={handleCloseMenu}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
       {/* SMTC keepalive — see silentSrc useMemo. */}

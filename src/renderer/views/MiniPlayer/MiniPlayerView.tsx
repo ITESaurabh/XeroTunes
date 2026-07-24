@@ -84,6 +84,31 @@ export default function MiniPlayerView(): React.ReactElement {
     }
   }, [volume, audioRef, muteVolume]);
 
+  // Ordered before the fade effect below so its play() call sees the new src
+  // already set, since a track change may not toggle isPlaying.
+  useEffect(() => {
+    if (!path) return;
+    const audioElement = audioRef.current;
+    if (!audioElement) return;
+    // Without this, play() on a still-playing element races the src swap and rejects with "interrupted by a new load request" - silent until the user toggles play/pause.
+    audioElement.pause();
+    audioElement.src = `file:///${path.replace(/\\/g, '/')}`;
+    setPosition(0);
+    setIsSeeking(false);
+
+    parseMusic(path)
+      .then(meta => {
+        setSongMeta({
+          title: meta.title || initialMeta.title,
+          artist: meta.artist || initialMeta.artist,
+          album: meta.album || initialMeta.album,
+          albumArt: meta.albumArt || initialMeta.albumArt,
+        });
+      })
+      .catch(() => setSongMeta(initialMeta));
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [path]);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -125,7 +150,7 @@ export default function MiniPlayerView(): React.ReactElement {
         }
       }, FADE_INTERVAL_MS);
     }
-  }, [isPlaying, audioRef]);
+  }, [isPlaying, path, audioRef]);
 
   useEffect(() => {
     const audioElement = audioRef.current;
@@ -163,29 +188,6 @@ export default function MiniPlayerView(): React.ReactElement {
     audioElement.currentTime = newValue as number;
     setIsSeeking(false);
   };
-
-  useEffect(() => {
-    if (path) {
-      const audioElement = audioRef.current;
-      // Convert file path to file:/// URL — Windows absolute paths need 3 slashes
-      // (2 for the empty authority + 1 for the path root), otherwise "C:" is
-      // treated as the hostname and the audio element won't load the file.
-      const fileUrl = `file:///${path.replace(/\\/g, '/')}`;
-      audioElement.src = fileUrl;
-
-      parseMusic(path)
-        .then(meta => {
-          setSongMeta({
-            title: meta.title || initialMeta.title,
-            artist: meta.artist || initialMeta.artist,
-            album: meta.album || initialMeta.album,
-            albumArt: meta.albumArt || initialMeta.albumArt,
-          });
-        })
-        .catch(() => setSongMeta(initialMeta));
-      dispatch({ type: 'SET_IS_PLAYING', payload: true });
-    }
-  }, [path]);
 
   return (
     <Container
