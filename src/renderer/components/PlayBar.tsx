@@ -25,7 +25,10 @@ import {
   setDiscordEnabled,
   getPauseOnAudioOutputChange,
   getAudioOutputDeviceId,
+  getCastVolumeLevel,
+  setCastVolumeLevel,
   AUDIO_OUTPUT_DEVICE_EVENT,
+  CAST_STOP_EVENT,
 } from '../utils/LocStoreUtil';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
@@ -60,6 +63,8 @@ import { parseFile } from 'music-metadata';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
 import AudioOutputMenu from './AudioOutputMenu';
+import CastDeviceMenu from './CastDeviceMenu';
+import type { CastDevice, CastLoadPayload, CastStatus } from '../../main/modules/Cast';
 import Marquee from './Marquee';
 import PlaybackProgress from './PlaybackProgress';
 import LyricsPanel from './LyricsPanel';
@@ -288,6 +293,8 @@ export default function PlayBar() {
   // false when a track is already in state (restored from localStorage) → don't blast music on restart.
   const didAutoStartRef = useRef(!state?.track);
   const pausedRef = useRef(true);
+  // Mirrors isCasting for effects and handlers that must not re-subscribe.
+  const castingRef = useRef(false);
   // Discards stale artwork loads when the user skips past the track.
   const metadataReqRef = useRef(0);
   const [duration, setDuration] = useState(0);
@@ -298,6 +305,26 @@ export default function PlayBar() {
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
   const [songInfoOpen, setSongInfoOpen] = useState(false);
+
+  // ── Google Cast ────────────────────────────────────────────────────────────
+  const [isCasting, setIsCasting] = useState(false);
+  const [castDeviceId, setCastDeviceId] = useState<string | null>(null);
+  const [castDeviceName, setCastDeviceName] = useState<string | null>(null);
+  const [castMenuAnchorEl, setCastMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const castDeviceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    castingRef.current = isCasting;
+  }, [isCasting]);
+  useEffect(() => {
+    castDeviceIdRef.current = castDeviceId;
+  }, [castDeviceId]);
+  const persistVolumeRef = useRef((val: number) => {
+    if (castingRef.current && castDeviceIdRef.current) {
+      setCastVolumeLevel(castDeviceIdRef.current, val);
+    } else {
+      setVolumeLevel(val);
+    }
+  });
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
   const isLyricsExpanded = state.isLyricsExpanded;
@@ -485,11 +512,13 @@ export default function PlayBar() {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
       audio.src = `file://${songPath.replace(/\\/g, '/')}`;
-      audio.volume = muteVolumeRef.current ? 0 : volumeRef.current;
+      audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
+      audio.muted = castingRef.current || audio.muted;
       void applySinkId();
       // Kick playback off immediately rather than waiting for loadedmetadata
       // so the new track starts at canplay instead of an extra round-trip later.
-      if (!pausedRef.current) audio.play().catch(() => undefined);
+      // While casting, the local element is a muted clock; never let it play.
+      if (!pausedRef.current && !castingRef.current) audio.play().catch(() => undefined);
     }
   }, [songPath, applySinkId]);
 
@@ -505,15 +534,16 @@ export default function PlayBar() {
     volumeRef.current = volume / 100;
     muteVolumeRef.current = muteVolume;
     if (audioRef.current && !fadeIntervalRef.current) {
-      audioRef.current.volume = muteVolume ? 0 : volume / 100;
-      audioRef.current.muted = muteVolume;
+      const silent = muteVolume || castingRef.current;
+      audioRef.current.volume = silent ? 0 : volume / 100;
+      audioRef.current.muted = silent;
     }
   }, [volume, muteVolume]);
 
   const handleVolumeChange = useCallback((_: Event, value: number | number[]) => {
     const resolved = Array.isArray(value) ? value[0] : value;
     setVolume(resolved);
-    setVolumeLevel(resolved);
+    persistVolumeRef.current(resolved);
     if (resolved === 0) {
       setMuteVolume(true);
     } else {
@@ -527,7 +557,7 @@ export default function PlayBar() {
     const delta = event.deltaY < 0 ? 1 : -1;
     setVolume(prev => {
       const next = Math.max(0, Math.min(100, prev + delta));
-      setVolumeLevel(next);
+      persistVolumeRef.current(next);
       if (next === 0) {
         setMuteVolume(true);
       } else {
@@ -543,7 +573,7 @@ export default function PlayBar() {
       if (prev) {
         const restore = lastVolume > 0 ? lastVolume : 30;
         setVolume(restore);
-        setVolumeLevel(restore);
+        persistVolumeRef.current(restore);
         return false;
       }
       return true;
@@ -565,6 +595,8 @@ export default function PlayBar() {
     const audio = audioRef.current;
     if (!audio) return;
     audio.onended = () => {
+      // While casting, the device signals track end via cast-status, then cast-ended.
+      if (castingRef.current) return;
       if (state.queue && state.queue.length > 0) {
         if (state.repeatMode === 'one') {
           audio.currentTime = 0;
@@ -695,15 +727,41 @@ export default function PlayBar() {
     };
   }, []);
 
+  const syncVolumeFromSettings = useCallback(() => {
+    const next = getVolumeLevel();
+    setVolume(next);
+    if (next === 0) {
+      setMuteVolume(true);
+    } else {
+      setMuteVolume(false);
+      setLastVolume(next);
+    }
+  }, []);
+
   // Re-route live when the output device is changed in Settings.
   useEffect(() => {
-    const handler = (): void => void applySinkId();
+    const handler = (): void => {
+      // While casting the slider shows the cast volume; an output-device change
+      // must not overwrite it with the local level.
+      if (!castingRef.current) syncVolumeFromSettings();
+      void applySinkId();
+    };
     window.addEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
     return () => window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
-  }, [applySinkId]);
+  }, [applySinkId, syncVolumeFromSettings]);
 
   // Sync audio play/pause with smooth fade
   useEffect(() => {
+    // While casting, transport lives on the device; forward the intent and leave the local element paused.
+    if (castingRef.current) {
+      if (fadeIntervalRef.current) {
+        clearInterval(fadeIntervalRef.current);
+        fadeIntervalRef.current = null;
+      }
+      ipcRenderer.send('cast-control', { action: paused ? 'pause' : 'play' });
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio || !songPath) return;
 
@@ -898,22 +956,20 @@ export default function PlayBar() {
     navigator.mediaSession.setActionHandler('previoustrack', () =>
       dispatch({ type: 'PREV_TRACK' })
     );
+    const applySeek = (target: number) => {
+      if (audioRef.current) audioRef.current.currentTime = target;
+      if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
+    };
     navigator.mediaSession.setActionHandler('seekto', details => {
-      if (audioRef.current && details.seekTime !== undefined) {
-        audioRef.current.currentTime = details.seekTime;
-      }
+      if (details.seekTime !== undefined) applySeek(details.seekTime);
     });
     navigator.mediaSession.setActionHandler('seekforward', details => {
       const skipTime = details.seekOffset || 10;
-      if (audioRef.current) {
-        audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + skipTime);
-      }
+      if (audioRef.current) applySeek(Math.min(duration, audioRef.current.currentTime + skipTime));
     });
     navigator.mediaSession.setActionHandler('seekbackward', details => {
       const skipTime = details.seekOffset || 10;
-      if (audioRef.current) {
-        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - skipTime);
-      }
+      if (audioRef.current) applySeek(Math.max(0, audioRef.current.currentTime - skipTime));
     });
 
     return () => {
@@ -968,12 +1024,12 @@ export default function PlayBar() {
   const sendDiscordUpdateRef = useRef(sendDiscordUpdate);
   sendDiscordUpdateRef.current = sendDiscordUpdate;
   const handleSeekCommit = useCallback((pos: number) => {
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: pos });
     sendDiscordUpdateRef.current(pos);
   }, []);
 
   useEffect(() => {
     sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id, paused, discordEnabled]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
 
@@ -1017,15 +1073,19 @@ export default function PlayBar() {
   const longPressFiredRef = useRef(false);
 
   const handlePrevLongPressAction = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
-    }
+    const audio = audioRef.current;
+    if (!audio) return;
+    const target = Math.max(0, audio.currentTime - 15);
+    audio.currentTime = target;
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
   }, []);
 
   const handleNextLongPressAction = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 15);
-    }
+    const audio = audioRef.current;
+    if (!audio) return;
+    const target = Math.min(duration, audio.currentTime + 15);
+    audio.currentTime = target;
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
   }, [duration]);
 
   const clearLongPress = useCallback((callback?: () => void) => {
@@ -1150,6 +1210,7 @@ export default function PlayBar() {
     setMenuAnchorEl(null);
     setMenuPosition(null);
     setDeviceMenuAnchorEl(null);
+    setCastMenuAnchorEl(null);
   }, []);
   const runMenuAction = useCallback(
     (action: () => void) => () => {
@@ -1168,6 +1229,188 @@ export default function PlayBar() {
     [dispatch]
   );
   const togglePlay = useCallback(() => setPaused(prev => !prev), []);
+
+  // ── Cast orchestration ─────────────────────────────────────────────────────
+  // The device reports position ~1×/sec; these anchor a wall-clock interpolation
+  // so the scrubber stays smooth between reports.
+  const castPosRef = useRef(0);
+  const castWallRef = useRef(0);
+  const castPlayingRef = useRef(false);
+  const anchorCastClock = useCallback((pos: number, playing: boolean) => {
+    castPosRef.current = pos;
+    castWallRef.current = Date.now();
+    castPlayingRef.current = playing;
+  }, []);
+
+  // Latest-state closures so the once-subscribed IPC listeners never go stale.
+  const sendCastLoadRef = useRef<(_autoplay: boolean, _startTime: number) => void>(() => undefined);
+  sendCastLoadRef.current = (autoplay: boolean, startTime: number) => {
+    const track = state.track;
+    if (!track?.Uri) return;
+    const next = state.queue[state.queueIndex + 1];
+    const ext = String(track.Uri).split('.').pop()?.toUpperCase() ?? '';
+    const payload: CastLoadPayload = {
+      filePath: track.Uri as string,
+      title: (track.Title as string) || 'Unknown Title',
+      artist: artistNames.join(', ') || 'Unknown Artist',
+      album: (track.AlbumTitle as string) || '',
+      artPath: (track.AlbumArt as string) || null,
+      currentTime: startTime,
+      autoplay,
+      customData: {
+        nextTitle: next?.Title ?? null,
+        queueIndex: state.queueIndex + 1,
+        queueTotal: state.queue.length,
+        formatText: ext,
+      },
+    };
+    ipcRenderer.send('cast-load', payload);
+    // Anchor now, or the bar sits at the previous track's position until the
+    // first status arrives.
+    anchorCastClock(startTime, autoplay);
+  };
+
+  // Mirrors the local onended queue logic, but drives the device.
+  const castAdvanceRef = useRef<() => void>(() => undefined);
+  castAdvanceRef.current = () => {
+    if (!state.queue || state.queue.length === 0) return;
+    if (state.repeatMode === 'one') {
+      ipcRenderer.send('cast-control', { action: 'seek', value: 0 });
+      ipcRenderer.send('cast-control', { action: 'play' });
+    } else if (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all') {
+      dispatch({ type: 'NEXT_TRACK' });
+    } else {
+      setPaused(true);
+    }
+  };
+
+  const resumeLocalPlayback = useCallback(() => {
+    setIsCasting(false);
+    setCastDeviceId(null);
+    setCastDeviceName(null);
+    const localVol = getVolumeLevel();
+    setVolume(localVol);
+    if (localVol === 0) {
+      setMuteVolume(true);
+    } else {
+      setMuteVolume(false);
+      setLastVolume(localVol);
+    }
+    const audio = audioRef.current;
+    if (audio) {
+      const muted = localVol === 0;
+      audio.muted = muted;
+      audio.volume = muted ? 0 : localVol / 100;
+      // Resume locally from wherever the device left the shared clock.
+      if (!pausedRef.current) audio.play().catch(() => undefined);
+    }
+  }, []);
+
+  const handleSelectCastDevice = useCallback((device: CastDevice) => {
+    setCastDeviceId(device.id);
+    setCastDeviceName(device.name);
+    ipcRenderer.send('cast-connect', { deviceId: device.id });
+  }, []);
+
+  const handleStopCasting = useCallback(() => {
+    ipcRenderer.send('cast-disconnect');
+    resumeLocalPlayback();
+  }, [resumeLocalPlayback]);
+
+  useEffect(() => {
+    dispatch({ type: 'SET_CASTING', payload: { isCasting, deviceName: castDeviceName } });
+  }, [isCasting, castDeviceName, dispatch]);
+
+  useEffect(() => {
+    const handler = () => handleStopCasting();
+    window.addEventListener(CAST_STOP_EVENT, handler);
+    return () => window.removeEventListener(CAST_STOP_EVENT, handler);
+  }, [handleStopCasting]);
+
+  const handleOpenCastMenu = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => setCastMenuAnchorEl(e.currentTarget),
+    []
+  );
+
+  // Subscribe once; the handlers read fresh state through the refs above.
+  useEffect(() => {
+    const onConnected = () => {
+      const audio = audioRef.current;
+      // Hand off at the local position, then keep the element muted as the UI clock.
+      const startAt = audio?.currentTime ?? 0;
+      if (audio) {
+        audio.pause();
+        audio.muted = true;
+        audio.volume = 0;
+      }
+      setIsCasting(true);
+      // The volume-to-device effect pushes this once isCasting flips on.
+      const castVol = castDeviceIdRef.current ? getCastVolumeLevel(castDeviceIdRef.current) : 10;
+      setVolume(castVol);
+      if (castVol === 0) {
+        setMuteVolume(true);
+      } else {
+        setMuteVolume(false);
+        setLastVolume(castVol);
+      }
+      sendCastLoadRef.current(!pausedRef.current, startAt);
+    };
+    const onStatus = (_e: unknown, s: CastStatus) => {
+      if (s.duration && Number.isFinite(s.duration)) setDuration(s.duration);
+      if (Number.isFinite(s.currentTime)) {
+        anchorCastClock(s.currentTime, s.playerState === 'PLAYING');
+      } else {
+        castPlayingRef.current = s.playerState === 'PLAYING';
+        castWallRef.current = Date.now();
+      }
+    };
+    const onEnded = () => castAdvanceRef.current();
+    const onError = (_e: unknown, payload: { message: string }) => {
+      // cast-error also carries the non-fatal "falling back to the default
+      // receiver" notice, so don't clear the pending device here; the indicator
+      // would lose its name.
+      console.warn('[cast]', payload?.message);
+    };
+    ipcRenderer.on('cast-connected', onConnected);
+    ipcRenderer.on('cast-status', onStatus);
+    ipcRenderer.on('cast-ended', onEnded);
+    ipcRenderer.on('cast-error', onError);
+    return () => {
+      ipcRenderer.removeListener('cast-connected', onConnected);
+      ipcRenderer.removeListener('cast-status', onStatus);
+      ipcRenderer.removeListener('cast-ended', onEnded);
+      ipcRenderer.removeListener('cast-error', onError);
+    };
+  }, []);
+
+  // Track changes start at 0; connect-time resume is handled in onConnected.
+  useEffect(() => {
+    if (castingRef.current) sendCastLoadRef.current(!pausedRef.current, 0);
+  }, [state.track?.Id]);
+
+  // Writing to the muted element is what makes PlaybackProgress repaint; it
+  // listens on timeupdate.
+  useEffect(() => {
+    if (!isCasting) return;
+    const id = setInterval(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      let pos = castPosRef.current;
+      if (castPlayingRef.current) pos += (Date.now() - castWallRef.current) / 1000;
+      if (duration > 0) pos = Math.min(pos, duration);
+      audio.currentTime = pos;
+    }, 250);
+    return () => clearInterval(id);
+  }, [isCasting, duration]);
+
+  useEffect(() => {
+    if (isCasting) {
+      ipcRenderer.send('cast-control', {
+        action: 'setVolume',
+        value: muteVolume ? 0 : volume / 100,
+      });
+    }
+  }, [volume, muteVolume, isCasting]);
 
   if (!state?.track) return null;
 
@@ -1492,17 +1735,28 @@ export default function PlayBar() {
           <ListItemText>Audio output</ListItemText>
           <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
         </MenuItem>
-        <MenuItem onClick={handleCloseMenu} disabled>
+        <MenuItem onClick={handleOpenCastMenu}>
           <ListItemIcon>
             <Icon icon={cast24Regular} width={20} />
           </ListItemIcon>
-          <ListItemText>Cast to device</ListItemText>
+          <ListItemText>
+            {isCasting && castDeviceName ? `Casting to ${castDeviceName}` : 'Cast to device'}
+          </ListItemText>
+          <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
         </MenuItem>
       </Menu>
       <AudioOutputMenu
         anchorEl={deviceMenuAnchorEl}
         open={Boolean(deviceMenuAnchorEl)}
         onClose={handleCloseMenu}
+      />
+      <CastDeviceMenu
+        anchorEl={castMenuAnchorEl}
+        open={Boolean(castMenuAnchorEl)}
+        onClose={handleCloseMenu}
+        onSelect={handleSelectCastDevice}
+        onStopCasting={handleStopCasting}
+        connectedDeviceId={isCasting ? castDeviceId : null}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
       {/* SMTC keepalive — see silentSrc useMemo. */}

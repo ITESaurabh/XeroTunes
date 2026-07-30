@@ -17,6 +17,18 @@ import {
   clearPresence,
   destroyPresence,
 } from '../modules/DiscordPresence';
+import {
+  setCastListeners,
+  startDiscovery as castStartDiscovery,
+  stopDiscovery as castStopDiscovery,
+  connect as castConnect,
+  loadMedia as castLoadMedia,
+  control as castControl,
+  disconnect as castDisconnect,
+  destroyCast,
+  CastControlAction,
+  CastLoadPayload,
+} from '../modules/Cast';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db: any = dbModule;
 import path from 'path';
@@ -149,6 +161,35 @@ function sendMessageToRendererProcess(
   window.webContents.send(message, payload);
 }
 
+// ── Google Cast IPC ──────────────────────────────────────────────────────────
+// Cast.ts keeps one session in module state, so only the main window binds these.
+function registerCastIpc(mainWin: BrowserWindow) {
+  const send = (channel: string, payload?: unknown) => {
+    if (!mainWin.isDestroyed()) mainWin.webContents.send(channel, payload);
+  };
+
+  setCastListeners({
+    onDevices: devices => send('cast-devices', devices),
+    onStatus: status => send('cast-status', status),
+    onConnected: deviceId => send('cast-connected', deviceId),
+    onEnded: () => send('cast-ended'),
+    onError: message => send('cast-error', { message }),
+  });
+
+  ipcMain.on('cast-start-discovery', () => castStartDiscovery());
+  ipcMain.on('cast-stop-discovery', () => castStopDiscovery());
+  ipcMain.on('cast-connect', (_e, { deviceId }: { deviceId: string }) => castConnect(deviceId));
+  ipcMain.on('cast-load', (_e, payload: CastLoadPayload) => {
+    void castLoadMedia(payload);
+  });
+  ipcMain.on(
+    'cast-control',
+    (_e, { action, value }: { action: CastControlAction; value?: number }) =>
+      castControl(action, value)
+  );
+  ipcMain.on('cast-disconnect', () => castDisconnect());
+}
+
 export default function mainIpcs(mainWin, overlayEntry: string) {
   // ── Always-on-top overlay window ────────────────────────────────────────────
   let overlayWin: BrowserWindow | null = null;
@@ -190,8 +231,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   mainWin.on('close', () => {
     destroyPresence();
+    destroyCast();
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();
   });
+
+  registerCastIpc(mainWin);
 
   // On macOS, sync traffic light visibility with the saved titleBarStyle
   if (process.platform === 'darwin') {

@@ -34,18 +34,26 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
   const [currentSinkId, setCurrentSinkId] = useState<string>(() => getAudioOutputDeviceId());
 
   useEffect(() => {
-    if (!open) return;
-    setCurrentSinkId(getAudioOutputDeviceId());
+    if (!navigator.mediaDevices?.enumerateDevices) return;
     let cancelled = false;
-    navigator.mediaDevices
-      ?.enumerateDevices()
-      .then(list => {
-        if (!cancelled) setDevices(list.filter(d => d.kind === 'audiooutput'));
-      })
-      .catch(() => undefined);
+    const refresh = (): void => {
+      navigator.mediaDevices
+        .enumerateDevices()
+        .then(list => {
+          if (!cancelled) setDevices(list.filter(d => d.kind === 'audiooutput'));
+        })
+        .catch(() => undefined);
+    };
+    refresh();
+    navigator.mediaDevices.addEventListener('devicechange', refresh);
     return () => {
       cancelled = true;
+      navigator.mediaDevices.removeEventListener('devicechange', refresh);
     };
+  }, []);
+
+  useEffect(() => {
+    if (open) setCurrentSinkId(getAudioOutputDeviceId());
   }, [open]);
 
   const handleSelect = useCallback(
@@ -69,7 +77,11 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
         <MenuItem disabled>No output devices</MenuItem>
       ) : (
         devices.map(device => {
-          const selected = device.deviceId === currentSinkId;
+          // The saved sink may be gone (unplugged); fall back so a row stays selected.
+          const selectedId = devices.some(d => d.deviceId === currentSinkId)
+            ? currentSinkId
+            : 'default';
+          const selected = device.deviceId === selectedId;
           return (
             <MenuItem
               key={device.deviceId}

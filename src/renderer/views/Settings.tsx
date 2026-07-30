@@ -61,6 +61,8 @@ import {
   getTitleBarStyle,
   getPauseOnAudioOutputChange,
   setPauseOnAudioOutputChange,
+  getPerDeviceVolumeEnabled,
+  setPerDeviceVolumeEnabled,
   getAudioOutputDeviceId,
   setAudioOutputDeviceId,
   getMultiArtistSeparators,
@@ -580,6 +582,9 @@ const Settings: React.FC = () => {
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
+  const [perDeviceVolume, setPerDeviceVolumeState] = React.useState<boolean>(
+    getPerDeviceVolumeEnabled()
+  );
   const [outputDevices, setOutputDevices] = React.useState<MediaDeviceInfo[]>([]);
   const [outputDeviceId, setOutputDeviceIdState] = React.useState<string>(getAudioOutputDeviceId);
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
@@ -920,6 +925,26 @@ const Settings: React.FC = () => {
                 onChange={e => {
                   setPauseOnOutputChangeState(e.target.checked);
                   setPauseOnAudioOutputChange(e.target.checked);
+                }}
+                sx={{
+                  mr: 0.5,
+                }}
+              />
+            </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={speakerIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="switch-list-label-per-device-volume"
+                primary="Remember volume per device"
+                secondary="Keep a separate volume for each output device so switching to headphones doesn't blast the last level. Turn off to share one volume across all devices."
+              />
+              <IOSSwitch
+                checked={perDeviceVolume}
+                onChange={e => {
+                  setPerDeviceVolumeState(e.target.checked);
+                  setPerDeviceVolumeEnabled(e.target.checked);
                 }}
                 sx={{
                   mr: 0.5,

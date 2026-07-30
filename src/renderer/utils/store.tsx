@@ -109,6 +109,8 @@ export interface AppState {
   libraryStats: LibraryStats | null;
   queueSource: string | null;
   titleBarStyle: TitleBarStyle;
+  isCasting: boolean;
+  castDeviceName: string | null;
 }
 
 export type AppAction =
@@ -133,6 +135,7 @@ export type AppAction =
   | { type: 'SET_SCANNING'; payload: { isScanning: boolean; isFullScan?: boolean } }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
   | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats }
+  | { type: 'SET_CASTING'; payload: { isCasting: boolean; deviceName: string | null } }
   | { type: 'RESET_PLAYBACK' };
 
 export interface StoreContextValue {
@@ -179,6 +182,8 @@ const initialState: AppState = (() => {
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
     titleBarStyle: savedTitleBarStyle,
+    isCasting: false,
+    castDeviceName: null,
   };
 })();
 
@@ -315,6 +320,13 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'SET_LIBRARY_STATS': {
       return { ...state, libraryStats: action.payload };
+    }
+    case 'SET_CASTING': {
+      return {
+        ...state,
+        isCasting: action.payload.isCasting,
+        castDeviceName: action.payload.deviceName,
+      };
     }
     case 'RESET_PLAYBACK': {
       // Clear the persisted queue too, so no track lingers across reloads.

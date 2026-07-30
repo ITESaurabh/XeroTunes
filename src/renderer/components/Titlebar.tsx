@@ -8,7 +8,9 @@ import {
   useMediaQuery,
   useTheme,
   Drawer,
+  Tooltip,
 } from '@mui/material';
+import { keyframes } from '@emotion/react';
 import { useNavigate, useLocation, useNavigationType } from 'react-router';
 import { Theme } from '@mui/material/styles';
 import ButtonBase, { ButtonBaseProps } from '@mui/material/ButtonBase';
@@ -20,12 +22,14 @@ import maximizeIcon from '@iconify/icons-fluent/maximize-16-regular';
 import restoreIcon from '@iconify/icons-fluent/square-multiple-16-regular';
 import restoreKdeIcon from '@iconify/icons-fluent/diamond-16-regular';
 import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
+import castFilledIcon from '@iconify/icons-fluent/cast-24-filled';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import menuIcon from '@iconify/icons-fluent/line-horizontal-3-20-filled';
 import AppIcon from 'svg-react-loader?name=AppIcon!../../img/logo.svg';
 import { Icon } from '@iconify/react';
 import { store } from '../utils/store';
+import { CAST_STOP_EVENT } from '../utils/LocStoreUtil';
 import MainDrawer from './MainDrawer';
 import { TitleBarStyle } from '../../config/app_settings';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
@@ -71,6 +75,44 @@ const KdeButton = styled(ButtonBase, {
         : 'rgba(0, 0, 0, 0.1)',
   },
 }));
+
+const castBlink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+`;
+
+const CastPill = styled(ButtonBase)(({ theme }) => {
+  const accent = theme.palette.mode === 'dark' ? '#FFAAF4' : '#9B2E99';
+  return {
+    height: 22,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '0 10px',
+    marginRight: 10,
+    borderRadius: 999,
+    cursor: 'default',
+    color: accent,
+    fontFamily: 'Roboto',
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1,
+    backgroundColor:
+      theme.palette.mode === 'dark' ? 'rgba(255,170,244,0.14)' : 'rgba(155,46,153,0.12)',
+    transition: 'background-color 0.1s ease-in-out',
+    '&:hover': {
+      backgroundColor:
+        theme.palette.mode === 'dark' ? 'rgba(255,170,244,0.26)' : 'rgba(155,46,153,0.22)',
+    },
+    '& .cast-pill-icon': { animation: `${castBlink} 2s ease-in-out infinite` },
+    '& .cast-pill-label': {
+      maxWidth: 140,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+  };
+});
 
 function resolveEffectiveStyle(style: TitleBarStyle, currOs: string): TitleBarStyle {
   if (style === 'default') {
@@ -260,6 +302,25 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
         </Stack>
 
         <Box flexGrow={1} />
+
+        {/* Casting indicator, shared across all titlebar styles; click to stop. */}
+        {state.isCasting && (
+          <Tooltip
+            arrow
+            title={`Casting${state.castDeviceName ? ` to ${state.castDeviceName}` : ''} — click to stop`}
+          >
+            <CastPill
+              aria-label="Stop casting"
+              onClick={() => window.dispatchEvent(new CustomEvent(CAST_STOP_EVENT))}
+              sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+            >
+              <Icon icon={castFilledIcon} width={14} className="cast-pill-icon" />
+              {!isPhone && (
+                <span className="cast-pill-label">{state.castDeviceName || 'Casting'}</span>
+              )}
+            </CastPill>
+          </Tooltip>
+        )}
 
         {/* Windows style controls */}
         {effectiveStyle === 'windows' && (

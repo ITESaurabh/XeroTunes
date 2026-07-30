@@ -33,7 +33,14 @@ export interface PlaybackSettings {
   pauseOnAudioOutputChange: boolean;
   /** MediaDevices deviceId for the output sink; 'default' follows the system default. */
   audioOutputDeviceId: string;
+  perDeviceVolume: boolean;
+  deviceVolumeLevels: Record<string, number>;
+  /** Per-cast-device volume (0-100), kept separate from local output volumes. */
+  castVolumeLevels: Record<string, number>;
 }
+
+/** Cast receivers run loud, so a device seen for the first time starts low. */
+export const DEFAULT_CAST_VOLUME = 10;
 
 export interface LibrarySettings {
   multiArtistSeparators: string[];
@@ -87,6 +94,9 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     repeatMode: 'off',
     pauseOnAudioOutputChange: true,
     audioOutputDeviceId: 'default',
+    perDeviceVolume: true,
+    deviceVolumeLevels: {},
+    castVolumeLevels: {},
   },
   library: {
     multiArtistSeparators: [',', '&'],

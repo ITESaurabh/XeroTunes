@@ -11,6 +11,7 @@ import {
   FolderViewSettings,
   TitleBarStyle,
   clampWindowScale,
+  DEFAULT_CAST_VOLUME,
 } from '../../config/app_settings';
 
 const QUEUE_STATE_KEY = 'queueState';
@@ -176,12 +177,55 @@ export function getPlaybackSettings(): PlaybackSettings {
   return getSettings().playback;
 }
 
+/** Volume for the current output device, or the shared one when perDeviceVolume is off. */
 export function getVolumeLevel(): number {
-  return getPlaybackSettings().volumeLevel;
+  const playback = getPlaybackSettings();
+  if (playback.perDeviceVolume) {
+    const perDevice = playback.deviceVolumeLevels?.[playback.audioOutputDeviceId];
+    return typeof perDevice === 'number' ? perDevice : DEFAULT_APP_SETTINGS.playback.volumeLevel;
+  }
+  return playback.volumeLevel;
 }
 
 export function setVolumeLevel(val: number): void {
-  updateSettings({ playback: { ...getPlaybackSettings(), volumeLevel: val } });
+  const playback = getPlaybackSettings();
+  if (playback.perDeviceVolume) {
+    updateSettings({
+      playback: {
+        ...playback,
+        deviceVolumeLevels: {
+          ...playback.deviceVolumeLevels,
+          [playback.audioOutputDeviceId]: val,
+        },
+      },
+    });
+  } else {
+    updateSettings({ playback: { ...playback, volumeLevel: val } });
+  }
+}
+
+export function getCastVolumeLevel(deviceId: string): number {
+  const levels = getPlaybackSettings().castVolumeLevels ?? {};
+  const val = levels[deviceId];
+  return typeof val === 'number' ? val : DEFAULT_CAST_VOLUME;
+}
+
+export function setCastVolumeLevel(deviceId: string, val: number): void {
+  const playback = getPlaybackSettings();
+  updateSettings({
+    playback: {
+      ...playback,
+      castVolumeLevels: { ...(playback.castVolumeLevels ?? {}), [deviceId]: val },
+    },
+  });
+}
+
+export function getPerDeviceVolumeEnabled(): boolean {
+  return getPlaybackSettings().perDeviceVolume;
+}
+
+export function setPerDeviceVolumeEnabled(enabled: boolean): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), perDeviceVolume: enabled } });
 }
 
 export function getPlaybackShuffle(): boolean {
@@ -209,6 +253,9 @@ export function setPauseOnAudioOutputChange(enabled: boolean): void {
 }
 
 export const AUDIO_OUTPUT_DEVICE_EVENT = 'xt-audio-output-device-change';
+
+/** Fired by the titlebar cast indicator; PlayBar listens and tears down the session. */
+export const CAST_STOP_EVENT = 'xt-cast-stop';
 
 export function getAudioOutputDeviceId(): string {
   return getPlaybackSettings().audioOutputDeviceId;
