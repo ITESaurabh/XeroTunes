@@ -1,5 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  alpha,
   Box,
   Button,
   styled,
@@ -52,9 +53,7 @@ const NavButtons = styled(ButtonBase, {
   '&:hover': {
     backgroundColor: closeButton
       ? theme.palette.error.main
-      : theme.palette.mode === 'dark'
-        ? 'rgba(255, 255, 255, 0.05)'
-        : 'rgba(0, 0, 0, 0.05)',
+      : alpha(theme.palette.text.primary, 0.05),
   },
 }));
 
@@ -70,9 +69,7 @@ const KdeButton = styled(ButtonBase, {
   '&:hover': {
     backgroundColor: closeButton
       ? theme.palette.error.main
-      : theme.palette.mode === 'dark'
-        ? 'rgba(255, 255, 255, 0.12)'
-        : 'rgba(0, 0, 0, 0.1)',
+      : alpha(theme.palette.text.primary, 0.12),
   },
 }));
 
@@ -82,7 +79,7 @@ const castBlink = keyframes`
 `;
 
 const CastPill = styled(ButtonBase)(({ theme }) => {
-  const accent = theme.palette.mode === 'dark' ? '#FFAAF4' : '#9B2E99';
+  const accent = theme.palette.primary.main;
   return {
     height: 22,
     display: 'flex',
@@ -97,13 +94,9 @@ const CastPill = styled(ButtonBase)(({ theme }) => {
     fontSize: 12,
     fontWeight: 500,
     lineHeight: 1,
-    backgroundColor:
-      theme.palette.mode === 'dark' ? 'rgba(255,170,244,0.14)' : 'rgba(155,46,153,0.12)',
+    backgroundColor: alpha(accent, 0.14),
     transition: 'background-color 0.1s ease-in-out',
-    '&:hover': {
-      backgroundColor:
-        theme.palette.mode === 'dark' ? 'rgba(255,170,244,0.26)' : 'rgba(155,46,153,0.22)',
-    },
+    '&:hover': { backgroundColor: alpha(accent, 0.26) },
     '& .cast-pill-icon': { animation: `${castBlink} 2s ease-in-out infinite` },
     '& .cast-pill-label': {
       maxWidth: 140,
@@ -123,6 +116,10 @@ function resolveEffectiveStyle(style: TitleBarStyle, currOs: string): TitleBarSt
   if (style === 'mac' && currOs !== OS_MAC) return 'mac-fake';
   return style;
 }
+
+export const gnomeCircleBgFor = (theme: Theme) => alpha(theme.palette.text.primary, 0.12);
+export const gnomeIconFilterFor = (theme: Theme) =>
+  theme.palette.mode === 'dark' ? 'brightness(0) invert(1)' : 'brightness(0)';
 
 const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
   borderRadius: '50%',
@@ -156,6 +153,8 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
     () => resolveEffectiveStyle(state.titleBarStyle, currOs),
     [state.titleBarStyle, currOs]
   );
+  const gnomeCircleBg = gnomeCircleBgFor(theme);
+  const gnomeIconFilter = gnomeIconFilterFor(theme);
 
   const hasRightControls = effectiveStyle === 'windows' || effectiveStyle === 'linux-kde';
 
@@ -197,8 +196,8 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
               maxWidth: 320,
               backgroundColor:
                 theme.palette.mode === 'dark'
-                  ? theme.palette.common.black
-                  : theme.palette.common.white,
+                  ? theme.palette.surfaces.control
+                  : theme.palette.background.paper,
               overflow: 'hidden',
               borderRight: 'none',
             },
@@ -211,7 +210,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
       <Box
         className={hasRightControls ? 'title-bar title-bar_windows' : 'title-bar title-bar_unix'}
         sx={{
-          bgcolor: theme.palette.mode === 'light' ? '#f4f1f9' : '#201e23',
+          bgcolor: 'background.default',
           height: '32px',
           pl: effectiveStyle === 'mac' ? 8.5 : 0,
         }}
@@ -271,10 +270,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           <AppIcon width={18} height={18} />
           <Typography
             sx={{
-              color:
-                theme.palette.mode === 'light'
-                  ? 'var(--M3-sys-light-primary, #9B2E99)'
-                  : 'var(--M3-sys-dark-primary, #FFAAF4)',
+              color: 'primary.main',
               fontFamily: 'Roboto',
               fontSize: '14px',
               fontStyle: 'normal',
@@ -286,10 +282,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           </Typography>
           <Typography
             sx={{
-              color:
-                theme.palette.mode === 'light'
-                  ? 'var(--Light-Fill-Color-Text-Secondary, rgba(0, 0, 0, 0.61))'
-                  : theme.palette.text.secondary,
+              color: 'text.secondary',
               fontFamily: 'Roboto',
               fontSize: '12px',
               fontStyle: 'normal',
@@ -350,36 +343,36 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           >
             <Box
               onClick={() => sendMessageToNode('minimize', null)}
-              sx={circleSx('#38383C', 'brightness(1.4)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.4)', 24)}
             >
               <GnomeMinimizeIcon
                 width={15}
                 height={14}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
             <Box
               onClick={() => sendMessageToNode('maximize', null)}
-              sx={circleSx('#38383C', 'brightness(1.4)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.4)', 24)}
             >
               <GnomeResizeIcon
                 width={11}
                 height={13}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
             <Box
               onClick={() => sendMessageToNode('closeWindow', null)}
-              sx={circleSx('#38383C', 'brightness(1.25)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.25)', 24)}
               mr={1}
             >
               <GnomeCloseIcon
                 width={15}
                 height={15}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
           </Box>

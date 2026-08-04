@@ -1,5 +1,7 @@
 import React, { useContext } from 'react';
+import type { Theme } from '@mui/material/styles';
 import {
+  alpha,
   Container,
   Button,
   Accordion,
@@ -44,6 +46,7 @@ import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
+import colorIcon from '@iconify/icons-fluent/color-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
@@ -70,8 +73,15 @@ import {
   getMultiArtistExceptions,
   setMultiArtistExceptions,
   getThemeMode,
+  getAllThemes,
+  saveCustomTheme,
+  deleteCustomTheme,
+  uniqueThemeName,
 } from '../utils/LocStoreUtil';
 import { WINDOW_SCALE_OPTIONS, TitleBarStyle, ThemeMode } from '../../config/app_settings';
+import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
+import ThemeEditorDialog from '../components/ThemeEditorDialog';
+import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
 import { OS_MAC } from '../../config/constants';
 import os from 'os';
@@ -80,6 +90,18 @@ interface MusicFolder {
   Id: string | number;
   Uri: string;
 }
+
+/**
+ * A sticky section header only has to hide the rows scrolling under it. Dark's raised
+ * surface does that and reads as a band; light's is white, which on the near-white page
+ * shows up as a mismatched strip instead, so light sits flush.
+ */
+const subheaderSx = {
+  bgcolor: (theme: Theme) =>
+    theme.palette.mode === 'dark'
+      ? theme.palette.surfaces.elevated
+      : theme.palette.background.paper,
+};
 
 const IOSSwitch = styled<any>(props => (
   <Switch focusVisibleClassName=".Mui-focusVisible" disableRipple {...props} />
@@ -93,9 +115,9 @@ const IOSSwitch = styled<any>(props => (
     transitionDuration: '300ms',
     '&.Mui-checked': {
       transform: 'translateX(20px)',
-      color: '#fff',
+      color: theme.palette.common.white,
       '& + .MuiSwitch-track': {
-        backgroundColor: theme.palette.mode === 'dark' ? '#2ECA45' : '#65C466',
+        backgroundColor: theme.palette.surfaces.positive,
         opacity: 1,
         border: 0,
       },
@@ -104,8 +126,8 @@ const IOSSwitch = styled<any>(props => (
       },
     },
     '&.Mui-focusVisible .MuiSwitch-thumb': {
-      color: '#33cf4d',
-      border: '6px solid #fff',
+      color: theme.palette.surfaces.positive,
+      border: `6px solid ${theme.palette.common.white}`,
     },
     '&.Mui-disabled .MuiSwitch-thumb': {
       color: theme.palette.mode === 'light' ? theme.palette.grey[100] : theme.palette.grey[600],
@@ -121,7 +143,7 @@ const IOSSwitch = styled<any>(props => (
   },
   '& .MuiSwitch-track': {
     borderRadius: 15,
-    backgroundColor: theme.palette.mode === 'light' ? '#E9E9EA' : '#39393D',
+    backgroundColor: theme.palette.surfaces.trackOff,
     opacity: 1,
     transition: theme.transitions.create(['background-color'], {
       duration: 500,
@@ -172,12 +194,12 @@ const TITLEBAR_STYLE_OPTIONS: TitlebarStyleOption[] = [
 
 interface TitlebarPreviewProps {
   style: TitleBarStyle;
-  isDark: boolean;
 }
 
-const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
-  const bg = isDark ? '#201e23' : '#f4f1f9';
-  const iconColor = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)';
+const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style }) => {
+  const theme = useTheme();
+  const bg = theme.palette.background.default;
+  const iconColor = theme.palette.text.secondary;
 
   const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
     borderRadius: '50%',
@@ -233,10 +255,10 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
       return (
         <Box sx={{ height: 28, bgcolor: bg, display: 'flex', alignItems: 'center' }}>
           <Box sx={{ flex: 1 }} />
-          <Box sx={flatBtnSx(isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')}>
+          <Box sx={flatBtnSx(alpha(theme.palette.text.primary, 0.05))}>
             <Icon icon={minimizeIcon} height={10} color={iconColor} />
           </Box>
-          <Box sx={flatBtnSx(isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)')}>
+          <Box sx={flatBtnSx(alpha(theme.palette.text.primary, 0.05))}>
             <Icon icon={maximizeIcon} height={10} color={iconColor} />
           </Box>
           <Box sx={flatBtnSx('error.main')}>
@@ -258,28 +280,28 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
           }}
         >
           <Box sx={{ flex: 1 }} />
-          <Box sx={circleSx('#38383C', 'brightness(1.4)', 13)}>
+          <Box sx={circleSx(gnomeCircleBgFor(theme), 'brightness(1.4)', 13)}>
             <GnomeMinimizeIcon
               width={15}
               height={10}
               viewBox="0 0 16 16"
-              style={{ filter: 'brightness(0) invert(1)' }}
+              style={{ filter: gnomeIconFilterFor(theme) }}
             />
           </Box>
-          <Box sx={circleSx('#38383C', 'brightness(1.4)', 13)}>
+          <Box sx={circleSx(gnomeCircleBgFor(theme), 'brightness(1.4)', 13)}>
             <GnomeResizeIcon
               width={8}
               height={8}
               viewBox="0 0 16 16"
-              style={{ filter: 'brightness(0) invert(1)' }}
+              style={{ filter: gnomeIconFilterFor(theme) }}
             />
           </Box>
-          <Box sx={circleSx('#38383C', 'brightness(1.25)', 13)} mr={1}>
+          <Box sx={circleSx(gnomeCircleBgFor(theme), 'brightness(1.25)', 13)} mr={1}>
             <GnomeCloseIcon
               width={12}
               height={10}
               viewBox="0 0 15 16"
-              style={{ filter: 'brightness(0) invert(1)' }}
+              style={{ filter: gnomeIconFilterFor(theme) }}
             />
           </Box>
         </Box>
@@ -306,7 +328,7 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
                   '&:hover':
                     i === 2
                       ? { bgcolor: 'error.main' }
-                      : { bgcolor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' },
+                      : { bgcolor: theme => alpha(theme.palette.text.primary, 0.12) },
                 }}
               >
                 <Icon icon={icon} height={9} color={iconColor} />
@@ -348,10 +370,10 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style, isDark }) => {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                bgcolor: 'rgba(196,43,28,0.55)',
+                bgcolor: theme => alpha(theme.palette.error.main, 0.55),
               }}
             >
-              <Icon icon={closeIcon} height={9} color="white" />
+              <Icon icon={closeIcon} height={9} color={theme.palette.error.contrastText} />
             </Box>
           </Box>
         </Box>
@@ -364,7 +386,6 @@ interface TitlebarStyleCardProps {
   selected: boolean;
   disabled: boolean;
   onClick: () => void;
-  isDark: boolean;
 }
 
 const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
@@ -372,7 +393,6 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
   selected,
   disabled,
   onClick,
-  isDark,
 }) => {
   const card = (
     <Box
@@ -382,9 +402,7 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
         border: '2px solid',
         borderColor: selected
           ? 'primary.main'
-          : isDark
-            ? 'rgba(255,255,255,0.08)'
-            : 'rgba(0,0,0,0.1)',
+          : theme => alpha(theme.palette.text.primary, 0.08),
         overflow: 'hidden',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.38 : 1,
@@ -401,14 +419,14 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
     >
       {/* Titlebar preview */}
       <Box sx={{ height: 28, overflow: 'hidden' }}>
-        <TitlebarPreview style={option.value} isDark={isDark} />
+        <TitlebarPreview style={option.value} />
       </Box>
 
       {/* Fake window content area */}
       <Box
         sx={{
           height: 18,
-          bgcolor: isDark ? '#2a2730' : '#f0ecf7',
+          bgcolor: 'surfaces.elevated',
           display: 'flex',
           alignItems: 'center',
           px: 1,
@@ -420,7 +438,7 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
             flex: 1,
             height: 3,
             borderRadius: 1,
-            bgcolor: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.07)',
+            bgcolor: theme => alpha(theme.palette.text.primary, 0.07),
           }}
         />
         <Box
@@ -428,7 +446,7 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
             width: '30%',
             height: 3,
             borderRadius: 1,
-            bgcolor: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)',
+            bgcolor: theme => alpha(theme.palette.text.primary, 0.04),
           }}
         />
       </Box>
@@ -594,6 +612,11 @@ const Settings: React.FC = () => {
     React.useState<string[]>(getMultiArtistSeparators);
   const [artistExceptions, setArtistExceptionsState] =
     React.useState<string[]>(getMultiArtistExceptions);
+  const [themes, setThemes] = React.useState<AppTheme[]>(getAllThemes);
+  const [editorOpen, setEditorOpen] = React.useState(false);
+  const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
+    null
+  );
   const { invokeEventToMainProcess } = useIpc();
   const confirm = useConfirm();
   const { state, dispatch } = useContext(store);
@@ -601,7 +624,6 @@ const Settings: React.FC = () => {
   const basicScanning = isScanningLibrary && !isFullScan;
   const fullScanning = isScanningLibrary && isFullScan;
   const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
   const currOs = os.type();
 
   React.useEffect(() => {
@@ -658,6 +680,76 @@ const Settings: React.FC = () => {
     dispatch({ type: 'SET_THEME_MODE', payload: mode });
   };
 
+  const isBuiltInTheme = state.appTheme.name === AMETHYST.name;
+
+  const applyTheme = (theme: AppTheme, message: string): void => {
+    setThemes(saveCustomTheme(theme));
+    dispatch({ type: 'SET_APP_THEME', payload: theme });
+    setThemeMessage({ text: message });
+  };
+
+  const handleDuplicateTheme = (): void => {
+    const copy = { ...state.appTheme, name: uniqueThemeName(`${state.appTheme.name} copy`) };
+    applyTheme(copy, `Created "${copy.name}" — customise it below.`);
+    setEditorOpen(true);
+  };
+
+  const handleSaveTheme = (edited: AppTheme): void => {
+    // A rename leaves the old entry behind, so drop it before saving the new name.
+    if (edited.name !== state.appTheme.name) deleteCustomTheme(state.appTheme.name);
+    applyTheme(edited, `Saved "${edited.name}".`);
+    setEditorOpen(false);
+  };
+
+  const handleDeleteTheme = async (): Promise<void> => {
+    const name = state.appTheme.name;
+    const ok = await confirm({
+      title: 'Delete theme',
+      message: `Delete "${name}"?`,
+      detail: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
+    });
+    if (!ok) return;
+    setThemes(deleteCustomTheme(name));
+    dispatch({ type: 'SET_APP_THEME', payload: AMETHYST });
+    setThemeMessage({ text: `Deleted "${name}".` });
+  };
+
+  const handleExportTheme = (): void => {
+    invokeEventToMainProcess('export-theme', { theme: state.appTheme })
+      .then((res: unknown) => {
+        const result = res as { success: boolean; canceled?: boolean; error?: string };
+        if (result.canceled) return;
+        setThemeMessage(
+          result.success
+            ? { text: `Exported "${state.appTheme.name}".` }
+            : { text: result.error ?? 'Export failed.', error: true }
+        );
+      })
+      .catch((err: unknown) => setThemeMessage({ text: String(err), error: true }));
+  };
+
+  const handleImportTheme = (): void => {
+    invokeEventToMainProcess('import-theme')
+      .then((res: unknown) => {
+        const result = res as { success: boolean; canceled?: boolean; error?: string; theme?: unknown };
+        if (result.canceled) return;
+        if (!result.success) {
+          setThemeMessage({ text: result.error ?? 'Import failed.', error: true });
+          return;
+        }
+        const parsed = parseTheme(result.theme);
+        if ('error' in parsed) {
+          setThemeMessage({ text: `Invalid theme file: ${parsed.error}`, error: true });
+          return;
+        }
+        const imported = { ...parsed.theme, name: uniqueThemeName(parsed.theme.name) };
+        applyTheme(imported, `Imported "${imported.name}".`);
+      })
+      .catch((err: unknown) => setThemeMessage({ text: String(err), error: true }));
+  };
+
   const handleSeparatorsChange = (next: string[]): void => {
     setArtistSeparatorsState(next);
     setMultiArtistSeparators(next);
@@ -683,10 +775,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Library
               </ListSubheader>
@@ -860,10 +949,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Playback
               </ListSubheader>
@@ -958,10 +1044,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Appearance
               </ListSubheader>
@@ -998,6 +1081,94 @@ const Settings: React.FC = () => {
             <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, width: '100%' }}>
                 <ListItemIcon sx={{ minWidth: 36 }}>
+                  <Icon icon={colorIcon} width="1.5rem" />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Colour Theme"
+                  secondary="Duplicate a theme to customise it, or import one you've been sent"
+                  secondaryTypographyProps={{ fontSize: '0.75rem' }}
+                />
+              </Box>
+
+              <Stack
+                direction="row"
+                spacing={1}
+                sx={{ flexWrap: 'wrap', gap: 1, pl: 4.5, alignItems: 'center' }}
+              >
+                <Select
+                  size="small"
+                  value={state.appTheme.name}
+                  onChange={e => {
+                    const next = themes.find(t => t.name === e.target.value);
+                    if (next) dispatch({ type: 'SET_APP_THEME', payload: next });
+                  }}
+                  sx={{ minWidth: 180 }}
+                >
+                  {themes.map(t => (
+                    <MenuItem key={t.name} value={t.name}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <Box
+                          sx={{
+                            width: 16,
+                            height: 16,
+                            borderRadius: '50%',
+                            bgcolor: t[theme.palette.mode].primary,
+                            border: th => `1px solid ${th.palette.divider}`,
+                          }}
+                        />
+                        <span>{t.name}</span>
+                      </Stack>
+                    </MenuItem>
+                  ))}
+                </Select>
+
+                <Button size="small" onClick={handleDuplicateTheme}>
+                  Duplicate
+                </Button>
+                <Tooltip
+                  title={isBuiltInTheme ? 'The built-in theme cannot be edited — duplicate it' : ''}
+                >
+                  <span>
+                    <Button size="small" disabled={isBuiltInTheme} onClick={() => setEditorOpen(true)}>
+                      Customise
+                    </Button>
+                  </span>
+                </Tooltip>
+                <Button size="small" onClick={handleExportTheme}>
+                  Export
+                </Button>
+                <Button size="small" onClick={handleImportTheme}>
+                  Import
+                </Button>
+                <Tooltip
+                  title={isBuiltInTheme ? 'The built-in theme cannot be deleted' : ''}
+                >
+                  <span>
+                    <Button
+                      size="small"
+                      color="error"
+                      disabled={isBuiltInTheme}
+                      onClick={handleDeleteTheme}
+                    >
+                      Delete
+                    </Button>
+                  </span>
+                </Tooltip>
+              </Stack>
+
+              {themeMessage && (
+                <Typography
+                  variant="caption"
+                  color={themeMessage.error ? 'error' : 'text.secondary'}
+                  sx={{ pl: 4.5, mt: 1 }}
+                >
+                  {themeMessage.text}
+                </Typography>
+              )}
+            </ListItem>
+            <ListItem sx={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5, width: '100%' }}>
+                <ListItemIcon sx={{ minWidth: 36 }}>
                   <Icon icon={windowHeaderIcon} width="1.5rem" />
                 </ListItemIcon>
                 <ListItemText
@@ -1023,7 +1194,6 @@ const Settings: React.FC = () => {
                       option={option}
                       selected={titleBarStyle === option.value}
                       disabled={isDisabled}
-                      isDark={isDark}
                       onClick={() => {
                         setTitleBarStyleState(option.value);
                         dispatch({ type: 'SET_TITLEBAR_STYLE', payload: option.value });
@@ -1045,10 +1215,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Display
               </ListSubheader>
@@ -1089,10 +1256,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Artist Name Handling
               </ListSubheader>
@@ -1170,10 +1334,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Notifications
               </ListSubheader>
@@ -1224,10 +1385,7 @@ const Settings: React.FC = () => {
             subheader={
               <ListSubheader
                 color="inherit"
-                sx={{
-                  bgcolor: theme =>
-                    theme.palette.mode === 'dark' ? '#323135' : theme.palette.background.paper,
-                }}
+                sx={subheaderSx}
               >
                 Advanced Options
               </ListSubheader>
@@ -1253,6 +1411,14 @@ const Settings: React.FC = () => {
           </List>
         </Container>
       </Box>
+
+      <ThemeEditorDialog
+        open={editorOpen}
+        theme={state.appTheme}
+        takenNames={themes.filter(t => t.name !== state.appTheme.name).map(t => t.name)}
+        onClose={() => setEditorOpen(false)}
+        onSave={handleSaveTheme}
+      />
     </motion.div>
   );
 };

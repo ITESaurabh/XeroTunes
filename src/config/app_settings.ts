@@ -1,3 +1,5 @@
+import { AMETHYST, AppTheme } from './theme';
+
 export type ThemeMode = 0 | 1 | 2;
 export type TitleBarStyle =
   | 'default'
@@ -24,6 +26,8 @@ export interface ThemeSettings {
   mode: ThemeMode;
   titleBarStyle: TitleBarStyle;
   paletteVariant: ThemePaletteVariant;
+  activeTheme: string;
+  customThemes: AppTheme[];
 }
 
 export interface PlaybackSettings {
@@ -87,6 +91,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     mode: 0,
     titleBarStyle: 'default',
     paletteVariant: 'default',
+    activeTheme: AMETHYST.name,
+    customThemes: [],
   },
   playback: {
     volumeLevel: 30,

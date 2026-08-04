@@ -1,5 +1,6 @@
 import React, { useContext, useState, useEffect } from 'react';
 import {
+  alpha,
   Box,
   ButtonBase,
   Dialog,
@@ -366,18 +367,11 @@ export default function SearchDialog() {
                       borderRadius: 2,
                       textAlign: 'left',
                       backgroundColor: (theme: Theme) =>
-                        isSelected
-                          ? undefined
-                          : theme.palette.mode === 'dark'
-                            ? 'rgba(255,255,255,0.05)'
-                            : 'rgba(0,0,0,0.03)',
-                      // color: isSelected ? (theme: Theme) => theme.palette.text.primary : undefined,
+                        isSelected ? undefined : alpha(theme.palette.text.primary, 0.05),
                       transition: 'all 0.2s',
                       '&:hover': {
                         backgroundColor: (theme: Theme) =>
-                          theme.palette.mode === 'dark'
-                            ? 'rgba(255,255,255,0.08)'
-                            : 'rgba(0,0,0,0.06)',
+                          alpha(theme.palette.text.primary, 0.08),
                       },
                     }}
                     elevation={0}
@@ -391,9 +385,7 @@ export default function SearchDialog() {
                           overflow: 'hidden',
                           flexShrink: 0,
                           backgroundColor: (theme: Theme) =>
-                            theme.palette.mode === 'dark'
-                              ? 'rgba(255,255,255,0.08)'
-                              : 'rgba(0,0,0,0.08)',
+                            alpha(theme.palette.text.primary, 0.08),
                         }}
                       >
                         <img
@@ -472,8 +464,7 @@ export default function SearchDialog() {
       slotProps={{
         backdrop: {
           sx: {
-            backgroundColor: (theme: Theme) =>
-              theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255,255,255,0.5)',
+            backgroundColor: (theme: Theme) => theme.palette.surfaces.scrim,
             backdropFilter: 'blur(2px)',
           },
         },
@@ -510,13 +501,10 @@ export default function SearchDialog() {
                     padding: '0.25rem 0.5rem',
                     borderRadius: '0.4rem',
                     border: 1,
-                    borderColor: (theme: Theme) =>
-                      theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)',
-                    backgroundColor: (theme: Theme) =>
-                      theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    borderColor: (theme: Theme) => alpha(theme.palette.text.primary, 0.3),
+                    backgroundColor: (theme: Theme) => alpha(theme.palette.text.primary, 0.1),
                     '&:hover': {
-                      backgroundColor: (theme: Theme) =>
-                        theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
+                      backgroundColor: (theme: Theme) => alpha(theme.palette.text.primary, 0.2),
                     },
                   }}
                 >

@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { useIpc } from '../../state/ipc';
-import { Box, Container, IconButton, Slider, Typography, useTheme } from '@mui/material';
+import { alpha, Box, Container, IconButton, Slider, Typography, useTheme } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import { store } from '../../utils/store';
 import { Icon } from '@iconify/react';
@@ -57,7 +57,6 @@ const initialMeta: SongMeta = {
 
 export default function MiniPlayerView(): React.ReactElement {
   const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
 
   const defaultVol = getVolumeLevel();
   const [volume, setVolume] = useState<number>(defaultVol);
@@ -200,10 +199,18 @@ export default function MiniPlayerView(): React.ReactElement {
         height: '100vh',
         width: '100vw',
         overflow: 'hidden',
+        backgroundColor: alpha(theme.palette.background.default, 0.96),
+        backdropFilter: 'blur(30px)',
       }}
       className="play-area"
     >
-      <Grid className="canva">
+      <Grid
+        className="canva"
+        sx={{
+          width: '-webkit-fill-available',
+          backgroundColor: alpha(theme.palette.text.primary, 0.04),
+        }}
+      >
         <Box
           sx={{
             display: 'flex',
@@ -228,7 +235,7 @@ export default function MiniPlayerView(): React.ReactElement {
               aria-label="minimize"
               onClick={() => sendEventToMainProcess('minimize', null)}
               sx={{
-                backgroundColor: isDark ? 'black' : '#d9d9d9',
+                backgroundColor: theme.palette.surfaces.control,
               }}
             >
               <Icon icon={subtract12Filled} fontSize={12} />
@@ -239,9 +246,9 @@ export default function MiniPlayerView(): React.ReactElement {
                 transition: 'background-color 0.2s ease-in-out',
                 ':hover': {
                   backgroundColor: theme.palette.error.main,
-                  color: theme.palette.common.white,
+                  color: theme.palette.error.contrastText,
                 },
-                backgroundColor: isDark ? 'black' : '#d9d9d9',
+                backgroundColor: theme.palette.surfaces.control,
               }}
               aria-label="close"
             >
@@ -316,7 +323,7 @@ export default function MiniPlayerView(): React.ReactElement {
               }}
             >
               <IconButton
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
                 onClick={() => {
                   const audioElement = audioRef.current;
                   audioElement.currentTime = audioElement.currentTime - 15;
@@ -327,7 +334,7 @@ export default function MiniPlayerView(): React.ReactElement {
               </IconButton>
               <IconButton
                 onClick={() => dispatch({ type: 'SET_IS_PLAYING', payload: !isPlaying })}
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
               >
                 <Icon icon={isPlaying ? pause16Filled : play16Filled} fontSize={30} />
               </IconButton>
@@ -338,7 +345,7 @@ export default function MiniPlayerView(): React.ReactElement {
                   setIsSeeking(false);
                 }}
                 aria-label="next song"
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
               >
                 <Icon icon={fastForward16Filled} fontSize={18} />
               </IconButton>
@@ -365,14 +372,7 @@ export default function MiniPlayerView(): React.ReactElement {
                   setVolumeLevel(newValue as number);
                 }}
                 sx={{
-                  color:
-                    theme.palette.mode === 'dark'
-                      ? volume >= 60
-                        ? theme.palette.error.main
-                        : '#fff'
-                      : volume >= 60
-                        ? theme.palette.error.main
-                        : '#6b6b6b',
+                  color: volume >= 60 ? theme.palette.error.main : theme.palette.text.primary,
                   '& .MuiSlider-track': {
                     border: 'none',
                   },
@@ -386,11 +386,7 @@ export default function MiniPlayerView(): React.ReactElement {
                       boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
                     },
                     '&:hover, &.Mui-focusVisible': {
-                      boxShadow: `0px 0px 0px 8px ${
-                        theme.palette.mode === 'dark'
-                          ? 'rgb(255 255 255 / 16%)'
-                          : 'rgb(0 0 0 / 16%)'
-                      }`,
+                      boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
                     },
                     '&.Mui-active': {
                       width: 16,
@@ -427,7 +423,7 @@ export default function MiniPlayerView(): React.ReactElement {
           onTouchStart={() => setIsSeeking(true)}
           onTouchEnd={() => setIsSeeking(false)}
           sx={{
-            color: theme.palette.mode === 'dark' ? '#fff' : '#6b6b6b',
+            color: 'text.primary',
             '& .MuiSlider-track': {
               border: 'none',
             },
@@ -440,9 +436,7 @@ export default function MiniPlayerView(): React.ReactElement {
                 boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
               },
               '&:hover, &.Mui-focusVisible': {
-                boxShadow: `0px 0px 0px 8px ${
-                  theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
-                }`,
+                boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
               },
               '&.Mui-active': {
                 width: 16,

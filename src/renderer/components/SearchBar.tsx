@@ -19,7 +19,19 @@ export default function SearchBar({ open, tempDrawer, toggleDrawer }: SearchBarP
   return (
     <Box
       component={open ? Paper : 'div'}
-      sx={{ borderRadius: 100, display: 'flex', alignItems: 'center', px: 1, mt: 1, mb: 2 }}
+      sx={{
+        borderRadius: 100,
+        display: 'flex',
+        alignItems: 'center',
+        px: 1,
+        mt: 1,
+        mb: 2,
+        ...(open && {
+          bgcolor: 'surfaces.elevated',
+          boxShadow: 'none',
+          border: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+        }),
+      }}
     >
       {!tempDrawer && (
         <IconButton sx={{ pl: '10px' }} aria-label="menu" onClick={toggleDrawer}>

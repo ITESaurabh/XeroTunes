@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { alpha, createTheme } from '@mui/material';
 import { DEFAULT_AA } from '../config/constants';
+import { getBaseTheme } from '../config/theme';
+import { getActiveTheme, getThemeSettings } from './utils/LocStoreUtil';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -13,10 +16,28 @@ interface TrackData {
   status: 'new-track' | 'playing' | 'paused';
 }
 
+/**
+ * The overlay renders plain DOM, not MUI components, so it builds the palette itself
+ * rather than mounting a ThemeProvider it would never read from.
+ */
+const useOverlayPalette = () => {
+  const settings = getThemeSettings();
+  const mode =
+    settings.mode === 1
+      ? 'light'
+      : settings.mode === 2
+        ? 'dark'
+        : window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+  return createTheme(getBaseTheme(mode, getActiveTheme())).palette;
+};
+
 const OverlayApp: React.FC = () => {
   const [track, setTrack] = useState<TrackData | null>(null);
   const [visible, setVisible] = useState(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const palette = useOverlayPalette();
 
   useEffect(() => {
     const handler = (_: Electron.IpcRendererEvent, data: TrackData) => {
@@ -63,8 +84,8 @@ const OverlayApp: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: 'rgba(16, 14, 20, 0.9)',
-          border: '1px solid rgba(255,255,255,0.10)',
+          background: alpha(palette.background.default, 0.9),
+          border: `1px solid ${alpha(palette.text.primary, 0.1)}`,
           borderRadius: 12,
           boxShadow: '0 2px 10px rgba(0,0,0,0.85)',
           padding: '8px 14px 8px 8px',
@@ -86,7 +107,7 @@ const OverlayApp: React.FC = () => {
             borderRadius: 8,
             objectFit: 'cover',
             flexShrink: 0,
-            border: '1px solid rgba(255,255,255,0.12)',
+            border: `1px solid ${alpha(palette.text.primary, 0.12)}`,
           }}
         />
 
@@ -104,7 +125,7 @@ const OverlayApp: React.FC = () => {
             {track && track.queueTotal > 0 && (
               <span
                 style={{
-                  color: 'rgba(255,255,255,0.38)',
+                  color: palette.text.disabled,
                   fontSize: 10,
                   lineHeight: 1,
                 }}
@@ -116,15 +137,15 @@ const OverlayApp: React.FC = () => {
               style={{
                 background:
                   track?.status === 'paused'
-                    ? 'rgba(255,255,255,0.15)'
+                    ? alpha(palette.text.primary, 0.15)
                     : track?.status === 'playing'
-                      ? '#2e7d32'
-                      : '#9c27b0',
+                      ? palette.surfaces.positive
+                      : palette.surfaces.accent,
                 borderRadius: 4,
                 padding: '2px 6px',
                 fontSize: 9,
                 fontWeight: 700,
-                color: '#fff',
+                color: track?.status === 'paused' ? palette.text.primary : palette.common.white,
                 letterSpacing: 0.5,
                 textTransform: 'uppercase',
                 lineHeight: 1,
@@ -141,7 +162,7 @@ const OverlayApp: React.FC = () => {
           {/* Title */}
           <div
             style={{
-              color: '#fff',
+              color: palette.text.primary,
               fontWeight: 600,
               fontSize: 13,
               overflow: 'hidden',
@@ -158,7 +179,7 @@ const OverlayApp: React.FC = () => {
           {track?.artist && (
             <div
               style={{
-                color: 'rgba(255,255,255,0.58)',
+                color: palette.text.secondary,
                 fontSize: 11,
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',
@@ -175,7 +196,7 @@ const OverlayApp: React.FC = () => {
           {track?.album && (
             <div
               style={{
-                color: '#ce93d8',
+                color: palette.surfaces.accent,
                 fontSize: 11,
                 overflow: 'hidden',
                 whiteSpace: 'nowrap',

@@ -1,5 +1,6 @@
 import React, { useContext, useEffect, useMemo, useCallback, useState } from 'react';
 import {
+  alpha,
   Box,
   Breadcrumbs,
   Button,
@@ -29,6 +30,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'motion/react';
 import { GridSize, ViewMode } from '../../config/app_settings';
 import { getFolderViewSettings, setFolderViewSettings } from '../utils/LocStoreUtil';
+import { detailBannerBg, gridCardSx } from '../styles/listSx';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 
 interface SubFolder {
@@ -129,13 +131,7 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         p: 2,
         borderRadius: 2,
         cursor: 'pointer',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        transition: 'background 0.15s, border-color 0.15s',
-        '&:hover': {
-          background: 'rgba(255,255,255,0.08)',
-          borderColor: 'rgba(255,255,255,0.15)',
-        },
+        ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',
           outlineColor: 'primary.main',
@@ -145,11 +141,16 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         userSelect: 'none',
       }}
     >
-      <Icon
-        icon={folderIcon}
-        height={iconSize}
-        style={{ color: folder.IsRoot ? '#7cc4ff' : '#facc6b', flexShrink: 0 }}
-      />
+      <Box
+        component="span"
+        sx={{
+          color: folder.IsRoot ? 'surfaces.year' : 'surfaces.folder',
+          flexShrink: 0,
+          display: 'flex',
+        }}
+      >
+        <Icon icon={folderIcon} height={iconSize} />
+      </Box>
       <Typography variant="body2" noWrap fontWeight={500} sx={{ width: '100%' }}>
         {folder.Name}
       </Typography>
@@ -359,7 +360,7 @@ const FolderHierarchy: React.FC = () => {
           mt: 1,
           mx: { xs: 1, md: 2 },
           borderRadius: 1,
-          background: 'rgba(255,255,255,0.04)',
+          background: detailBannerBg,
           minHeight: 44,
           flexShrink: 0,
           flexWrap: { xs: 'wrap', md: 'nowrap' },
@@ -395,7 +396,7 @@ const FolderHierarchy: React.FC = () => {
             scrollbarWidth: 'thin',
             '&::-webkit-scrollbar': { height: 4 },
             '&::-webkit-scrollbar-thumb': {
-              background: 'rgba(255,255,255,0.15)',
+              background: theme => alpha(theme.palette.text.primary, 0.15),
               borderRadius: 2,
             },
           }}
@@ -530,17 +531,19 @@ const FolderHierarchy: React.FC = () => {
                           mb: 0.5,
                           px: 1.5,
                           py: 1,
-                          '&:hover': { background: 'rgba(255,255,255,0.06)' },
+                          '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.06) },
                         }}
                       >
-                        <Icon
-                          icon={folderIcon}
-                          height="1.5rem"
-                          style={{
-                            color: sf.IsRoot ? '#7cc4ff' : '#facc6b',
+                        <Box
+                          component="span"
+                          sx={{
+                            color: sf.IsRoot ? 'surfaces.year' : 'surfaces.folder',
                             flexShrink: 0,
+                            display: 'flex',
                           }}
-                        />
+                        >
+                          <Icon icon={folderIcon} height="1.5rem" />
+                        </Box>
                         <Box sx={{ minWidth: 0, flex: 1 }}>
                           <Typography variant="body2" noWrap fontWeight={500}>
                             {sf.Name}
@@ -595,17 +598,19 @@ const FolderHierarchy: React.FC = () => {
                         mb: 0.25,
                         px: 1.5,
                         py: 0.75,
-                        '&:hover': { background: 'rgba(255,255,255,0.06)' },
+                        '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.06) },
                       }}
                     >
-                      <Icon
-                        icon={musicNoteIcon}
-                        height="1.1rem"
-                        style={{
-                          color: song.Id === state.track?.Id ? 'var(--mui-primary)' : '#9aa0a6',
+                      <Box
+                        component="span"
+                        sx={{
+                          color: song.Id === state.track?.Id ? 'primary.main' : 'text.secondary',
                           flexShrink: 0,
+                          display: 'flex',
                         }}
-                      />
+                      >
+                        <Icon icon={musicNoteIcon} height="1.1rem" />
+                      </Box>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="body2" noWrap>
                           {(song.Title as string) || 'Unknown'}

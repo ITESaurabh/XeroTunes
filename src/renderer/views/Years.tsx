@@ -13,6 +13,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { listHeaderSx, listRowSx } from '../styles/listSx';
 
 export interface YearEntry {
   Year: string;
@@ -36,16 +37,7 @@ const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDiv
 ScrollContainer.displayName = 'ScrollContainer';
 
 const HeaderRow: React.FC = () => (
-  <div
-    style={{
-      display: 'flex',
-      width: '100%',
-      background: '#222',
-      color: '#fff',
-      paddingLeft: 14,
-      fontWeight: 500,
-    }}
-  >
+  <Box sx={listHeaderSx}>
     <div
       style={{
         flex: 4,
@@ -80,7 +72,7 @@ const HeaderRow: React.FC = () => (
     >
       Songs
     </div>
-  </div>
+  </Box>
 );
 
 const Years: React.FC = () => {
@@ -125,15 +117,7 @@ const Years: React.FC = () => {
         <ListItemButton
           style={style}
           onClick={() => handleYearClick(year)}
-          sx={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            borderBottom: '1px solid #333',
-            borderRadius: 0.5,
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.0)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-          }}
+          sx={listRowSx(index)}
         >
           <Box
             sx={{
@@ -147,7 +131,12 @@ const Years: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            <Icon icon={yearsIcon} height="1.25rem" style={{ color: '#7cc4ff', flexShrink: 0 }} />
+            <Box
+              component="span"
+              sx={{ color: 'surfaces.year', flexShrink: 0, display: 'flex' }}
+            >
+              <Icon icon={yearsIcon} height="1.25rem" />
+            </Box>
             <Typography variant="body2" noWrap fontWeight={500}>
               {year.Year || 'Unknown Year'}
             </Typography>

@@ -13,6 +13,7 @@ import {
   clampWindowScale,
   DEFAULT_CAST_VOLUME,
 } from '../../config/app_settings';
+import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
 
 const QUEUE_STATE_KEY = 'queueState';
 const { ipcRenderer } = window.require('electron');
@@ -354,6 +355,50 @@ export function setTitleBarStyle(style: TitleBarStyle): TitleBarStyle {
     .invoke('set-traffic-light-visibility', { visible: showNative })
     .catch((err: unknown) => console.warn('Failed to set traffic light visibility:', err));
   return next.titleBarStyle;
+}
+
+/** Built-in first, then user themes. Stored themes are re-validated: the file is editable. */
+export function getAllThemes(): AppTheme[] {
+  const stored = getSettings().theme.customThemes;
+  const valid = (Array.isArray(stored) ? stored : []).flatMap(raw => {
+    const parsed = parseTheme(raw);
+    return 'theme' in parsed && parsed.theme.name !== AMETHYST.name ? [parsed.theme] : [];
+  });
+  return [AMETHYST, ...valid];
+}
+
+export function getActiveTheme(): AppTheme {
+  const { activeTheme } = getSettings().theme;
+  return getAllThemes().find(t => t.name === activeTheme) ?? AMETHYST;
+}
+
+export function setActiveTheme(name: string): AppTheme {
+  setThemeSettings({ activeTheme: name });
+  return getActiveTheme();
+}
+
+/** Upsert by name, so editing a theme replaces it rather than piling up duplicates. */
+export function saveCustomTheme(theme: AppTheme): AppTheme[] {
+  const others = getAllThemes().filter(t => t !== AMETHYST && t.name !== theme.name);
+  setThemeSettings({ customThemes: [...others, theme] });
+  return getAllThemes();
+}
+
+export function deleteCustomTheme(name: string): AppTheme[] {
+  const others = getAllThemes().filter(t => t !== AMETHYST && t.name !== name);
+  setThemeSettings({ customThemes: others });
+  if (getSettings().theme.activeTheme === name) setActiveTheme(AMETHYST.name);
+  return getAllThemes();
+}
+
+/** "Name", "Name (2)", "Name (3)". Used by duplicate and by imports that collide. */
+export function uniqueThemeName(base: string): string {
+  const taken = new Set(getAllThemes().map(t => t.name));
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base} (${i})`;
+    if (!taken.has(candidate)) return candidate;
+  }
 }
 
 export function getViewSettings(): ViewSettings {

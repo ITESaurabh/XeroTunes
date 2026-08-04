@@ -761,6 +761,38 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
+  ipcMain.handle('export-theme', async (_e, { theme }) => {
+    try {
+      const name = typeof theme?.name === 'string' && theme.name.trim() ? theme.name : 'theme';
+      const safeName = name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 120);
+      const result = await dialog.showSaveDialog(mainWin, {
+        title: 'Export Theme',
+        defaultPath: path.join(app.getPath('downloads'), `${safeName}.json`),
+        filters: [{ name: 'Theme', extensions: ['json'] }],
+      });
+      if (result.canceled || !result.filePath) return { success: false, canceled: true };
+      fs.writeFileSync(result.filePath, JSON.stringify(theme, null, 2));
+      return { success: true, filePath: result.filePath };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('import-theme', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWin, {
+        title: 'Import Theme',
+        properties: ['openFile'],
+        filters: [{ name: 'Theme', extensions: ['json'] }],
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+      // Parsing here keeps a malformed file from reaching the renderer as a raw string.
+      return { success: true, theme: JSON.parse(fs.readFileSync(result.filePaths[0], 'utf-8')) };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
   ipcMain.handle('show-confirm', async (_e, options) => {
     const {
       title = 'Confirm',

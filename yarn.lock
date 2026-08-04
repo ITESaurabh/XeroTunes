@@ -1215,6 +1215,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@material/material-color-utilities@npm:0.3.0":
+  version: 0.3.0
+  resolution: "@material/material-color-utilities@npm:0.3.0"
+  checksum: 10c0/3bef025428b893f2acc9e9e2bd186363a60b7c0836fe43c78222e29fe67dc579618e844f0661a20657ed9f7fd8b94fd43a2961892894d0b6a2ba5264ce2673f8
+  languageName: node
+  linkType: hard
+
 "@mui/core-downloads-tracker@npm:^5.18.0":
   version: 5.18.0
   resolution: "@mui/core-downloads-tracker@npm:5.18.0"
@@ -10205,6 +10212,7 @@ __metadata:
     "@fontsource/roboto": "npm:^5.1.1"
     "@iconify/icons-fluent": "npm:^1.2.38"
     "@iconify/react": "npm:^5.2.0"
+    "@material/material-color-utilities": "npm:0.3.0"
     "@mui/icons-material": "npm:^5.15.6"
     "@mui/material": "npm:^5.15.6"
     "@tanstack/eslint-plugin-query": "npm:^5.83.1"

@@ -11,7 +11,13 @@
         align-items: center;
         height: 100vh;
         margin: 0;
-        background-color: #050407;
+        background-color: #f4f1f9;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #201e23;
+        }
       }
 
       .loader-container {
@@ -23,7 +29,7 @@
       .loader-dot {
         width: 10px;
         height: 10px;
-        background-color: #ad3fa9;
+        background-color: #9b2e99;
         border-radius: 50%;
         margin: 5px;
         animation: material-loader 1.4s ease-in-out infinite both;

@@ -1,12 +1,12 @@
 import React, { useContext } from 'react';
 import List from '@mui/material/List';
 import {
+  alpha,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   ListSubheader,
   Divider,
-  useTheme,
   useMediaQuery,
   Box,
   LinearProgress,
@@ -76,7 +76,7 @@ const MenuTooltip = styled(({ className, ...props }: TooltipProps) => (
 ))(({ theme }) => ({
   [`& .${tooltipClasses.tooltip}`]: {
     backgroundColor: theme.palette.background.paper,
-    color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.87)' : 'rgba(0, 0, 0, 0.87)',
+    color: theme.palette.text.primary,
     boxShadow: theme.shadows[1],
     fontSize: 16,
     borderRadius: 50,
@@ -170,7 +170,6 @@ const menuItems: MenuItem[] = [
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
   const { isScanningLibrary, isFullScan, scanProgress, libraryStats, isMenuExpanded } = state;
-  const theme = useTheme();
 
   const toggleDrawer = () => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });
@@ -206,8 +205,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
           disableGutters
           sx={{
             borderRadius: 100,
-            backgroundColor:
-              theme.palette.mode === 'dark' ? '#201e23' : theme.palette.background.paper,
+            backgroundColor: 'background.default',
           }}
         >
           <SearchBar
@@ -345,7 +343,16 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
         <ListItemButton
           component={Link}
           className="no-drag"
-          sx={{ borderRadius: 15, mb: 1 }}
+          sx={{
+            borderRadius: 15,
+            mb: 1,
+            // MUI's default selected state is a neutral grey wash, which turns muddy
+            // over a tinted surface. Tint with the primary so the active item reads.
+            '&.Mui-selected, &.Mui-selected:hover': {
+              bgcolor: 'surfaces.selection',
+              color: 'primary.main',
+            },
+          }}
           selected={!!match}
           disabled={disabled}
           onClick={
@@ -354,7 +361,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
           to={item.href}
           {...(props as object)}
         >
-          <ListItemIcon sx={{ mr: -1 }}>
+          <ListItemIcon sx={{ mr: -1, color: match ? 'primary.main' : 'text.primary' }}>
             <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
           </ListItemIcon>
           <ListItemText primary={item.title} />
@@ -366,8 +373,11 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
                 px: 1,
                 py: 0.25,
                 borderRadius: 10,
-                bgcolor: match ? 'action.selected' : 'action.hover',
-                color: 'text.secondary',
+                bgcolor: theme =>
+                  match
+                    ? alpha(theme.palette.primary.main, 0.18)
+                    : alpha(theme.palette.text.primary, 0.07),
+                color: match ? 'primary.main' : 'text.secondary',
                 fontWeight: 600,
                 minWidth: 24,
                 textAlign: 'center',

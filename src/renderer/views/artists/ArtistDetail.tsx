@@ -1,10 +1,12 @@
 import React, { useContext, useEffect, useCallback, useState, useRef } from 'react';
 import {
+  alpha,
   Box,
   Typography,
   LinearProgress,
   ListItemButton,
   useMediaQuery,
+  useTheme,
   Theme,
   ButtonGroup,
   Button,
@@ -12,7 +14,7 @@ import {
   MenuItem,
   Collapse,
 } from '@mui/material';
-import { useParams, useLocation } from 'react-router';
+import { useParams, useLocation, useNavigate } from 'react-router';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
@@ -22,9 +24,11 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../../utils/useScrollRestoration';
 import { Icon } from '@iconify/react';
+import { heroTileBg } from '../../styles/listSx';
 import ChevronDownIcon from '@iconify/icons-fluent/chevron-down-24-filled';
 import AppDialog from '../../components/AppDialog';
 import ImagePreviewDialog from '../../components/ImagePreviewDialog';
+import { DEFAULT_AA } from '../../../config/constants';
 
 interface ArtistDetailData {
   Id: number;
@@ -89,6 +93,13 @@ const resolveImageSrc = (uri: string | null | undefined) => {
   return isRemoteUri(uri) ? uri : toFileUrl(uri);
 };
 
+/** @deprecated need to replace with a more modern placeholder */
+const placeholderArt = (theme: Theme, size: number, glyph: string) =>
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="100%" height="100%" rx="${size / 15}" fill="${theme.palette.surfaces.artFrom}"/><text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter,system-ui,sans-serif" font-size="${size * 0.44}" fill="${theme.palette.common.white}" opacity="0.75">${glyph}</text></svg>`
+  );
+
 interface ArtistDetailProps {
   showAlbumArtist?: boolean;
 }
@@ -96,9 +107,11 @@ interface ArtistDetailProps {
 const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) => {
   const { artistId } = useParams<{ artistId: string }>();
   const location = useLocation();
+  const navigate = useNavigate();
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const theme = useTheme();
   const { scrollRef, saveScrollPosition } = useScrollRestoration(location.pathname);
   const queryClient = useQueryClient();
   const [isSyncing, setIsSyncing] = useState(false);
@@ -228,23 +241,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
     });
   }, [albums]);
 
-  const handlePlayAll = useCallback(
-    (startIndex = 0) => {
-      if (!songs.length) return;
-      dispatch({
-        type: 'SET_QUEUE',
-        payload: {
-          queue: songs,
-          index: startIndex,
-          source: location.pathname + location.search,
-        },
-      });
-      dispatch({ type: 'SET_CURR_TRACK', payload: songs[startIndex] });
-      dispatch({ type: 'SET_IS_PLAYING', payload: true });
-    },
-    [songs, dispatch, location.pathname, location.search]
-  );
-
   const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
   const focusTs = (location.state as { _ts?: number } | null)?._ts;
   useEffect(() => {
@@ -287,6 +283,32 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
   const orphanTracks = React.useMemo(
     () => songs.filter(song => song.AlbumId == null || !albumIdSet.has(song.AlbumId as number)),
     [songs, albumIdSet]
+  );
+
+  /** Queue order must match what the page renders: albums by year, then the orphan bucket. */
+  const orderedSongs = React.useMemo(
+    () =>
+      albums.length
+        ? [...sortedAlbums.flatMap(album => albumTracksMap.get(album.Id) || []), ...orphanTracks]
+        : songs,
+    [albums.length, sortedAlbums, albumTracksMap, orphanTracks, songs]
+  );
+
+  const handlePlayAll = useCallback(
+    (startIndex = 0) => {
+      if (!orderedSongs.length || startIndex < 0) return;
+      dispatch({
+        type: 'SET_QUEUE',
+        payload: {
+          queue: orderedSongs,
+          index: startIndex,
+          source: location.pathname + location.search,
+        },
+      });
+      dispatch({ type: 'SET_CURR_TRACK', payload: orderedSongs[startIndex] });
+      dispatch({ type: 'SET_IS_PLAYING', payload: true });
+    },
+    [orderedSongs, dispatch, location.pathname, location.search]
   );
 
   const loading = artistLoading || artistMetaLoading || songsLoading || albumsLoading;
@@ -345,7 +367,8 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
             }),
           px: 3,
           py: 1,
-          borderBottom: '1px solid rgba(255,255,255,0.12)',
+          borderBottom: '1px solid',
+          borderColor: 'divider',
         }}
       >
         <Box
@@ -387,11 +410,11 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   onError={e => {
                     e.currentTarget.onerror = null;
-                    e.currentTarget.src =
-                      'data:image/svg+xml;utf8,' +
-                      encodeURIComponent(
-                        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 360"><rect width="100%" height="100%" rx="24" fill="#1e1e3f"/><text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter,system-ui,sans-serif" font-size="160" fill="#ffffff" opacity="0.75">${artist.Name.charAt(0).toUpperCase()}</text></svg>`
-                      );
+                    e.currentTarget.src = placeholderArt(
+                      theme,
+                      360,
+                      artist.Name.charAt(0).toUpperCase()
+                    );
                   }}
                 />
               ) : (
@@ -402,10 +425,12 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
+                    background: heroTileBg,
                   }}
                 >
-                  <Typography sx={{ color: 'white', fontSize: 48, fontWeight: 700 }}>
+                  <Typography
+                    sx={{ color: 'common.white', fontSize: 48, fontWeight: 700 }}
+                  >
                     {artist.Name.charAt(0).toUpperCase()}
                   </Typography>
                 </Box>
@@ -417,7 +442,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                 style={{
                   fontSize: animatedTitleSize,
                   fontWeight: 800,
-                  color: 'white',
+                  color: theme.palette.text.primary,
                   lineHeight: 1.1,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
@@ -427,12 +452,12 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
               >
                 {artist.Name}
               </motion.span>
-              <Typography sx={{ color: 'grey.300', mt: 0.5, fontSize: 14 }}>
+              <Typography sx={{ color: 'text.secondary', mt: 0.5, fontSize: 14 }}>
                 {artistStats || '--'}
               </Typography>
               <Collapse in={!isHeaderCondensed} timeout={220} collapsedSize={0}>
                 <Box sx={{ pt: 0.25 }}>
-                  <Typography sx={{ color: 'grey.400', fontSize: 12 }}>
+                  <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                     {showAlbumArtist ? 'Album Artist' : 'Artist'}
                   </Typography>
                   <ButtonGroup
@@ -517,7 +542,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
         onScroll={onContentScroll}
       >
         <Box sx={{ pl: 2, py: 2, minWidth: 0 }}>
-          <Typography variant="h6" sx={{ mb: 2, color: 'common.white' }}>
+          <Typography variant="h6" sx={{ mb: 2, color: 'text.primary' }}>
             In your library
           </Typography>
           {!hasSongs ? (
@@ -559,44 +584,67 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                         mr: 1,
                       }}
                     >
-                      {resolveImageSrc(album.CoverUri) || resolveImageSrc(album.coverUri) ? (
-                        <Box
-                          component="img"
-                          src={resolveImageSrc(album.CoverUri) || resolveImageSrc(album.coverUri)}
-                          alt={album.Title}
-                          sx={{ width: 150, height: 150, borderRadius: 0.5, objectFit: 'cover' }}
-                          onError={e => {
-                            e.currentTarget.onerror = null;
-                            e.currentTarget.src =
-                              'data:image/svg+xml;utf8,' +
-                              encodeURIComponent(
-                                `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><rect width="100%" height="100%" rx="18" fill="#1e1e3f"/><text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter,system-ui,sans-serif" font-size="52" fill="#ffffff" opacity="0.75">♪</text></svg>`
-                              );
-                          }}
-                        />
-                      ) : (
-                        <Box
+                      <Box
+                        component="img"
+                        src={
+                          resolveImageSrc(album.CoverUri) ||
+                          resolveImageSrc(album.coverUri) ||
+                          DEFAULT_AA
+                        }
+                        alt={album.Title}
+                        onClick={() => navigate(`/main_window/albums/${album.Id}`)}
+                        sx={{
+                          width: 150,
+                          height: 150,
+                          borderRadius: 0.5,
+                          objectFit: 'cover',
+                          cursor: 'pointer',
+                          transition: 'filter 0.15s, transform 0.15s, box-shadow 0.15s',
+                          '&:hover': {
+                            filter: 'brightness(1.12)',
+                            boxShadow: theme => `0 0 0 2px ${theme.palette.primary.main}`,
+                          },
+                          '&:active': { transform: 'scale(0.97)' },
+                        }}
+                        onError={e => {
+                          e.currentTarget.onerror = null;
+                          e.currentTarget.src = DEFAULT_AA;
+                        }}
+                      />
+                      <Box sx={{ minWidth: '100%', gap: 0.5, mb: 1 }}>
+                        <Typography
+                          variant="body2"
+                          onClick={() => navigate(`/main_window/albums/${album.Id}`)}
                           sx={{
-                            width: 50,
-                            height: 50,
-                            borderRadius: 1,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
+                            fontWeight: 700,
+                            color: 'text.primary',
+                            cursor: 'pointer',
+                            '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                           }}
                         >
-                          <Typography sx={{ color: 'white', fontSize: 20, lineHeight: 1 }}>
-                            ♪
-                          </Typography>
-                        </Box>
-                      )}
-                      <Box sx={{ minWidth: '100%', gap: 0.5, mb: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: 'common.white' }}>
                           {album.Title}
                         </Typography>
-                        <Typography sx={{ color: 'grey.300', fontSize: '0.8rem' }}>
-                          {album.ReleaseYear ?? 'Unknown'} • {album.SongCount} songs
+                        <Typography sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
+                          {album.ReleaseYear != null ? (
+                            <Box
+                              component="span"
+                              onClick={() =>
+                                navigate(
+                                  `/main_window/years/${encodeURIComponent(String(album.ReleaseYear))}`
+                                )
+                              }
+                              sx={{
+                                cursor: 'pointer',
+                                '&:hover': { textDecoration: 'underline', color: 'primary.main' },
+                              }}
+                            >
+                              {album.ReleaseYear}
+                            </Box>
+                          ) : (
+                            'Unknown'
+                          )}
+                          {' • '}
+                          {album.SongCount} songs
                         </Typography>
                       </Box>
                     </Box>
@@ -619,7 +667,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           key={song.Id ?? trackIndex}
                           data-track-id={song.Id ?? ''}
                           selected={song.Id === state.track?.Id}
-                          onClick={() => handlePlayAll(songs.findIndex(s => s.Id === song.Id))}
+                          onClick={() => handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))}
                           sx={{
                             width: '100%',
                             display: 'flex',
@@ -627,17 +675,17 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                             py: 1,
                             px: 1.5,
                             borderRadius: 1,
-                            background:
+                            bgcolor: theme =>
                               song.Id === state.track?.Id
-                                ? 'rgba(98, 0, 238, 0.15)'
+                                ? theme.palette.surfaces.selection
                                 : trackIndex % 2 === 0
-                                  ? 'rgba(255,255,255,0.03)'
-                                  : undefined,
+                                  ? alpha(theme.palette.text.primary, 0.03)
+                                  : 'transparent',
                             minWidth: 0,
                           }}
                         >
                           <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
-                            <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                            <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                               {formatTrackNumber(
                                 song.TrackNumber as string | number | null | undefined
                               ) ?? trackIndex + 1}
@@ -647,7 +695,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                             <Typography
                               noWrap
                               sx={{
-                                color: 'common.white',
+                                color: 'text.primary',
                                 fontWeight: 600,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -657,7 +705,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                             </Typography>
                           </Box>
                           <Box sx={{ minWidth: 60, textAlign: 'right' }}>
-                            <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                            <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                               {formatDuration(song.Duration)}
                             </Typography>
                           </Box>
@@ -670,12 +718,13 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                 <Box
                   sx={{
                     borderRadius: 2,
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    bgcolor: 'rgba(18,18,24,0.85)',
+                    border: '1px solid',
+                    borderColor: theme => alpha(theme.palette.text.primary, 0.08),
+                    bgcolor: 'background.paper',
                     p: 2,
                   }}
                 >
-                  <Typography sx={{ mb: 1, color: 'common.white', fontWeight: 700 }}>
+                  <Typography sx={{ mb: 1, color: 'text.primary', fontWeight: 700 }}>
                     All tracks
                   </Typography>
                   <Box>
@@ -693,16 +742,16 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           px: 1.5,
                           borderRadius: 1,
                           mb: 0.5,
-                          background:
+                          bgcolor: theme =>
                             song.Id === state.track?.Id
-                              ? 'rgba(98, 0, 238, 0.15)'
+                              ? theme.palette.surfaces.selection
                               : index % 2 === 0
-                                ? 'rgba(255,255,255,0.00)'
-                                : 'rgba(255,255,255,0.04)',
+                                ? 'transparent'
+                                : alpha(theme.palette.text.primary, 0.04),
                         }}
                       >
                         <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
-                          <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                          <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatTrackNumber(
                               song.TrackNumber as string | number | null | undefined
                             ) ?? index + 1}
@@ -712,7 +761,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           <Typography
                             noWrap
                             sx={{
-                              color: 'common.white',
+                              color: 'text.primary',
                               fontWeight: 600,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -722,7 +771,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           </Typography>
                         </Box>
                         <Box sx={{ minWidth: 60, textAlign: 'right' }}>
-                          <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                          <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatDuration(song.Duration)}
                           </Typography>
                         </Box>
@@ -735,12 +784,13 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                 <Box
                   sx={{
                     borderRadius: 2,
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    bgcolor: 'rgba(18,18,24,0.85)',
+                    border: '1px solid',
+                    borderColor: theme => alpha(theme.palette.text.primary, 0.08),
+                    bgcolor: 'background.paper',
                     p: 2,
                   }}
                 >
-                  <Typography sx={{ mb: 1, color: 'common.white', fontWeight: 700 }}>
+                  <Typography sx={{ mb: 1, color: 'text.primary', fontWeight: 700 }}>
                     Unknown album
                   </Typography>
                   <Box>
@@ -749,7 +799,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                         key={song.Id ?? index}
                         data-track-id={song.Id ?? ''}
                         selected={song.Id === state.track?.Id}
-                        onClick={() => handlePlayAll(songs.findIndex(s => s.Id === song.Id))}
+                        onClick={() => handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))}
                         sx={{
                           width: '100%',
                           display: 'flex',
@@ -758,16 +808,16 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           px: 1.5,
                           borderRadius: 1,
                           mb: 0.5,
-                          background:
+                          bgcolor: theme =>
                             song.Id === state.track?.Id
-                              ? 'rgba(98, 0, 238, 0.15)'
+                              ? theme.palette.surfaces.selection
                               : index % 2 === 0
-                                ? 'rgba(255,255,255,0.02)'
-                                : 'rgba(255,255,255,0.04)',
+                                ? alpha(theme.palette.text.primary, 0.02)
+                                : alpha(theme.palette.text.primary, 0.04),
                         }}
                       >
                         <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
-                          <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                          <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatTrackNumber(
                               song.TrackNumber as string | number | null | undefined
                             ) ?? index + 1}
@@ -777,7 +827,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           <Typography
                             noWrap
                             sx={{
-                              color: 'common.white',
+                              color: 'text.primary',
                               fontWeight: 600,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -787,7 +837,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           </Typography>
                         </Box>
                         <Box sx={{ minWidth: 60, textAlign: 'right' }}>
-                          <Typography sx={{ color: 'grey.300', fontSize: 12 }}>
+                          <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatDuration(song.Duration)}
                           </Typography>
                         </Box>

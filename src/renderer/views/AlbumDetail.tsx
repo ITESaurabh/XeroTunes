@@ -1,10 +1,12 @@
 import React, { useContext, useEffect, useCallback, useState } from 'react';
 import {
+  alpha,
   Box,
   Typography,
   LinearProgress,
   ListItemButton,
   useMediaQuery,
+  useTheme,
   Theme,
   Button,
 } from '@mui/material';
@@ -20,6 +22,9 @@ import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
 import ArtistCell from '../components/ArtistCell';
+import { detailBannerBg, listRowSx } from '../styles/listSx';
+import { DEFAULT_AA } from '../../config/constants';
+import EqualizerBars from '../components/EqualizerBars';
 
 interface AlbumSong extends Track {
   TrackNumber?: string | number;
@@ -60,6 +65,7 @@ const AlbumDetail: React.FC = () => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const theme = useTheme();
   const { initialScrollOffset, saveScrollPosition } = useScrollRestoration(location.pathname);
   const listRef = React.useRef<FixedSizeList | null>(null);
 
@@ -180,33 +186,30 @@ const AlbumDetail: React.FC = () => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handlePlayAll(index);
           }}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            px: 2,
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-            '&.Mui-selected': { background: 'rgba(99,102,241,0.18)' },
-          }}
+          sx={{ gap: 2, px: 2, ...listRowSx(index) }}
         >
-          {/* Track number */}
-          <Typography
-            variant="caption"
-            sx={{
-              minWidth: 40,
-              textAlign: 'right',
-              color: isActive ? 'primary.main' : 'text.disabled',
-              flexShrink: 0,
-            }}
-          >
-            {isActive
-              ? '▶'
-              : formatTrackNumber(song.TrackNumber) !== null
+          {isActive ? (
+            <Box
+              sx={{
+                minWidth: 24,
+                display: 'flex',
+                justifyContent: 'flex-end',
+                flexShrink: 0,
+                color: 'primary.main',
+              }}
+            >
+              <EqualizerBars playing={state.isPlaying} height={12} barWidth={2} barCount={3} />
+            </Box>
+          ) : (
+            <Typography
+              variant="caption"
+              sx={{ minWidth: 24, textAlign: 'right', color: 'text.disabled', flexShrink: 0 }}
+            >
+              {formatTrackNumber(song.TrackNumber) !== null
                 ? formatTrackNumber(song.TrackNumber)
                 : index + 1}
-          </Typography>
+            </Typography>
+          )}
 
           {/* Title + Artist */}
           <Box sx={{ flex: 1, minWidth: 0, gap: 0, display: 'flex', flexDirection: 'column' }}>
@@ -240,7 +243,7 @@ const AlbumDetail: React.FC = () => {
         </ListItemButton>
       );
     },
-    [songs, state.track?.Id, isPhone, handlePlayAll]
+    [songs, state.track?.Id, state.isPlaying, isPhone, handlePlayAll]
   );
 
   return (
@@ -266,7 +269,7 @@ const AlbumDetail: React.FC = () => {
           position: 'relative',
           overflow: 'hidden',
           borderRadius: '0.5rem 0 0 0',
-          background: 'rgba(255,255,255,0.04)',
+          background: detailBannerBg,
         }}
       >
         {/* Blurred background art */}
@@ -282,9 +285,25 @@ const AlbumDetail: React.FC = () => {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              filter: 'blur(60px) brightness(0.5)',
+              filter:
+                theme.palette.mode === 'dark'
+                  ? 'blur(60px) brightness(0.5)'
+                  : 'blur(60px) saturate(1.5)',
               transform: 'scale(1.2)',
               pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* brightness() scales luminance, so a dark cover stays dark and swallows the
+            theme's black text. A flat alpha wash lands in the same readable band
+            whatever the cover looks like. */}
+        {coverSrc && theme.palette.mode === 'light' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              bgcolor: alpha(theme.palette.background.paper, 0.65),
             }}
           />
         )}
@@ -311,33 +330,17 @@ const AlbumDetail: React.FC = () => {
               borderRadius: 0.5,
               overflow: 'hidden',
               flexShrink: 0,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-              background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
+              boxShadow:
+                theme.palette.mode === 'dark' ? '0 8px 32px rgba(0,0,0,0.6)' : theme.shadows[8],
               cursor: coverSrc ? 'zoom-in' : 'default',
             }}
           >
-            {coverSrc ? (
-              <Box
-                component="img"
-                src={coverSrc ?? undefined}
-                alt={albumTitle}
-                sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              />
-            ) : (
-              <Box
-                sx={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography sx={{ fontSize: isPhone ? 40 : 56, opacity: 0.2, lineHeight: 1 }}>
-                  ♪
-                </Typography>
-              </Box>
-            )}
+            <Box
+              component="img"
+              src={coverSrc ?? DEFAULT_AA}
+              alt={albumTitle}
+              sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
           </Box>
 
           {/* Album info */}
@@ -357,7 +360,9 @@ const AlbumDetail: React.FC = () => {
                 lineHeight: 1.1,
                 display: 'block',
                 marginBottom: 4,
-                color: 'white',
+                // White only where the banner is actually dimmed to near-black.
+                color:
+                  coverSrc && theme.palette.mode === 'dark' ? '#fff' : theme.palette.text.primary,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -422,7 +427,7 @@ const AlbumDetail: React.FC = () => {
       />
 
       {/* Track list */}
-      <Box sx={{ flex: 1, minHeight: 0 }}>
+      <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>
         {isLoading ? (
           <LinearProgress color="primary" sx={{ m: 2, borderRadius: 1 }} />
         ) : error ? (

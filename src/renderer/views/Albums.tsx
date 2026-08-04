@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
-import { Box, LinearProgress, Typography, useTheme } from '@mui/material';
+import { alpha, Box, LinearProgress, Typography, useTheme } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
@@ -11,6 +11,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { DEFAULT_AA } from '../../config/constants';
 
 export interface Album {
   Id: number;
@@ -70,9 +71,7 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
         overflow: 'hidden',
         position: 'relative',
         backgroundColor: theme.palette.background.default,
-        // Fluent-style border glow on hover
-        outline: mouse ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
-        // boxShadow: mouse ? '0 2px 10px rgba(0,0,0,0.55)' : 'none',
+        outline: `1px solid ${mouse ? alpha(theme.palette.text.primary, 0.18) : theme.palette.surfaces.glassBorder}`,
         transition: 'box-shadow 0.2s ease, outline-color 0.15s ease',
       }}
     >
@@ -84,7 +83,7 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
           pointerEvents: 'none',
           zIndex: 2,
           background: mouse
-            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, rgba(255,255,255,0.15) 0%, transparent 70%)`
+            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, ${alpha(theme.palette.text.primary, 0.15)} 0%, transparent 70%)`
             : 'none',
         }}
       />
@@ -97,40 +96,16 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
           position: 'relative',
           borderRadius: 0.5,
           overflow: 'hidden',
-          backgroundColor: '#1a1a2e',
+          backgroundColor: 'surfaces.artFrom',
           flexShrink: 0,
         }}
       >
-        {album.CoverUri ? (
-          <img
-            src={`file://${album.CoverUri}`}
-            alt={album.Title}
-            loading="lazy"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
-        ) : (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: artSize * 0.38,
-                opacity: 0.25,
-                userSelect: 'none',
-                lineHeight: 1,
-              }}
-            >
-              ♪
-            </Typography>
-          </Box>
-        )}
+        <img
+          src={album.CoverUri ? `file://${album.CoverUri}` : DEFAULT_AA}
+          alt={album.Title}
+          loading="lazy"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
       </Box>
 
       {/* Text */}

@@ -54,8 +54,7 @@ const AppDialog: React.FC<AppDialogProps> = ({
       slotProps={{
         backdrop: {
           sx: {
-            backgroundColor: (theme: Theme) =>
-              theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255,255,255,0.5)',
+            backgroundColor: (theme: Theme) => theme.palette.surfaces.scrim,
             backdropFilter: 'blur(2px)',
           },
         },

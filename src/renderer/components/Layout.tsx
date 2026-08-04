@@ -1,6 +1,6 @@
 import React, { useContext, useEffect } from 'react';
 import Titlebar from './Titlebar';
-import { styled, Theme } from '@mui/material/styles';
+import { alpha, styled, Theme } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
 import { IconButton, Paper, Stack, useMediaQuery } from '@mui/material';
@@ -100,6 +100,9 @@ function Layout() {
               minWidth: 0,
               p: 0,
               m: 0,
+              borderTop: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+              borderLeft: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+              overflow: 'hidden',
             }}
             container
           >
@@ -176,11 +179,13 @@ function Layout() {
                 title="Show player bar"
                 sx={{
                   backdropFilter: 'blur(20px)',
-                  backgroundColor: 'rgba(0,0,0,0.25)',
+                  backgroundColor: theme => alpha(theme.palette.common.black, 0.25),
                   borderRadius: '8px 8px 0 0',
                   px: 4,
                   py: 0.25,
-                  '&:hover': { backgroundColor: 'rgba(0,0,0,0.45)' },
+                  '&:hover': {
+                    backgroundColor: theme => alpha(theme.palette.common.black, 0.45),
+                  },
                 }}
               >
                 <KeyboardArrowUpRounded fontSize="small" />

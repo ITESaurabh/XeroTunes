@@ -25,6 +25,7 @@ import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { GridSize, ViewMode } from '../../config/app_settings';
 import { getFolderViewSettings, setFolderViewSettings } from '../utils/LocStoreUtil';
+import { gridCardSx, listHeaderSx, listRowSx } from '../styles/listSx';
 
 interface FolderRow {
   Path: string;
@@ -48,16 +49,7 @@ const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDiv
 ScrollContainer.displayName = 'ScrollContainer';
 
 const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => (
-  <div
-    style={{
-      display: 'flex',
-      width: '100%',
-      background: '#222',
-      color: '#fff',
-      paddingLeft: 14,
-      fontWeight: 500,
-    }}
-  >
+  <Box sx={listHeaderSx}>
     <div
       style={{
         flex: isPhone ? 1 : 3,
@@ -94,7 +86,7 @@ const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => (
     >
       Songs
     </div>
-  </div>
+  </Box>
 );
 
 interface FolderCardProps {
@@ -121,13 +113,7 @@ const FolderCard: React.FC<FolderCardProps> = React.memo(
         p: 2,
         borderRadius: 2,
         cursor: 'pointer',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        transition: 'background 0.15s, border-color 0.15s',
-        '&:hover': {
-          background: 'rgba(255,255,255,0.08)',
-          borderColor: 'rgba(255,255,255,0.15)',
-        },
+        ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',
           outlineColor: 'primary.main',
@@ -137,7 +123,9 @@ const FolderCard: React.FC<FolderCardProps> = React.memo(
         userSelect: 'none',
       }}
     >
-      <Icon icon={folderIcon} height={iconSize} style={{ color: '#facc6b', flexShrink: 0 }} />
+      <Box component="span" sx={{ color: 'surfaces.folder', flexShrink: 0, display: 'flex' }}>
+        <Icon icon={folderIcon} height={iconSize} />
+      </Box>
       <Typography variant="body2" noWrap fontWeight={500} sx={{ width: '100%' }}>
         {folder.Name}
       </Typography>
@@ -235,15 +223,7 @@ const Folders: React.FC = () => {
           onClick={() => handleFolderClick(folder)}
           onMouseEnter={() => prefetchFolderChildren(folder.Path)}
           onFocus={() => prefetchFolderChildren(folder.Path)}
-          sx={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            borderBottom: '1px solid #333',
-            borderRadius: 0.5,
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.0)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-          }}
+          sx={listRowSx(index)}
         >
           <Box
             sx={{
@@ -257,7 +237,9 @@ const Folders: React.FC = () => {
               overflow: 'hidden',
             }}
           >
-            <Icon icon={folderIcon} height="1.25rem" style={{ color: '#facc6b', flexShrink: 0 }} />
+            <Box component="span" sx={{ color: 'surfaces.folder', flexShrink: 0, display: 'flex' }}>
+              <Icon icon={folderIcon} height="1.25rem" />
+            </Box>
             <Typography variant="body2" noWrap fontWeight={500}>
               {folder.Name}
             </Typography>

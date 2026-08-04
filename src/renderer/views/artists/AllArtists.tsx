@@ -1,5 +1,5 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
-import { Box, Typography, LinearProgress, Avatar } from '@mui/material';
+import { alpha, Box, Typography, LinearProgress, Avatar } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
 import { FixedSizeGrid, GridChildComponentProps, GridOnItemsRenderedProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
@@ -66,7 +66,8 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',
-        outline: mouse ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
+        outline: theme =>
+          `1px solid ${mouse ? alpha(theme.palette.text.primary, 0.18) : 'transparent'}`,
         transition: 'outline-color 0.15s ease',
       }}
     >
@@ -76,9 +77,10 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
           inset: 0,
           pointerEvents: 'none',
           zIndex: 2,
-          background: mouse
-            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, rgba(255,255,255,0.15) 0%, transparent 70%)`
-            : 'none',
+          background: theme =>
+            mouse
+              ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, ${alpha(theme.palette.text.primary, 0.15)} 0%, transparent 70%)`
+              : 'none',
         }}
       />
 

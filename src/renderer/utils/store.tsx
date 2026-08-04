@@ -9,7 +9,10 @@ import {
   setPlaybackRepeatMode,
   getTitleBarStyle,
   setTitleBarStyle,
+  getActiveTheme,
+  setActiveTheme,
 } from './LocStoreUtil';
+import { AMETHYST, AppTheme } from '../../config/theme';
 import { ThemeMode, TitleBarStyle } from 'src/config/app_settings';
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -97,7 +100,6 @@ export interface AppState {
   searchEnabled: boolean;
   queue: QueueTrack[];
   queueIndex: number;
-  /** Original (un-shuffled) order of the queue, stored as IDs only to avoid a full Track[] duplicate. */
   originalOrder: (string | number)[];
   repeatMode: RepeatMode;
   isShuffle: boolean;
@@ -109,6 +111,7 @@ export interface AppState {
   libraryStats: LibraryStats | null;
   queueSource: string | null;
   titleBarStyle: TitleBarStyle;
+  appTheme: AppTheme;
   isCasting: boolean;
   castDeviceName: string | null;
 }
@@ -116,6 +119,7 @@ export interface AppState {
 export type AppAction =
   | { type: 'SET_THEME_MODE'; payload: ThemeMode }
   | { type: 'SET_TITLEBAR_STYLE'; payload: TitleBarStyle }
+  | { type: 'SET_APP_THEME'; payload: AppTheme }
   | { type: 'SET_IS_MAXIMIZED'; payload: boolean }
   | { type: 'SET_WINDOW_FOCUSED'; payload: boolean }
   | { type: 'SET_SEARCH_ENABLED'; payload: boolean }
@@ -150,10 +154,12 @@ const initialState: AppState = (() => {
   let savedShuffle = false;
   let savedRepeat: RepeatMode = 'off';
   let savedTitleBarStyle: TitleBarStyle = 'default';
+  let savedAppTheme: AppTheme = AMETHYST;
   try {
     savedShuffle = getPlaybackShuffle();
     savedRepeat = getPlaybackRepeatMode();
     savedTitleBarStyle = getTitleBarStyle();
+    savedAppTheme = getActiveTheme();
   } catch {
     /* settings unavailable — fall back to defaults */
   }
@@ -182,6 +188,7 @@ const initialState: AppState = (() => {
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
     titleBarStyle: savedTitleBarStyle,
+    appTheme: savedAppTheme,
     isCasting: false,
     castDeviceName: null,
   };
@@ -208,6 +215,10 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'SET_TITLEBAR_STYLE': {
       setTitleBarStyle(action.payload);
       return { ...state, titleBarStyle: action.payload };
+    }
+    case 'SET_APP_THEME': {
+      setActiveTheme(action.payload.name);
+      return { ...state, appTheme: action.payload };
     }
     case 'SET_IS_MAXIMIZED': {
       return { ...state, isMaximized: action.payload };

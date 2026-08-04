@@ -4,14 +4,14 @@
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <style>
-      /* Primary #ad3fa9 */
-      /* BG Dark #050407 */
+      /* Splash screen: no React, no theme. Follows the OS scheme; the values are the
+         Amethyst defaults in config/theme.ts. */
       * {
         -webkit-app-region: drag;
       }
       body {
-        background-color: #050407;
-        color: white;
+        background-color: #f4f1f9;
+        color: #000;
         font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
         -webkit-user-select: none;
         -webkit-app-region: drag;
@@ -35,7 +35,7 @@
         right: 10px;
         font-size: x-small;
         text-decoration: solid;
-        color: white;
+        color: inherit;
       }
       .message1 {
         position: absolute;
@@ -43,9 +43,20 @@
         left: 10px;
         font-size: x-small;
         font-weight: bold;
-        background-color: #ad3fa9;
+        background-color: #9b2e99;
+        color: #fff;
         padding: 5px;
         border-radius: 4px;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #201e23;
+          color: #fff;
+        }
+        .message1 {
+          background-color: #ffaaf4;
+          color: #000;
+        }
       }
       @keyframes flickerAnimation {
         0% {

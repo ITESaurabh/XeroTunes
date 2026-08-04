@@ -119,6 +119,7 @@ const config: ForgeConfig = {
     new WebpackPlugin({
       mainConfig,
       devContentSecurityPolicy: "'unsafe-eval'",
+      port: 3456,
       renderer: {
         config: rendererConfig,
         entryPoints: [

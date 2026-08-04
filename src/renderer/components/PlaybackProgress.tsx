@@ -30,8 +30,8 @@ const Rail = styled(Box)(({ theme }) => ({
   right: 0,
   height: 5,
   borderRadius: 20,
-  backgroundColor: theme.palette.mode === 'dark' ? '#000000' : '#c1c1c1',
-  opacity: 0.28,
+  backgroundColor: theme.palette.surfaces.well,
+  opacity: theme.palette.mode === 'dark' ? 0.28 : 1,
   pointerEvents: 'none',
 }));
 

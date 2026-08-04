@@ -1,5 +1,5 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { styled, useTheme } from '@mui/material/styles';
+import { alpha, styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Slider from '@mui/material/Slider';
@@ -30,7 +30,7 @@ import {
   AUDIO_OUTPUT_DEVICE_EVENT,
   CAST_STOP_EVENT,
 } from '../utils/LocStoreUtil';
-import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
+import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
 import { Icon } from '@iconify/react';
@@ -79,7 +79,7 @@ const CoverImage = styled(Box)(({ theme }) => ({
   overflow: 'hidden',
   flexShrink: 0,
   borderRadius: 8,
-  backgroundColor: 'rgba(0,0,0,0.08)',
+  backgroundColor: alpha(theme.palette.surfaces.well, 0.08),
   '& > img': { width: '100%' },
   [theme.breakpoints.down('md')]: { width: 90, height: 90 },
 }));
@@ -111,13 +111,23 @@ const PlayBarRoot = styled(Box, {
   position: 'relative',
 }));
 
-const PlayerCard = styled(Grid)(({ theme }) => ({
+const PlayerCard = styled(Grid, {
+  shouldForwardProp: prop => prop !== 'isPhone',
+})<{ isPhone: boolean }>(({ isPhone, theme }) => ({
   backdropFilter: 'blur(80px)',
   width: '100%',
-  border: 'rgba(0,0,0,0.25) 1px solid',
+  border: `${theme.palette.surfaces.glassBorder} 1px solid`,
   // eslint-disable-next-line @typescript-eslint/naming-convention
   '-electron-corner-smoothing': '100%',
-  backgroundColor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.4)',
+  backgroundColor: theme.palette.surfaces.glass,
+  // The border alone is too faint in light mode to separate the bar from the page.
+  boxShadow: theme.shadows[8],
+  // On phones the root drops its side padding, so the card sits flush against the
+  // window edge; rounded bottom corners would show the page through them.
+  ...(isPhone && {
+    borderRadius: `${theme.shape.borderRadius}px ${theme.shape.borderRadius}px 0 0`,
+    borderBottom: 'none',
+  }),
 }));
 
 const LyricsCollapse = styled(Collapse)({
@@ -187,10 +197,8 @@ const TransportRow = styled(Box)({
   gap: '0.625rem',
 });
 
-const ControlButton = styled(IconButton, {
-  shouldForwardProp: prop => prop !== 'isDark',
-})<{ isDark: boolean }>(({ isDark }) => ({
-  backgroundColor: isDark ? 'black' : '#d9d9d9',
+const ControlButton = styled(IconButton)(({ theme }) => ({
+  backgroundColor: theme.palette.surfaces.control,
 }));
 
 const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
@@ -222,9 +230,7 @@ const VolumeSlider = styled(Slider)(({ theme }) => ({
     transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
     '&:before': { boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)' },
     '&:hover, &.Mui-focusVisible': {
-      boxShadow: `0px 0px 0px 8px ${
-        theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
-      }`,
+      boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
     },
     '&.Mui-active': { width: 16, height: 16 },
   },
@@ -278,7 +284,6 @@ export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const isDark = theme.palette.mode === 'dark';
   const { state, dispatch } = useContext(store);
   const defaultVol = getVolumeLevel();
   const [songPath, setSongPath] = useState<string | null>(null);
@@ -1065,7 +1070,7 @@ export default function PlayBar() {
     dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode });
   }, [dispatch, state.repeatMode]);
 
-  const mainIconColor = isDark ? '#fff' : '#000';
+  const mainIconColor = theme.palette.text.primary;
 
   // ── Long-press skip buttons ───────────────────────────────────────────
   const longPressTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1421,7 +1426,13 @@ export default function PlayBar() {
 
   return (
     <PlayBarRoot isPhone={isPhone}>
-      <PlayerCard container elevation={3} component={Card} onContextMenu={handleContextMenu}>
+      <PlayerCard
+        container
+        isPhone={isPhone}
+        elevation={3}
+        component={Card}
+        onContextMenu={handleContextMenu}
+      >
         <LyricsCollapse in={isLyricsExpanded} mountOnEnter unmountOnExit>
           <LyricsPanel
             audioRef={audioRef}
@@ -1511,7 +1522,6 @@ export default function PlayBar() {
             />
             <TransportRow>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="previous song"
@@ -1526,7 +1536,6 @@ export default function PlayBar() {
                 />
               </ControlButton>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label={paused ? 'play' : 'pause'}
@@ -1549,7 +1558,6 @@ export default function PlayBar() {
                 )}
               </ControlButton>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="next song"
@@ -1640,7 +1648,7 @@ export default function PlayBar() {
                 title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
                 enabled={discordEnabled}
               >
-                <DiscordIcon viewBox="0 0 70 60" width={22} height={22} />
+                <DiscordIcon viewBox="0 0 24 24" className="icon-themed" width={22} height={22} />
               </DiscordIconButton>
             </Grid>
             <Grid xs={6}>
@@ -1654,14 +1662,14 @@ export default function PlayBar() {
                 {isLyricsExpanded ? (
                   <LyricNoteActiveIcon
                     viewBox="0 0 16 17"
-                    className="icon-white"
+                    className="icon-themed"
                     width={22}
                     height={22}
                   />
                 ) : (
                   <LyricNoteIcon
                     viewBox="0 0 16 17"
-                    className="icon-white"
+                    className="icon-themed"
                     width={22}
                     height={22}
                   />

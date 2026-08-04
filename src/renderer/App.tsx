@@ -46,9 +46,9 @@ const App = () => {
   const element = useRoutes(finalRoutes);
 
   const theme = useMemo(() => {
-    const darkModeTheme = createTheme(getBaseTheme(themePref));
+    const darkModeTheme = createTheme(getBaseTheme(themePref, state.appTheme));
     return responsiveFontSizes(darkModeTheme);
-  }, [themePref]);
+  }, [themePref, state.appTheme]);
 
   useEffect(() => {
     ipcRenderer.invoke('get-dark-mode').then(darkMode => {

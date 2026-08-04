@@ -124,29 +124,6 @@ main {
   // grid-template-columns: 1fr 1fr 1fr;
   -webkit-app-region: no-drag;
 
-  .tb-cntrl {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding-block: 0.5rem;
-    padding-inline: 0.8rem;
-    // padding-right: 0.5rem;
-    // padding-left: 0.5rem;
-    &_windows {
-      // -webkit-app-region: drag !important;
-      margin-top: 0.3rem;
-      margin-left: 5rem;
-      margin-inline: 0.3rem;
-      min-width: 71px;
-      border-radius: 4px;
-    }
-  }
-  .tb-cntrl:hover {
-    background: rgba(255, 255, 255, 0.219);
-  }
-  #closeWindow:hover {
-    background: #c42b1c;
-  }
 }
 
 .mac_back {
@@ -206,32 +183,7 @@ nav .control-window {
   }
 }
 
-::-webkit-scrollbar {
-  width: 14px;
-  height: 18px;
-}
-
-::-webkit-scrollbar-thumb {
-  height: 6px;
-  border: 3.5px solid rgba(0, 0, 0, 0);
-  background-clip: padding-box;
-  background-color: RGBA(173, 63, 169, 1);
-  -webkit-border-radius: 7px;
-  -webkit-box-shadow:
-    inset -1px -1px 0px rgba(0, 0, 0, 0.05),
-    inset 1px 1px 0px rgba(0, 0, 0, 0.05);
-  -webkit-min-logical-height: 2rem;
-}
-
-::-webkit-scrollbar-button {
-  display: none;
-  width: 0;
-  height: 0;
-}
-
-::-webkit-scrollbar-corner {
-  background-color: transparent;
-}
+// Scrollbars live in the MUI theme (config/theme.ts) so they follow the active palette.
 
 .lib-art-cont {
   flex: "1 0 calc(13%)";
@@ -252,6 +204,6 @@ nav .control-window {
   user-drag: none;
 }
 
-.icon-white > path {
-  fill: white !important;
+.icon-themed path {
+  fill: currentColor !important;
 }

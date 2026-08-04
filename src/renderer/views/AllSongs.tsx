@@ -24,6 +24,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { listHeaderSx, listRowSx } from '../styles/listSx';
 
 interface Column {
   label: string;
@@ -106,16 +107,7 @@ interface HeaderRowProps {
 const HeaderRow: React.FC<HeaderRowProps> = ({ isPhone }) => {
   const visibleColumns = getVisibleColumns(isPhone);
   return (
-    <div
-      style={{
-        display: 'flex',
-        width: '100%',
-        background: '#222',
-        color: '#fff',
-        paddingLeft: 14,
-        fontWeight: 500,
-      }}
-    >
+    <Box sx={listHeaderSx}>
       {visibleColumns.map((col, i) => (
         <div
           key={col.label}
@@ -131,7 +123,7 @@ const HeaderRow: React.FC<HeaderRowProps> = ({ isPhone }) => {
           {col.label}
         </div>
       ))}
-    </div>
+    </Box>
   );
 };
 
@@ -203,17 +195,7 @@ const AllSongs: React.FC = () => {
         <ListItemButton
           style={style}
           selected={song.Id === state.track?.Id}
-          sx={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            borderBottom: '1px solid #333',
-            borderRadius: 0.5,
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.0)' : 'rgba(255,255,255,0.03)',
-            '&:hover': {
-              background: 'rgba(255,255,255,0.08)',
-            },
-          }}
+          sx={listRowSx(index)}
           onClick={e => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handleSongClick(index);

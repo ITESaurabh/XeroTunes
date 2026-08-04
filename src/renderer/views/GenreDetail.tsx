@@ -18,13 +18,13 @@ import { FixedSizeList, ListChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
-import PageToolbar from '../components/PageToolbar';
 import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { detailBannerBg, heroTileBg, listHeaderSx, listRowSx } from '../styles/listSx';
 
 interface Column {
   label: string;
@@ -86,16 +86,7 @@ ScrollContainer.displayName = 'ScrollContainer';
 const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => {
   const visibleColumns = getVisibleColumns(isPhone);
   return (
-    <div
-      style={{
-        display: 'flex',
-        width: '100%',
-        background: '#222',
-        color: '#fff',
-        paddingLeft: 14,
-        fontWeight: 500,
-      }}
-    >
+    <Box sx={listHeaderSx}>
       {visibleColumns.map((col, i) => (
         <div
           key={col.label}
@@ -111,7 +102,7 @@ const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => {
           {col.label}
         </div>
       ))}
-    </div>
+    </Box>
   );
 };
 
@@ -177,15 +168,7 @@ const GenreDetail: React.FC = () => {
         <ListItemButton
           style={style}
           selected={isActive}
-          sx={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            borderBottom: '1px solid #333',
-            borderRadius: 0.5,
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.0)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-          }}
+          sx={listRowSx(index)}
           onClick={e => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handlePlayAll(index);
@@ -265,7 +248,7 @@ const GenreDetail: React.FC = () => {
           mx: { xs: 1, md: 2 },
           mt: 2,
           borderRadius: 1,
-          background: 'rgba(255,255,255,0.04)',
+          background: detailBannerBg,
           flexShrink: 0,
         }}
       >
@@ -277,15 +260,13 @@ const GenreDetail: React.FC = () => {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: 'linear-gradient(135deg, #4a1f7a 0%, #c084fc 100%)',
+            background: heroTileBg,
             flexShrink: 0,
           }}
         >
-          <Icon
-            icon={genresIcon}
-            height={isPhone ? '1.75rem' : '2.5rem'}
-            style={{ color: '#fff' }}
-          />
+          <Box component="span" sx={{ color: 'common.white', display: 'flex' }}>
+            <Icon icon={genresIcon} height={isPhone ? '1.75rem' : '2.5rem'} />
+          </Box>
         </Box>
         <Box sx={{ minWidth: 0, flex: 1 }}>
           <Typography

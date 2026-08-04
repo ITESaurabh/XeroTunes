@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
-import { styled } from '@mui/material/styles';
+import { alpha, styled } from '@mui/material/styles';
 import { Lrc } from 'react-lrc';
 
 const PanelRoot = styled(Box)({
@@ -19,7 +19,7 @@ const SourceBadge = styled(Box)(({ theme }) => ({
   top: 10,
   right: 14,
   zIndex: 1,
-  backgroundColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.07)',
+  backgroundColor: alpha(theme.palette.text.primary, 0.08),
   borderRadius: '6px',
   paddingLeft: 9.6,
   paddingRight: 9.6,
@@ -47,16 +47,10 @@ const SyncedLineBox = styled(Box, {
   fontSize: active ? '1.35rem' : '1rem',
   fontWeight: active ? 700 : 400,
   lineHeight: active ? 1.6 : 1.5,
-  color: active
-    ? theme.palette.text.primary
-    : theme.palette.mode === 'dark'
-      ? 'rgba(255,255,255,0.28)'
-      : 'rgba(0,0,0,0.28)',
+  color: active ? theme.palette.text.primary : alpha(theme.palette.text.primary, 0.28),
   transform: active ? 'scale(1.03)' : 'scale(1)',
   transition: 'all 0.22s ease',
-  '&:hover': {
-    color: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-  },
+  '&:hover': { color: alpha(theme.palette.text.primary, 0.6) },
 }));
 
 const UnsyncedScroll = styled(Box)(({ theme }) => ({
