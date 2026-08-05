@@ -125,7 +125,7 @@ const OverlayApp: React.FC = () => {
             {track && track.queueTotal > 0 && (
               <span
                 style={{
-                  color: palette.text.disabled,
+                  color: palette.text.secondary,
                   fontSize: 10,
                   lineHeight: 1,
                 }}

@@ -81,10 +81,8 @@ export const surfacesFor = (c: ThemeColors, mode: PaletteMode): ThemeSurfaces =>
     elevated: isDark ? lighten(c.backgroundPaper, 0.052) : pale,
     listHeader: darken(c.backgroundPaper, isDark ? 0.12 : 0.06),
     trackOff: isDark ? lighten(c.backgroundPaper, 0.08) : darken(c.backgroundDefault, 0.045),
-    // Light chrome steps *down* from the page, not up: Figma's play bar is #F3F3F3
-    // on a white page, its discs #D9D9D9, its rails #C1C1C1. Deriving these upward
-    // is what made the bar and its buttons collapse into the same white.
-    control: isDark ? deep : darken(c.backgroundDefault, 0.15),
+    control: isDark ? deep : pale,
+    // Rails still step *down* from the page, or they collapse into it.
     well: isDark ? deep : darken(c.backgroundDefault, 0.2),
     // The bar sits over an 80px blur of album art, so it stays mostly opaque in light
     // or the art drags it off the scale above.

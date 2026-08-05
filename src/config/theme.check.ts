@@ -62,10 +62,10 @@ const lightSurfaces = surfacesFor(AMETHYST.light, 'light');
 for (const key of ['control', 'well', 'glass', 'scrim', 'trackOff', 'listHeader'] as const) {
   assert.notEqual(lightSurfaces[key], darkSurfaces[key], `${key} must differ per mode`);
 }
-// Light chrome must be light, not a dark value reused, and each layer a step darker
-// than the one it sits on: Figma's #F3F3F3 card / #D9D9D9 disc / #C1C1C1 rail, tinted.
+// Light chrome must be light, not a dark value reused: a tinted #F3F3F3 card over a
+// #C1C1C1 rail, with the transport discs white on top.
 assert.equal(lightSurfaces.glass, 'rgba(231, 228, 236, 0.72)', 'light glass');
-assert.equal(lightSurfaces.control, 'rgb(207, 204, 211)', 'light control');
+assert.equal(lightSurfaces.control, 'rgb(254, 254, 254)', 'light control');
 assert.equal(lightSurfaces.well, 'rgb(195, 192, 199)', 'light well'); // was #c1c1c1
 
 // Surfaces follow a custom palette rather than staying Amethyst purple.

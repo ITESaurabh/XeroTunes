@@ -86,6 +86,16 @@ export function clampWindowScale(value: unknown): number {
 
 export type SettingsKey = keyof AppSettings;
 
+/** Individually resettable pieces of app state. 'localState' is cleared renderer-side. */
+export type ResetTarget =
+  | 'localState'
+  | 'settings'
+  | 'themes'
+  | 'database'
+  | 'firstrun'
+  | 'albumArts'
+  | 'artistArts';
+
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: {
     mode: 0,

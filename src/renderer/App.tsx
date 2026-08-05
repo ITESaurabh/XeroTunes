@@ -102,6 +102,28 @@ const App = () => {
     };
   }, []);
 
+  // The main-process sweep emits one artist at a time for hours, so patch the
+  // cached list instead of invalidating; a refetch each time rescans the library.
+  useEffect(() => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      { artistId, uri }: { artistId: number; uri: string | null }
+    ) => {
+      if (!uri) return;
+      queryClient.setQueriesData<Array<{ Id?: number }>>(
+        { queryKey: [QUERY_KEYS.ALL_ARTISTS] },
+        old =>
+          Array.isArray(old)
+            ? old.map(a => (a?.Id === artistId ? { ...a, ProfileImgUri: uri, ProfileImg: uri } : a))
+            : old
+      );
+    };
+    ipcRenderer.on('artist-image-updated', handler);
+    return () => {
+      ipcRenderer.removeListener('artist-image-updated', handler);
+    };
+  }, []);
+
   useEffect(() => {
     dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
   }, [themeSettings.mode, dispatch]);

@@ -81,6 +81,7 @@ import {
 import { WINDOW_SCALE_OPTIONS, TitleBarStyle, ThemeMode } from '../../config/app_settings';
 import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
 import ThemeEditorDialog from '../components/ThemeEditorDialog';
+import FactoryResetDialog from '../components/FactoryResetDialog';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
 import { OS_MAC } from '../../config/constants';
@@ -597,6 +598,8 @@ const Settings: React.FC = () => {
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
     getArtistImageFetchingEnabled()
   );
+  const [missedArtists, setMissedArtists] = React.useState<number>(0);
+  const [retryingArtists, setRetryingArtists] = React.useState<boolean>(false);
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
@@ -614,6 +617,7 @@ const Settings: React.FC = () => {
     React.useState<string[]>(getMultiArtistExceptions);
   const [themes, setThemes] = React.useState<AppTheme[]>(getAllThemes);
   const [editorOpen, setEditorOpen] = React.useState(false);
+  const [resetOpen, setResetOpen] = React.useState(false);
   const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
     null
   );
@@ -639,6 +643,12 @@ const Settings: React.FC = () => {
       .catch((err: unknown) => {
         console.error('Error fetching music folders:', err);
       });
+  }, []);
+
+  React.useEffect(() => {
+    invokeEventToMainProcess('get-missed-artist-count')
+      .then((count: unknown) => setMissedArtists(Number(count) || 0))
+      .catch(() => undefined);
   }, []);
 
   React.useEffect(() => {
@@ -1380,6 +1390,41 @@ const Settings: React.FC = () => {
                 }}
               />
             </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={artistIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Retry artists with no match"
+                secondary={
+                  missedArtists > 0
+                    ? `${missedArtists} artist${missedArtists === 1 ? '' : 's'} came back empty and won't be looked up again on their own`
+                    : 'No artists are waiting on a retry'
+                }
+              />
+              <Button
+                startIcon={
+                  retryingArtists ? (
+                    <CircularProgress size={16} color="inherit" />
+                  ) : (
+                    <Icon icon={syncIcon} height={'1.25rem'} />
+                  )
+                }
+                variant="outlined"
+                size="small"
+                disabled={retryingArtists || missedArtists === 0 || !artistImageFetchEnabled}
+                onClick={() => {
+                  setRetryingArtists(true);
+                  invokeEventToMainProcess('retry-missed-artists')
+                    .then(() => setMissedArtists(0))
+                    .catch(() => undefined)
+                    .finally(() => setRetryingArtists(false));
+                }}
+                sx={{ mr: 0.5, flexShrink: 0 }}
+              >
+                Retry
+              </Button>
+            </ListItem>
           </List>
           <List
             subheader={
@@ -1408,9 +1453,22 @@ const Settings: React.FC = () => {
                 Open Application Data Folder
               </Button>
             </ListItem>
+            <ListItem component={Stack} direction="row" spacing={2}>
+              <Button
+                variant="outlined"
+                color="error"
+                fullWidth
+                disabled={isScanningLibrary}
+                onClick={() => setResetOpen(true)}
+              >
+                Factory Reset…
+              </Button>
+            </ListItem>
           </List>
         </Container>
       </Box>
+
+      <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
 
       <ThemeEditorDialog
         open={editorOpen}

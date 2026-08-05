@@ -1,17 +1,16 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
 import { alpha, Box, Typography, LinearProgress, Avatar } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
-import { FixedSizeGrid, GridChildComponentProps, GridOnItemsRenderedProps } from 'react-window';
+import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
 import { useIpc } from '../../state/ipc';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { store } from '../../utils/store';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../../utils/useScrollRestoration';
-import { artistImageService } from '../../utils/artistImageService';
 
 export interface Artist {
   Id: number;
@@ -169,7 +168,6 @@ interface AllArtistsProps {
 const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
-  const queryClient = useQueryClient();
   const location = useLocation();
   const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
   const { initialScrollTop, saveScrollPosition } = useScrollRestoration(location.pathname);
@@ -181,14 +179,6 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
       scrollHide(args);
     },
     [saveScrollPosition, scrollHide]
-  );
-
-  const enqueueArtistImageFetch = useCallback(
-    (artist: Artist) => {
-      if (!artist.Id || artist.ProfileImgUri) return;
-      artistImageService.enqueue(artist.Id, queryClient, [QUERY_KEYS.ALL_ARTISTS, showAlbumsOnly]);
-    },
-    [queryClient, showAlbumsOnly]
   );
 
   const {
@@ -275,23 +265,6 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
             const { colCount, colWidth, rowHeight } = calcLayout(width);
             const rowCount = Math.ceil(filtered.length / colCount);
 
-            const handleItemsRendered = ({
-              visibleRowStartIndex,
-              visibleRowStopIndex,
-              visibleColumnStartIndex,
-              visibleColumnStopIndex,
-            }: GridOnItemsRenderedProps) => {
-              for (let row = visibleRowStartIndex; row <= visibleRowStopIndex; row += 1) {
-                for (let column = visibleColumnStartIndex; column <= visibleColumnStopIndex; column += 1) {
-                  const index = row * colCount + column;
-                  const artist = filtered[index];
-                  if (artist) {
-                    enqueueArtistImageFetch(artist);
-                  }
-                }
-              }
-            };
-
             return (
               <FixedSizeGrid
                 key={location.pathname}
@@ -303,7 +276,6 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
                 width={width}
                 initialScrollTop={initialScrollTop}
                 overscanRowCount={4}
-                onItemsRendered={handleItemsRendered}
                 onScroll={handleGridScroll}
                 itemData={itemData}
                 outerElementType={ScrollContainer}

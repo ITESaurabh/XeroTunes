@@ -10,7 +10,7 @@ import {
 } from 'electron';
 import { fileURLToPath } from 'url';
 import { prevIcon, nextIcon, playIcon, pauseIcon } from '../thumbarIcons';
-import dbModule from '../../database';
+import dbModule from '../db';
 import {
   setPresenceEnabled,
   updatePresence,
@@ -40,26 +40,16 @@ import {
   ARTIST_ART_DIR,
   FIRSTRUN_FILE,
 } from '../../config/core_config';
-import { AppSettings, DEFAULT_APP_SETTINGS, clampWindowScale } from '../../config/app_settings';
-import { fetchArtistProfileImage } from '../modules/artistArts';
+import {
+  AppSettings,
+  DEFAULT_APP_SETTINGS,
+  ResetTarget,
+  clampWindowScale,
+} from '../../config/app_settings';
+import { registerArtistIpc } from '../ipc/artists';
+import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
-
-const TRACK_ARTIST_NAMES = `(
-        SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY ta.Id)
-        FROM TrackArtist ta
-        JOIN Artist ar ON ar.Id = ta.ArtistId
-        WHERE ta.TrackId = Track.Id
-      ) AS ArtistName`;
-
-function albumArtistNames(alias: string): string {
-  return `(
-        SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY aa.Id)
-        FROM AlbumArtist aa
-        JOIN Artist ar ON ar.Id = aa.ArtistId
-        WHERE aa.AlbumId = Album.Id
-      ) AS ${alias}`;
-}
 
 function ensureAppConfFolder() {
   if (!fs.existsSync(APP_CONF_FOLDER)) {
@@ -115,6 +105,42 @@ function writeSettingsFile(settings: AppSettings) {
   fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
 }
 
+const rmPath = (target: string) => fs.rmSync(target, { recursive: true, force: true });
+
+// Emptied in place rather than deleted: the connection stays open and valid, and
+// the schema mainIpcs creates at startup doesn't have to be rebuilt.
+function wipeDatabase() {
+  // sqlite_sequence only appears once an AUTOINCREMENT table exists, and clearing
+  // it is what makes ids start from 1 again.
+  const tables = dbModule
+    .prepare(
+      `SELECT name FROM sqlite_master
+        WHERE type = 'table' AND (name NOT LIKE 'sqlite_%' OR name = 'sqlite_sequence')`
+    )
+    .all() as Array<{ name: string }>;
+
+  dbModule.transaction(() => {
+    for (const { name } of tables) dbModule.prepare(`DELETE FROM "${name}"`).run();
+  })();
+  dbModule.exec('VACUUM');
+}
+
+const emptyDir = (dir: string) => {
+  rmPath(dir);
+  fs.mkdirSync(dir, { recursive: true });
+};
+
+// Ordered, not a lookup map: resetting themes rewrites settings.json, so it has
+// to run before a settings reset deletes the file out from under it.
+const RESET_ACTIONS: Array<[Exclude<ResetTarget, 'localState'>, () => void]> = [
+  ['themes', () => writeSettingsFile({ ...readSettingsFile(), theme: DEFAULT_APP_SETTINGS.theme })],
+  ['settings', () => rmPath(SETTINGS_FILE)],
+  ['database', wipeDatabase],
+  ['firstrun', () => rmPath(FIRSTRUN_FILE)],
+  ['albumArts', () => emptyDir(ALBUM_ART_DIR)],
+  ['artistArts', () => emptyDir(ARTIST_ART_DIR)],
+];
+
 // Registered separately from mainIpcs: the mini player (--file launch) runs
 // without a main window, but its renderer still reads/writes settings.
 export function registerSettingsIpc() {
@@ -150,6 +176,27 @@ export function registerSettingsIpc() {
       console.warn('Failed to remove firstrun file:', error);
     }
     event.returnValue = true;
+  });
+
+  ipcMain.handle('factory-reset', (_event, { targets }: { targets?: ResetTarget[] }) => {
+    const selected = new Set(targets ?? []);
+    const failed: ResetTarget[] = [];
+
+    for (const [target, run] of RESET_ACTIONS) {
+      if (!selected.has(target)) continue;
+      try {
+        run();
+      } catch (error) {
+        console.warn(`Factory reset failed for ${target}:`, error);
+        failed.push(target);
+      }
+    }
+    return { failed };
+  });
+
+  ipcMain.on('restart-app', () => {
+    app.relaunch();
+    app.exit(0);
   });
 }
 
@@ -588,15 +635,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
          Name TEXT COLLATE NOCASE,
          ProfileImgUri TEXT,
          ArtistMetaJson TEXT,
+         ArtistFetchedAt INTEGER,
          Version INTEGER
        )`
   ).run();
-
-  // Migration: add ArtistMetaJson once for existing DB versions
-  const artistColumns = db.prepare("PRAGMA table_info('Artist')").all() as Array<{ name: string }>;
-  if (!artistColumns.some(col => col.name === 'ArtistMetaJson')) {
-    db.prepare('ALTER TABLE Artist ADD COLUMN ArtistMetaJson TEXT').run();
-  }
 
   db.prepare(
     `CREATE TABLE IF NOT EXISTS Album (
@@ -1269,149 +1311,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       .all(String(year));
   });
 
-  ipcMain.handle('get-all-artists', () => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Artist.Id,
-        Artist.Name,
-        Artist.ProfileImgUri,
-        COUNT(DISTINCT TrackArtist.TrackId) AS SongCount,
-        COUNT(DISTINCT Track.AlbumId) AS AlbumCount
-      FROM Artist
-      LEFT JOIN TrackArtist ON Artist.Id = TrackArtist.ArtistId
-      LEFT JOIN Track ON TrackArtist.TrackId = Track.Id
-      GROUP BY Artist.Id
-      HAVING COUNT(DISTINCT TrackArtist.TrackId) > 0
-      ORDER BY Artist.Name COLLATE NOCASE
-    `
-      )
-      .all();
-
-    return rows.map(row => {
-      const localPath = path.join(ARTIST_ART_DIR, `${row.Id}.jpg`);
-      const profilePath = fs.existsSync(localPath) ? localPath : (row.ProfileImgUri ?? null);
-
-      return {
-        Id: row.Id,
-        Name: row.Name,
-        ProfileImgUri: profilePath,
-        ProfileImg: profilePath,
-        SongCount: row.SongCount,
-        AlbumCount: row.AlbumCount,
-      };
-    });
-  });
-
-  ipcMain.handle('get-all-album-artists', () => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Artist.Id,
-        Artist.Name,
-        Artist.ProfileImgUri,
-        COUNT(DISTINCT AlbumArtist.AlbumId) AS AlbumCount,
-        COUNT(DISTINCT Track.Id) AS SongCount
-      FROM Artist
-      JOIN AlbumArtist ON Artist.Id = AlbumArtist.ArtistId
-      LEFT JOIN Album ON AlbumArtist.AlbumId = Album.Id
-      LEFT JOIN Track ON Album.Id = Track.AlbumId
-      GROUP BY Artist.Id
-      ORDER BY Artist.Name COLLATE NOCASE
-    `
-      )
-      .all();
-
-    return rows.map(row => {
-      const localPath = path.join(ARTIST_ART_DIR, `${row.Id}.jpg`);
-      const profilePath = fs.existsSync(localPath) ? localPath : (row.ProfileImgUri ?? null);
-
-      return {
-        Id: row.Id,
-        Name: row.Name,
-        ProfileImgUri: profilePath,
-        ProfileImg: profilePath,
-        SongCount: row.SongCount,
-        AlbumCount: row.AlbumCount,
-      };
-    });
-  });
-
-  ipcMain.handle('fetch-artist-profile-image', async (e, { artistId }) => {
-    if (!artistId || typeof artistId !== 'number') return null;
-
-    const row = db.prepare('SELECT Name, ProfileImgUri FROM Artist WHERE Id = ?').get(artistId);
-    if (!row || !row.Name) return null;
-
-    const existingUri =
-      typeof row.ProfileImgUri === 'string' && row.ProfileImgUri.trim().length > 0
-        ? row.ProfileImgUri
-        : null;
-    const localPath = path.join(ARTIST_ART_DIR, `${artistId}.jpg`);
-
-    if (existingUri) {
-      const isRemote = existingUri.startsWith('http://') || existingUri.startsWith('https://');
-      if (isRemote || fs.existsSync(existingUri)) {
-        return existingUri;
-      }
-    }
-
-    if (fs.existsSync(localPath)) {
-      return localPath;
-    }
-
-    return await fetchArtistProfileImage(row.Name, undefined, artistId);
-  });
-
-  ipcMain.handle('force-fetch-artist-profile-image', async (e, { artistId }) => {
-    if (!artistId || typeof artistId !== 'number') return null;
-
-    const row = db.prepare('SELECT Name FROM Artist WHERE Id = ?').get(artistId);
-    if (!row || !row.Name) return null;
-
-    // Clear local cache so fetchArtistProfileImage re-downloads
-    const localPath = path.join(ARTIST_ART_DIR, `${artistId}.jpg`);
-    if (fs.existsSync(localPath)) {
-      fs.unlinkSync(localPath);
-    }
-
-    // Clear DB cached URI
-    db.prepare('UPDATE Artist SET ProfileImgUri = NULL, ArtistMetaJson = NULL WHERE Id = ?').run(
-      artistId
-    );
-
-    return await fetchArtistProfileImage(row.Name, undefined, artistId);
-  });
-
-  ipcMain.handle('get-artist-meta', (e, { artistId }) => {
-    const artist = db
-      .prepare(
-        `
-      SELECT
-        ArtistMetaJson
-      FROM Artist
-      WHERE Id = ?
-    `
-      )
-      .get(artistId);
-
-    if (!artist || !artist.ArtistMetaJson) return null;
-
-    try {
-      return JSON.parse(artist.ArtistMetaJson);
-    } catch {
-      console.warn('Failed to parse ArtistMetaJson for artist', artistId);
-      return null;
-    }
-  });
-
-  ipcMain.handle('find-artist-by-name', (e, { name }) => {
-    if (!name || typeof name !== 'string') return null;
-    const row = db.prepare('SELECT Id FROM Artist WHERE LOWER(Name) = LOWER(?) LIMIT 1').get(name);
-    return row ? { id: row.Id } : null;
-  });
+  registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
 
   ipcMain.handle('open-dir', (e, { variant = 'appdata' }) => {
     // open apps data folder in file manager
@@ -1428,226 +1328,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
     shell.openPath(targetPath);
     return { success: true };
-  });
-
-  ipcMain.handle('get-artist-detail', async (e, { artistId }) => {
-    const artist = db
-      .prepare(
-        `
-      SELECT
-        Id,
-        Name,
-        ProfileImgUri
-      FROM Artist
-      WHERE Id = ?
-    `
-      )
-      .get(artistId);
-
-    if (!artist) return null;
-
-    const profilePath = await fetchArtistProfileImage(artist.Name, undefined, artist.Id);
-
-    const songCount = db
-      .prepare('SELECT COUNT(*) AS count FROM TrackArtist WHERE ArtistId = ?')
-      .get(artistId).count;
-
-    const albumCount = db
-      .prepare('SELECT COUNT(*) AS count FROM AlbumArtist WHERE ArtistId = ?')
-      .get(artistId).count;
-
-    return {
-      Id: artist.Id,
-      Name: artist.Name,
-      ProfileImgUri: profilePath,
-      ProfileImg: profilePath,
-      SongCount: songCount,
-      AlbumCount: albumCount,
-    };
-  });
-
-  ipcMain.handle('get-artist-songs', (e, { artistId }) => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Track.Id,
-        Track.Title,
-        Track.Uri,
-        Track.Extension,
-        Track.Year,
-        Track.TrackNumber,
-        Track.AlbumArt,
-        Track.Duration,
-        ${TRACK_ARTIST_NAMES},
-        Album.Title AS AlbumTitle,
-        Album.Id AS AlbumId,
-        Genre.Name AS GenreName
-      FROM Track
-      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
-      LEFT JOIN Album ON Track.AlbumId = Album.Id
-      LEFT JOIN Genre ON Track.GenreId = Genre.Id
-      WHERE Track.Id IN (
-        SELECT TrackId FROM TrackArtist WHERE ArtistId = ?
-        UNION
-        SELECT Id FROM Track WHERE ArtistId = ?
-      )
-      GROUP BY Track.Id
-      ORDER BY COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999), Track.Title COLLATE NOCASE
-    `
-      )
-      .all(artistId, artistId);
-
-    return rows;
-  });
-
-  ipcMain.handle('get-artist-albums', (e, { artistId }) => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Album.Id,
-        Album.Title,
-        COALESCE(
-          Album.ReleaseYear,
-          MIN(CAST(Track.ReleaseYear AS INTEGER)),
-          MIN(CAST(Track.Year AS INTEGER))
-        ) AS ReleaseYear,
-        Album.CoverUri,
-        COUNT(Track.Id) AS SongCount
-      FROM Album
-      JOIN Track ON Album.Id = Track.AlbumId
-      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      WHERE TrackArtist.ArtistId = ?
-      GROUP BY Album.Id
-      ORDER BY Album.Title COLLATE NOCASE
-    `
-      )
-      .all(artistId);
-
-    return rows.map(album => {
-      const coverPath = path.join(ALBUM_ART_DIR, `${album.Id}.jpg`);
-      return {
-        ...album,
-        coverUri: album.CoverUri || (fs.existsSync(coverPath) ? coverPath : null),
-      };
-    });
-  });
-
-  ipcMain.handle('get-album-artist-detail', async (e, { artistId }) => {
-    const artist = db
-      .prepare(
-        `
-      SELECT
-        Id,
-        Name,
-        ProfileImgUri
-      FROM Artist
-      WHERE Id = ?
-    `
-      )
-      .get(artistId);
-
-    if (!artist) return null;
-
-    const profilePath = await fetchArtistProfileImage(artist.Name, undefined, artist.Id);
-
-    const songCount = db
-      .prepare(
-        `
-      SELECT
-        COUNT(DISTINCT Track.Id) AS count
-      FROM Track
-      JOIN Album ON Track.AlbumId = Album.Id
-      JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
-      WHERE AlbumArtist.ArtistId = ?
-    `
-      )
-      .get(artistId).count;
-
-    const albumCount = db
-      .prepare('SELECT COUNT(DISTINCT AlbumId) AS count FROM AlbumArtist WHERE ArtistId = ?')
-      .get(artistId).count;
-
-    return {
-      Id: artist.Id,
-      Name: artist.Name,
-      ProfileImgUri: profilePath,
-      ProfileImg: profilePath,
-      SongCount: songCount,
-      AlbumCount: albumCount,
-    };
-  });
-
-  ipcMain.handle('get-album-artist-songs', (e, { artistId }) => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Track.Id,
-        Track.Title,
-        Track.Uri,
-        Track.Extension,
-        Track.Year,
-        Track.TrackNumber,
-        Track.AlbumArt,
-        Track.Duration,
-        ${TRACK_ARTIST_NAMES},
-        Album.Title AS AlbumTitle,
-        Album.Id AS AlbumId,
-        Genre.Name AS GenreName
-      FROM Track
-      JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
-      JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
-      LEFT JOIN Album ON Track.AlbumId = Album.Id
-      LEFT JOIN Genre ON Track.GenreId = Genre.Id
-      WHERE Track.Id IN (
-        SELECT Track.Id FROM Track
-        JOIN Album ON Track.AlbumId = Album.Id
-        JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
-        WHERE AlbumArtist.ArtistId = ?
-      )
-      GROUP BY Track.Id
-      ORDER BY COALESCE(CAST(Track.TrackNumber AS INTEGER), 9999), Track.Title COLLATE NOCASE
-    `
-      )
-      .all(artistId);
-
-    return rows;
-  });
-
-  ipcMain.handle('get-album-artist-albums', (e, { artistId }) => {
-    const rows = db
-      .prepare(
-        `
-      SELECT
-        Album.Id,
-        Album.Title,
-        COALESCE(
-          Album.ReleaseYear,
-          MIN(CAST(Track.ReleaseYear AS INTEGER)),
-          MIN(CAST(Track.Year AS INTEGER))
-        ) AS ReleaseYear,
-        Album.CoverUri,
-        COUNT(Track.Id) AS SongCount
-      FROM Album
-      JOIN AlbumArtist ON Album.Id = AlbumArtist.AlbumId
-      LEFT JOIN Track ON Album.Id = Track.AlbumId
-      WHERE AlbumArtist.ArtistId = ?
-      GROUP BY Album.Id
-      ORDER BY Album.Title COLLATE NOCASE
-    `
-      )
-      .all(artistId);
-
-    return rows.map(album => {
-      const coverPath = path.join(ALBUM_ART_DIR, `${album.Id}.jpg`);
-      return {
-        ...album,
-        coverUri: album.CoverUri || (fs.existsSync(coverPath) ? coverPath : null),
-      };
-    });
   });
 
   // Search functionality
