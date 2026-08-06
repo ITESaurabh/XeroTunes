@@ -14,6 +14,7 @@ import {
 } from './LocStoreUtil';
 import { AMETHYST, AppTheme } from '../../config/theme';
 import { ThemeMode, TitleBarStyle } from 'src/config/app_settings';
+import { ScanMode } from '../../config/constants';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -106,7 +107,7 @@ export interface AppState {
   isPlayerBarVisible: boolean;
   isLyricsExpanded: boolean;
   isScanningLibrary: boolean;
-  isFullScan: boolean;
+  scanMode: ScanMode | null;
   scanProgress: ScanProgress | null;
   libraryStats: LibraryStats | null;
   queueSource: string | null;
@@ -136,7 +137,7 @@ export type AppAction =
   | { type: 'SET_PLAYER_BAR_VISIBLE'; payload: boolean }
   | { type: 'SET_LYRICS_EXPANDED'; payload: boolean }
   | { type: 'SET_SHUFFLE'; payload: boolean }
-  | { type: 'SET_SCANNING'; payload: { isScanning: boolean; isFullScan?: boolean } }
+  | { type: 'SET_SCANNING'; payload: { isScanning: boolean; scanMode?: ScanMode | null } }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
   | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats }
   | { type: 'SET_CASTING'; payload: { isCasting: boolean; deviceName: string | null } }
@@ -183,7 +184,7 @@ const initialState: AppState = (() => {
     isPlayerBarVisible: true,
     isLyricsExpanded: false,
     isScanningLibrary: false,
-    isFullScan: false,
+    scanMode: null,
     scanProgress: null,
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
@@ -318,11 +319,11 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, isLyricsExpanded: action.payload };
     }
     case 'SET_SCANNING': {
-      const { isScanning, isFullScan } = action.payload;
+      const { isScanning, scanMode } = action.payload;
       return {
         ...state,
         isScanningLibrary: isScanning,
-        isFullScan: isScanning ? (isFullScan ?? state.isFullScan) : false,
+        scanMode: isScanning ? (scanMode ?? state.scanMode) : null,
         scanProgress: isScanning ? state.scanProgress : null,
       };
     }

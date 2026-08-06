@@ -2,6 +2,7 @@ import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 
 import { parseFile } from 'music-metadata';
 import { store, LibraryStats } from '../utils/store';
 import { debounce } from '../utils/misc';
+import { ScanMode } from '../../config/constants';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -39,10 +40,10 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     ipcRenderer
       .invoke('get-scan-status')
       .then((res: unknown) => {
-        const status = res as { isScanning: boolean; isFullScan?: boolean };
+        const status = res as { isScanning: boolean; scanMode?: ScanMode | null };
         dispatch({
           type: 'SET_SCANNING',
-          payload: { isScanning: status.isScanning, isFullScan: status.isFullScan },
+          payload: { isScanning: status.isScanning, scanMode: status.scanMode },
         });
       })
       .catch(() => undefined);
@@ -114,10 +115,10 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
 
   useEffect(() => {
     if (mini) return;
-    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: 'basic' | 'full') => {
+    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: ScanMode) => {
       dispatch({
         type: 'SET_SCANNING',
-        payload: { isScanning: true, isFullScan: mode === 'full' },
+        payload: { isScanning: true, scanMode: mode ?? 'basic' },
       });
     };
     const handleScanProgress = (

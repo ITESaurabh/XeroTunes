@@ -169,7 +169,10 @@ const menuItems: MenuItem[] = [
 
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, isFullScan, scanProgress, libraryStats, isMenuExpanded } = state;
+  const { isScanningLibrary, scanMode, scanProgress, libraryStats, isMenuExpanded } = state;
+  // A full rescan tears the library down and rebuilds it, so navigating into a
+  // list mid-scan shows half-built data. Other modes leave rows in place.
+  const isFullScan = scanMode === 'full';
 
   const toggleDrawer = () => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });

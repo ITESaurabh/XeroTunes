@@ -26,6 +26,7 @@ import {
   TextField,
   Divider,
   useTheme,
+  Card,
 } from '@mui/material';
 import { Icon } from '@iconify/react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
@@ -45,6 +46,8 @@ import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
+import duplicateIcon from '@iconify/icons-fluent/document-copy-24-regular';
+import warningIcon from '@iconify/icons-fluent/warning-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
 import colorIcon from '@iconify/icons-fluent/color-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
@@ -82,14 +85,29 @@ import { WINDOW_SCALE_OPTIONS, TitleBarStyle, ThemeMode } from '../../config/app
 import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
 import ThemeEditorDialog from '../components/ThemeEditorDialog';
 import FactoryResetDialog from '../components/FactoryResetDialog';
+import DuplicateTracksDialog from '../components/DuplicateTracksDialog';
+import XeroLogoMark from '../components/XeroLogoMark';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
-import { OS_MAC } from '../../config/constants';
+import { APP_DISPLAY_NAME, OS_MAC } from '../../config/constants';
 import os from 'os';
 
 interface MusicFolder {
   Id: string | number;
   Uri: string;
+}
+
+interface AppInfo {
+  name: string;
+  version: string;
+  channel: string;
+  license: string;
+  repo: string;
+  electron: string;
+  chrome: string;
+  node: string;
+  platform: string;
+  dataDir: string;
 }
 
 /**
@@ -401,9 +419,7 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
       sx={{
         borderRadius: 1,
         border: '2px solid',
-        borderColor: selected
-          ? 'primary.main'
-          : theme => alpha(theme.palette.text.primary, 0.08),
+        borderColor: selected ? 'primary.main' : theme => alpha(theme.palette.text.primary, 0.08),
         overflow: 'hidden',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.38 : 1,
@@ -593,6 +609,7 @@ const ChipListEditor: React.FC<ChipListEditorProps> = ({
 
 const Settings: React.FC = () => {
   const [expanded, setExpanded] = React.useState<boolean>(false);
+  const [resetExpanded, setResetExpanded] = React.useState<boolean>(false);
   const [folders, setFolders] = React.useState<MusicFolder[]>([]);
   const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(getOverlayEnabled);
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
@@ -615,18 +632,22 @@ const Settings: React.FC = () => {
     React.useState<string[]>(getMultiArtistSeparators);
   const [artistExceptions, setArtistExceptionsState] =
     React.useState<string[]>(getMultiArtistExceptions);
+  const [artistRulesDirty, setArtistRulesDirty] = React.useState(false);
   const [themes, setThemes] = React.useState<AppTheme[]>(getAllThemes);
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [resetOpen, setResetOpen] = React.useState(false);
+  const [duplicatesOpen, setDuplicatesOpen] = React.useState(false);
+  const [appInfo, setAppInfo] = React.useState<AppInfo | null>(null);
   const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
     null
   );
-  const { invokeEventToMainProcess } = useIpc();
+  const { invokeEventToMainProcess, sendEventToMainProcess } = useIpc();
   const confirm = useConfirm();
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, isFullScan } = state;
-  const basicScanning = isScanningLibrary && !isFullScan;
-  const fullScanning = isScanningLibrary && isFullScan;
+  const { isScanningLibrary, scanMode } = state;
+  const basicScanning = isScanningLibrary && scanMode === 'basic';
+  const fullScanning = isScanningLibrary && scanMode === 'full';
+  const applyingArtistRules = isScanningLibrary && scanMode === 'artists';
   const theme = useTheme();
   const currOs = os.type();
 
@@ -652,6 +673,12 @@ const Settings: React.FC = () => {
   }, []);
 
   React.useEffect(() => {
+    invokeEventToMainProcess('get-app-info')
+      .then((info: unknown) => setAppInfo(info as AppInfo))
+      .catch(() => undefined);
+  }, []);
+
+  React.useEffect(() => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
     let cancelled = false;
     const refresh = async (): Promise<void> => {
@@ -672,6 +699,10 @@ const Settings: React.FC = () => {
 
   const handleExpansion = (): void => {
     setExpanded(prevExpanded => !prevExpanded);
+  };
+
+  const handleResetExpansion = (): void => {
+    setResetExpanded(prevExpanded => !prevExpanded);
   };
 
   const handleOutputDeviceChange = (deviceId: string): void => {
@@ -743,7 +774,12 @@ const Settings: React.FC = () => {
   const handleImportTheme = (): void => {
     invokeEventToMainProcess('import-theme')
       .then((res: unknown) => {
-        const result = res as { success: boolean; canceled?: boolean; error?: string; theme?: unknown };
+        const result = res as {
+          success: boolean;
+          canceled?: boolean;
+          error?: string;
+          theme?: unknown;
+        };
         if (result.canceled) return;
         if (!result.success) {
           setThemeMessage({ text: result.error ?? 'Import failed.', error: true });
@@ -763,11 +799,26 @@ const Settings: React.FC = () => {
   const handleSeparatorsChange = (next: string[]): void => {
     setArtistSeparatorsState(next);
     setMultiArtistSeparators(next);
+    setArtistRulesDirty(true);
   };
 
   const handleExceptionsChange = (next: string[]): void => {
     setArtistExceptionsState(next);
     setMultiArtistExceptions(next);
+    setArtistRulesDirty(true);
+  };
+
+  const handleApplyArtistRules = (): void => {
+    setArtistRulesDirty(false);
+    invokeEventToMainProcess('reapply-artist-rules')
+      .then((res: unknown) => {
+        // Refused before it started: no folders, or a scan already running.
+        if (!(res as { success?: boolean })?.success) setArtistRulesDirty(true);
+      })
+      .catch((err: unknown) => {
+        console.error('Error re-applying artist rules:', err);
+        setArtistRulesDirty(true);
+      });
   };
 
   return (
@@ -783,10 +834,7 @@ const Settings: React.FC = () => {
         <Container maxWidth="xl">
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Library
               </ListSubheader>
             }
@@ -953,14 +1001,29 @@ const Settings: React.FC = () => {
                 </AccordionDetails>
               </Accordion>
             </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={duplicateIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Duplicate tracks"
+                secondary="Find identical files added more than once and drop the extra copies"
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={isScanningLibrary}
+                onClick={() => setDuplicatesOpen(true)}
+                sx={{ mr: 0.5, flexShrink: 0 }}
+              >
+                Find
+              </Button>
+            </ListItem>
           </List>
 
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Playback
               </ListSubheader>
             }
@@ -1052,10 +1115,7 @@ const Settings: React.FC = () => {
           {/* ── Appearance ── */}
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Appearance
               </ListSubheader>
             }
@@ -1139,7 +1199,11 @@ const Settings: React.FC = () => {
                   title={isBuiltInTheme ? 'The built-in theme cannot be edited — duplicate it' : ''}
                 >
                   <span>
-                    <Button size="small" disabled={isBuiltInTheme} onClick={() => setEditorOpen(true)}>
+                    <Button
+                      size="small"
+                      disabled={isBuiltInTheme}
+                      onClick={() => setEditorOpen(true)}
+                    >
                       Customise
                     </Button>
                   </span>
@@ -1150,9 +1214,7 @@ const Settings: React.FC = () => {
                 <Button size="small" onClick={handleImportTheme}>
                   Import
                 </Button>
-                <Tooltip
-                  title={isBuiltInTheme ? 'The built-in theme cannot be deleted' : ''}
-                >
+                <Tooltip title={isBuiltInTheme ? 'The built-in theme cannot be deleted' : ''}>
                   <span>
                     <Button
                       size="small"
@@ -1223,10 +1285,7 @@ const Settings: React.FC = () => {
 
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Display
               </ListSubheader>
             }
@@ -1264,10 +1323,7 @@ const Settings: React.FC = () => {
           </List>
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Artist Name Handling
               </ListSubheader>
             }
@@ -1279,7 +1335,7 @@ const Settings: React.FC = () => {
                 </ListItemIcon>
                 <ListItemText
                   primary="Artist Name Handling"
-                  secondary="Control how multi-artist tags are split into separate artists. Changes apply on the next rescan."
+                  secondary="Control how multi-artist tags are split into separate artists. Edit the rules, then apply them to your library."
                   secondaryTypographyProps={{ fontSize: '0.75rem' }}
                 />
               </Box>
@@ -1305,7 +1361,7 @@ const Settings: React.FC = () => {
                     title: 'Remove separator?',
                     message: `Remove "${value}" from the multi-artist separators?`,
                     detail:
-                      'Artist tags will no longer be split on this character after the next rescan.',
+                      'Artist tags will no longer be split on this character once you apply the rules.',
                     confirmLabel: 'Remove',
                     destructive: true,
                   })}
@@ -1331,21 +1387,50 @@ const Settings: React.FC = () => {
                   removeConfirm={value => ({
                     title: 'Remove exception?',
                     message: `Remove "${value}" from the artist name exceptions?`,
-                    detail:
-                      'Multi-artist tags matching this name will be split again on the next rescan.',
+                    detail: 'Tags matching this name will be split again once you apply the rules.',
                     confirmLabel: 'Remove',
                     destructive: true,
                   })}
                 />
+
+                <Divider sx={{ my: 2 }} />
+
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1}
+                  alignItems={{ xs: 'stretch', sm: 'center' }}
+                >
+                  <Typography variant="caption" color="text.secondary" sx={{ flex: 1 }}>
+                    {applyingArtistRules
+                      ? 'Re-splitting your library under the new rules…'
+                      : artistRulesDirty
+                        ? 'Your library still uses the previous rules.'
+                        : 'Re-splits every track from its stored tags — no files are re-read, no album art is rebuilt.'}
+                  </Typography>
+                  <Button
+                    startIcon={
+                      applyingArtistRules ? (
+                        <CircularProgress size={16} color="inherit" />
+                      ) : (
+                        <Icon icon={syncIcon} height={'1.25rem'} />
+                      )
+                    }
+                    variant={artistRulesDirty ? 'contained' : 'outlined'}
+                    size="small"
+                    disableElevation
+                    disabled={isScanningLibrary}
+                    onClick={handleApplyArtistRules}
+                    sx={{ flexShrink: 0 }}
+                  >
+                    {applyingArtistRules ? 'Applying…' : 'Apply to Library'}
+                  </Button>
+                </Stack>
               </Box>
             </ListItem>
           </List>
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Notifications
               </ListSubheader>
             }
@@ -1428,47 +1513,163 @@ const Settings: React.FC = () => {
           </List>
           <List
             subheader={
-              <ListSubheader
-                color="inherit"
-                sx={subheaderSx}
-              >
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Advanced Options
               </ListSubheader>
             }
           >
-            <ListItem component={Stack} direction="row" spacing={2}>
-              <Button
-                variant="outlined"
-                color="primary"
-                fullWidth
-                disabled={isScanningLibrary}
-                onClick={() =>
-                  invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
-                    (err: unknown) => {
-                      console.error('Error opening application data folder:', err);
-                    }
-                  )
-                }
+            <ListItem disableGutters>
+              <Accordion
+                expanded={resetExpanded}
+                slots={{ transition: Fade }}
+                slotProps={{ transition: { timeout: 400 } }}
+                sx={{
+                  '& .MuiAccordion-region': { height: resetExpanded ? 'auto' : 0 },
+                  '& .MuiAccordionDetails-root': { display: resetExpanded ? 'block' : 'none' },
+                  backgroundColor: 'background.default',
+                  width: '100%',
+                }}
               >
-                Open Application Data Folder
-              </Button>
+                <AccordionSummary
+                  expandIcon={<ExpandMoreIcon onClick={handleResetExpansion} />}
+                  aria-controls="factory-reset-content"
+                  id="factory-reset-header"
+                >
+                  <Box
+                    component={Stack}
+                    onClick={handleResetExpansion}
+                    alignItems={'center'}
+                    direction={'row'}
+                    width={'100%'}
+                  >
+                    <ListItemIcon sx={{ mr: -2 }}>
+                      <Icon icon={warningIcon} height={'1.5rem'} />
+                    </ListItemIcon>
+                    <ListItemText primary="Factory Reset" />
+                  </Box>
+                </AccordionSummary>
+                <AccordionDetails>
+                  <Stack spacing={1.5} alignItems="flex-start">
+                    <Typography variant="body2" color="text.secondary">
+                      Wipe your library, settings, themes and cached art, individually or all
+                      at once. Music files on disk are never touched.
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      color="error"
+                      disableElevation
+                      disabled={isScanningLibrary}
+                      onClick={() => setResetOpen(true)}
+                    >
+                      Factory Reset…
+                    </Button>
+                  </Stack>
+                </AccordionDetails>
+              </Accordion>
             </ListItem>
-            <ListItem component={Stack} direction="row" spacing={2}>
-              <Button
-                variant="outlined"
-                color="error"
-                fullWidth
-                disabled={isScanningLibrary}
-                onClick={() => setResetOpen(true)}
-              >
-                Factory Reset…
-              </Button>
-            </ListItem>
+          </List>
+
+          <List
+            subheader={
+              <ListSubheader color="inherit" sx={subheaderSx}>
+                About
+              </ListSubheader>
+            }
+          >
+            <Card
+              variant="outlined"
+              sx={{
+                py: 1,
+                mb: 1,
+              }}
+            >
+              <ListItem sx={{ alignItems: 'flex-start', gap: 2 }}>
+                <XeroLogoMark width={56} height={56} style={{ flexShrink: 0, marginTop: 4 }} />
+                <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                  <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                    {appInfo?.name ?? APP_DISPLAY_NAME}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Version {appInfo?.version ?? '—'}
+                    {appInfo?.channel === 'beta' && ' · Beta channel'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    An open source cross-platform music player, licensed{' '}
+                    {appInfo?.license ?? 'GPL-3.0'}.
+                  </Typography>
+                  <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() =>
+                        appInfo?.repo &&
+                        sendEventToMainProcess('open-external', { url: 'https://xerotunes.com' })
+                      }
+                    >
+                      Website
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="inherit"
+                      onClick={() =>
+                        appInfo?.repo &&
+                        sendEventToMainProcess('open-external', { url: appInfo.repo })
+                      }
+                    >
+                      GitHub
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      color="info"
+                      onClick={() =>
+                        invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
+                          () => undefined
+                        )
+                      }
+                    >
+                      Data folder
+                    </Button>
+                  </Stack>
+                </Stack>
+              </ListItem>
+              <ListItem sx={{ pt: 0, mt: 1 }}>
+                <Stack sx={{ width: '100%' }}>
+                  <Divider sx={{ mb: 1 }} />
+                  {[
+                    ['Electron', appInfo?.electron],
+                    ['Chromium', appInfo?.chrome],
+                    ['Node', appInfo?.node],
+                    ['System', appInfo?.platform],
+                    ['Library data', appInfo?.dataDir],
+                  ].map(([label, value]) => (
+                    <Stack key={label} direction="row" spacing={2} sx={{ py: 0.25 }}>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ width: 110, flexShrink: 0 }}
+                      >
+                        {label}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                      >
+                        {value ?? '—'}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              </ListItem>
+            </Card>
           </List>
         </Container>
       </Box>
 
       <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
+
+      <DuplicateTracksDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
 
       <ThemeEditorDialog
         open={editorOpen}

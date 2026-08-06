@@ -4,19 +4,8 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const crypto = require('crypto');
-
-let multiArtistSeparators = [',', '&'];
-let multiArtistExceptions = ['AC/DC', '+/-'];
-
-function applyLibrarySettings(librarySettings) {
-  if (!librarySettings) return;
-  if (Array.isArray(librarySettings.multiArtistSeparators)) {
-    multiArtistSeparators = librarySettings.multiArtistSeparators;
-  }
-  if (Array.isArray(librarySettings.multiArtistExceptions)) {
-    multiArtistExceptions = librarySettings.multiArtistExceptions;
-  }
-}
+const { cleanupOrphans } = require('../db/cleanup');
+const { applyLibrarySettings, splitArtists } = require('./libraryRules');
 
 // Cache the ESM import so it's resolved once for all files
 let mmPromise = null;
@@ -41,72 +30,6 @@ function normalizeTrackNumber(track) {
   const numPart = trackStr.split('/')[0];
   const parsed = parseInt(numPart, 10);
   return Number.isNaN(parsed) ? null : parsed;
-}
-
-function escapeRegex(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
-function normalizeArtistName(raw) {
-  if (!raw) return '';
-
-  if (typeof raw === 'object') {
-    if (typeof raw.name === 'string' && raw.name.trim()) {
-      return raw.name.trim().replace(/\s+/g, ' ');
-    }
-    if (typeof raw.artist === 'string' && raw.artist.trim()) {
-      return raw.artist.trim().replace(/\s+/g, ' ');
-    }
-    return String(raw).trim().replace(/\s+/g, ' ');
-  }
-
-  return String(raw).trim().replace(/\s+/g, ' ');
-}
-
-function splitArtists(rawArtist) {
-  const artistList = [];
-
-  if (!rawArtist) return artistList;
-
-  if (Array.isArray(rawArtist)) {
-    rawArtist.forEach(item => {
-      const normalized = normalizeArtistName(item);
-      if (normalized) artistList.push(normalized);
-    });
-  } else {
-    artistList.push(normalizeArtistName(rawArtist));
-  }
-
-  // Flatten comma/ampersand separators but preserve exceptions (AC/DC, +/- etc.)
-  const result = [];
-
-  artistList.forEach(raw => {
-    const normalized = normalizeArtistName(raw);
-    if (!normalized) return;
-
-    if (multiArtistExceptions.some(exc => exc.toLowerCase() === normalized.toLowerCase())) {
-      result.push(normalized);
-      return;
-    }
-
-    const sepPattern = multiArtistSeparators.map(escapeRegex).join('|');
-    const pieces = normalized.split(new RegExp(`\\s*(?:${sepPattern})\\s*`, 'g'));
-
-    if (pieces.length > 1) {
-      pieces.forEach(piece => {
-        const p = normalizeArtistName(piece);
-        if (p && !multiArtistExceptions.some(exc => exc.toLowerCase() === p.toLowerCase())) {
-          result.push(p);
-        } else if (p) {
-          result.push(p);
-        }
-      });
-    } else {
-      result.push(normalized);
-    }
-  });
-
-  return [...new Set(result.filter(Boolean))];
 }
 
 async function parseMusicWorker(filePath) {
@@ -198,6 +121,15 @@ function getFileHash(filePath) {
   });
 }
 
+// Without this, files the user dropped but kept on disk get re-added by the next scan.
+function ignoredUriSet(db) {
+  try {
+    return new Set(db.prepare('SELECT Uri FROM IgnoredTrack').all().map(r => r.Uri));
+  } catch {
+    return new Set();
+  }
+}
+
 function getAllSupportedFiles(dir, supportedFileTypes) {
   let results = [];
   const list = fs.readdirSync(dir);
@@ -217,44 +149,55 @@ function getAllSupportedFiles(dir, supportedFileTypes) {
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
 
-function insertTrack(db, config, filePath, musicInfo, fileHash) {
-  const allArtistNames = splitArtists(musicInfo.tags.artist);
-  const primaryArtistName = allArtistNames[0] || '';
-  const primaryArtistId = primaryArtistName
-    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
-    : null;
+// Kept verbatim as JSON (music-metadata hands back either a string or an array)
+// so separator/exception changes can be re-applied without re-reading the file.
+function rawTagJson(raw) {
+  return JSON.stringify(raw ?? '');
+}
 
-  const artistIds = new Set();
-  if (allArtistNames.length > 0) {
-    allArtistNames.forEach(name => {
-      if (!name) return;
-      const id = getOrCreate(db, 'Artist', 'Name', name);
-      artistIds.add(id);
-    });
-  } else if (primaryArtistId) {
-    artistIds.add(primaryArtistId);
+// NULL means the row predates raw-tag storage and needs a backfill; a track with
+// no artist tag stores '""', so it isn't re-read on every pass.
+function parseRawTag(json) {
+  if (!json) return '';
+  try {
+    return JSON.parse(json);
+  } catch {
+    return json;
   }
+}
+
+function resolveArtists(db, rawTag) {
+  const names = splitArtists(rawTag).filter(Boolean);
+  const ids = new Set(names.map(name => getOrCreate(db, 'Artist', 'Name', name)));
+  return { primaryId: names[0] ? getOrCreate(db, 'Artist', 'Name', names[0]) : null, ids };
+}
+
+// Delete-then-insert: the caller recomputed the full artist set, so a partial
+// update would leave stale rows behind.
+function writeArtistLinks(db, trackId, albumId, artistIds, albumArtistIds) {
+  if (trackId) {
+    db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
+    const insert = db.prepare('INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)');
+    for (const aid of artistIds) insert.run(trackId, aid);
+  }
+  if (albumId) {
+    db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
+    const insert = db.prepare('INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)');
+    for (const aid of albumArtistIds) insert.run(albumId, aid);
+  }
+}
+
+function insertTrack(db, config, filePath, musicInfo, fileHash) {
+  const { primaryId: primaryArtistId, ids: artistIds } = resolveArtists(db, musicInfo.tags.artist);
 
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
 
-  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
-  const primaryAlbumArtistName = albumArtistNames[0] || '';
-  const primaryAlbumArtistId = primaryAlbumArtistName
-    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
-    : null;
-
-  const albumArtistIds = new Set();
-  if (albumArtistNames.length > 0) {
-    albumArtistNames.forEach(name => {
-      if (!name) return;
-      const id = getOrCreate(db, 'Artist', 'Name', name);
-      albumArtistIds.add(id);
-    });
-  } else if (primaryAlbumArtistId) {
-    albumArtistIds.add(primaryAlbumArtistId);
-  }
+  const { primaryId: primaryAlbumArtistId, ids: albumArtistIds } = resolveArtists(
+    db,
+    musicInfo.tags.albumArtist
+  );
 
   let albumId = null;
   if (musicInfo.tags.album) {
@@ -279,8 +222,8 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
 
   const trackInfo = db
     .prepare(
-      `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, BitRate, SampleRate, Channels, DiscNumber, ReleaseYear, DateAdded, Version, FolderPath)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO Track (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year, AlbumArt, FileHash, Duration, BitRate, SampleRate, Channels, DiscNumber, ReleaseYear, DateAdded, Version, FolderPath, RawArtist, RawAlbumArtist)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       filePath,
@@ -301,28 +244,13 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
       musicInfo.tags.releaseYear,
       Date.now(),
       1,
-      folderpath
+      folderpath,
+      rawTagJson(musicInfo.tags.artist),
+      rawTagJson(musicInfo.tags.albumArtist)
     );
 
   const trackId = trackInfo.lastInsertRowid;
-
-  if (trackId && artistIds.size > 0) {
-    const insertTrackArtist = db.prepare(
-      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
-    );
-    for (const aid of artistIds) {
-      insertTrackArtist.run(trackId, aid);
-    }
-  }
-
-  if (albumId && albumArtistIds.size > 0) {
-    const insertAlbumArtist = db.prepare(
-      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
-    );
-    for (const aid of albumArtistIds) {
-      insertAlbumArtist.run(albumId, aid);
-    }
-  }
+  writeArtistLinks(db, trackId, albumId, artistIds, albumArtistIds);
 
   return {
     artistId: primaryArtistId,
@@ -334,43 +262,16 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
 }
 
 function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
-  const allArtistNames = splitArtists(musicInfo.tags.artist);
-  const primaryArtistName = allArtistNames[0] || '';
-  const primaryArtistId = primaryArtistName
-    ? getOrCreate(db, 'Artist', 'Name', primaryArtistName)
-    : null;
-
-  const artistIds = new Set();
-  if (allArtistNames.length > 0) {
-    allArtistNames.forEach(name => {
-      if (!name) return;
-      const id = getOrCreate(db, 'Artist', 'Name', name);
-      artistIds.add(id);
-    });
-  } else if (primaryArtistId) {
-    artistIds.add(primaryArtistId);
-  }
+  const { primaryId: primaryArtistId, ids: artistIds } = resolveArtists(db, musicInfo.tags.artist);
 
   const genreId = musicInfo.tags.genre
     ? getOrCreate(db, 'Genre', 'Name', musicInfo.tags.genre)
     : null;
 
-  const albumArtistNames = splitArtists(musicInfo.tags.albumArtist);
-  const primaryAlbumArtistName = albumArtistNames[0] || '';
-  const primaryAlbumArtistId = primaryAlbumArtistName
-    ? getOrCreate(db, 'Artist', 'Name', primaryAlbumArtistName)
-    : null;
-
-  const albumArtistIds = new Set();
-  if (albumArtistNames.length > 0) {
-    albumArtistNames.forEach(name => {
-      if (!name) return;
-      const id = getOrCreate(db, 'Artist', 'Name', name);
-      albumArtistIds.add(id);
-    });
-  } else if (primaryAlbumArtistId) {
-    albumArtistIds.add(primaryAlbumArtistId);
-  }
+  const { primaryId: primaryAlbumArtistId, ids: albumArtistIds } = resolveArtists(
+    db,
+    musicInfo.tags.albumArtist
+  );
 
   let albumId = null;
   if (musicInfo.tags.album) {
@@ -394,7 +295,7 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
       : musicInfo.fileInfo.fileName;
 
   db.prepare(
-    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, BitRate = ?, SampleRate = ?, Channels = ?, DiscNumber = ?, ReleaseYear = ?, DateAdded = ?, Version = ?, FolderPath = ? WHERE Id = ?`
+    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, BitRate = ?, SampleRate = ?, Channels = ?, DiscNumber = ?, ReleaseYear = ?, DateAdded = ?, Version = ?, FolderPath = ?, RawArtist = ?, RawAlbumArtist = ? WHERE Id = ?`
   ).run(
     musicInfo.fileInfo.fileExt,
     trackTitle,
@@ -414,90 +315,12 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     Date.now(),
     1,
     folderpath,
+    rawTagJson(musicInfo.tags.artist),
+    rawTagJson(musicInfo.tags.albumArtist),
     trackId
   );
 
-  if (trackId) {
-    db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
-    const insertTrackArtist = db.prepare(
-      `INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)`
-    );
-    for (const aid of artistIds) {
-      insertTrackArtist.run(trackId, aid);
-    }
-  }
-
-  if (albumId) {
-    db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
-    const insertAlbumArtist = db.prepare(
-      `INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)`
-    );
-    for (const aid of albumArtistIds) {
-      insertAlbumArtist.run(albumId, aid);
-    }
-  }
-}
-
-// Sweep an art directory: remove every <id>.jpg whose id is not in liveIds.
-// Authoritative — catches both freshly-orphaned files and any leftovers from
-// earlier scans / older builds that didn't clean up properly.
-function sweepOrphanArt(dir, liveIds) {
-  if (!dir) return 0;
-  let removed = 0;
-  try {
-    if (!fs.existsSync(dir)) return 0;
-    const live = liveIds instanceof Set ? liveIds : new Set(liveIds);
-    for (const file of fs.readdirSync(dir)) {
-      // Only consider <number>.jpg — leave anything else untouched.
-      const m = /^(\d+)\.jpg$/i.exec(file);
-      if (!m) continue;
-      const id = Number(m[1]);
-      if (live.has(id)) continue;
-      try {
-        fs.unlinkSync(path.join(dir, file));
-        removed++;
-      } catch (err) {
-        console.warn('[cleanup] Failed to remove', file, err?.message || err);
-      }
-    }
-  } catch (err) {
-    console.warn('[cleanup] Sweep failed for', dir, err?.message || err);
-  }
-  return removed;
-}
-
-function cleanupOrphans(db, config = {}) {
-  db.prepare(
-    'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
-  ).run();
-  db.prepare('DELETE FROM TrackArtist WHERE TrackId NOT IN (SELECT Id FROM Track)').run();
-  db.prepare('DELETE FROM AlbumArtist WHERE AlbumId NOT IN (SELECT Id FROM Album)').run();
-  db.prepare('DELETE FROM AlbumArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
-  db.prepare(
-    `DELETE FROM Artist
-     WHERE Id NOT IN (
-       SELECT ArtistId FROM TrackArtist WHERE ArtistId IS NOT NULL
-       UNION
-       SELECT ArtistId FROM AlbumArtist WHERE ArtistId IS NOT NULL
-     )`
-  ).run();
-  db.prepare(
-    'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
-  ).run();
-
-  // Now that the DB reflects reality, delete any cover/profile art file whose
-  // owning row no longer exists. We diff disk against the DB rather than
-  // tracking which rows we just deleted, so this also fixes art left behind
-  // by older scan logic that never cleaned up.
-  const liveAlbumIds = db.prepare('SELECT Id FROM Album').all().map(r => r.Id);
-  const liveArtistIds = db.prepare('SELECT Id FROM Artist').all().map(r => r.Id);
-  const albumArtRemoved = sweepOrphanArt(config.ALBUM_ART_DIR, liveAlbumIds);
-  const artistArtRemoved = sweepOrphanArt(config.ARTIST_ART_DIR, liveArtistIds);
-  if (albumArtRemoved > 0 || artistArtRemoved > 0) {
-    console.log(
-      `[cleanup] Removed ${albumArtRemoved} album art file(s), ${artistArtRemoved} artist art file(s).`
-    );
-  }
+  writeArtistLinks(db, trackId, albumId, artistIds, albumArtistIds);
 }
 
 // ─── Basic (optimistic) scan ─────────────────────────────────────────────────
@@ -508,13 +331,14 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   // Build set of known URIs from DB for O(1) lookups
   const knownTracks = db.prepare('SELECT Id, Uri FROM Track').all();
   const knownUriSet = new Set(knownTracks.map(t => t.Uri));
+  const ignored = ignoredUriSet(db);
 
   // Collect only NEW files (not in DB)
   let newFiles = [];
   for (const folder of folders) {
     const all = getAllSupportedFiles(folder.Uri, supportedFileTypes);
     for (const f of all) {
-      if (!knownUriSet.has(f)) newFiles.push(f);
+      if (!knownUriSet.has(f) && !ignored.has(f)) newFiles.push(f);
     }
   }
 
@@ -561,17 +385,20 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   // This clears stale associations that may have been created by older scan logic.
   db.prepare('DELETE FROM AlbumArtist').run();
 
-  let allFiles = [];
-  for (const folder of folders) {
-    allFiles = allFiles.concat(getAllSupportedFiles(folder.Uri, supportedFileTypes));
-  }
-  const total = allFiles.length;
+  const ignored = ignoredUriSet(db);
+  const filesByFolder = new Map(
+    folders.map(folder => [
+      folder.Uri,
+      getAllSupportedFiles(folder.Uri, supportedFileTypes).filter(f => !ignored.has(f)),
+    ])
+  );
+  const total = [...filesByFolder.values()].reduce((n, files) => n + files.length, 0);
   let scanned = 0;
   let processed = 0;
   process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
   for (const folder of folders) {
-    const supportedFiles = getAllSupportedFiles(folder.Uri, supportedFileTypes);
+    const supportedFiles = filesByFolder.get(folder.Uri);
     let folderScanned = 0;
     for (const filePath of supportedFiles) {
       try {
@@ -597,13 +424,8 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
     );
   }
 
-  // Remove tracks whose files no longer exist
-  let validPaths = new Set();
-  for (const folder of folders) {
-    for (const f of getAllSupportedFiles(folder.Uri, supportedFileTypes)) {
-      validPaths.add(f);
-    }
-  }
+  // validPaths already excludes ignored files, so those get dropped here too.
+  const validPaths = new Set([...filesByFolder.values()].flat());
   const allTracks = db.prepare('SELECT Id, Uri FROM Track').all();
   let removed = 0;
   for (const track of allTracks) {
@@ -619,15 +441,79 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   return { scanned, removed };
 }
 
+// ─── Artist rules re-apply ────────────────────────────────────────────────────
+// Re-splits stored artist tags under the current separators/exceptions. No file
+// reads once RawArtist is populated, which is what makes it cheap enough to run
+// on every settings change instead of forcing a full rescan.
+
+async function readRawArtistTags(filePath) {
+  const mm = await getMM();
+  const md = await mm.parseFile(filePath, { skipCovers: true });
+  return {
+    artist: md.common.artist || md.common.artists || '',
+    albumArtist: md.common.albumartist || md.common.albumArtist || md.common.albumartists || '',
+  };
+}
+
+async function runArtistRules(db, config) {
+  const tracks = db
+    .prepare('SELECT Id, Uri, AlbumId, RawArtist, RawAlbumArtist FROM Track')
+    .all();
+  const total = tracks.length;
+  let scanned = 0;
+  let processed = 0;
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
+
+  const setRaw = db.prepare('UPDATE Track SET RawArtist = ?, RawAlbumArtist = ? WHERE Id = ?');
+  const setTrackArtist = db.prepare('UPDATE Track SET ArtistId = ? WHERE Id = ?');
+  const setAlbumArtist = db.prepare('UPDATE Album SET ArtistId = ? WHERE Id = ?');
+
+  for (const track of tracks) {
+    try {
+      let { RawArtist, RawAlbumArtist } = track;
+      // Libraries scanned by an older build have no raw tags; read them once.
+      if (RawArtist === null && RawAlbumArtist === null) {
+        const tags = await readRawArtistTags(track.Uri);
+        RawArtist = rawTagJson(tags.artist);
+        RawAlbumArtist = rawTagJson(tags.albumArtist);
+        setRaw.run(RawArtist, RawAlbumArtist, track.Id);
+      }
+
+      const artists = resolveArtists(db, parseRawTag(RawArtist));
+      const albumArtists = resolveArtists(db, parseRawTag(RawAlbumArtist));
+
+      setTrackArtist.run(artists.primaryId, track.Id);
+      // Albums are looked up by (Title, ArtistId) on the next scan, so the
+      // primary has to move with the split or that scan creates a duplicate.
+      if (track.AlbumId) setAlbumArtist.run(albumArtists.primaryId, track.AlbumId);
+      writeArtistLinks(db, track.Id, track.AlbumId, artists.ids, albumArtists.ids);
+      scanned++;
+    } catch (err) {
+      console.error('[artist-rules] Failed for:', track.Uri, err?.message || err);
+      process.parentPort.postMessage({
+        type: 'file-error',
+        file: track.Uri,
+        error: String(err?.message || err),
+      });
+    }
+    processed++;
+    process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
+  }
+
+  // Drops artists left with no tracks after an exception merged them back.
+  cleanupOrphans(db, config);
+  console.log(`[artist-rules] Re-applied to ${scanned}/${total} track(s).`);
+  return { scanned, removed: 0 };
+}
+
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 // utilityProcess IPC arrives on parentPort, wrapped as { data }.
-process.parentPort.on('message', async ({ data }) => {
+async function handleScanRequest({ data }) {
   const { folders, config, mode, librarySettings } = data;
   applyLibrarySettings(librarySettings);
 
-  const isFullScan = mode === 'full';
-  console.log(`Starting music scan worker (mode: ${isFullScan ? 'full' : 'basic'})...`);
+  console.log(`Starting music scan worker (mode: ${mode || 'basic'})...`);
 
   const dbPath = path.join(config.APP_CONF_FOLDER, 'data.db');
   const db = new Database(dbPath);
@@ -635,9 +521,14 @@ process.parentPort.on('message', async ({ data }) => {
   const supportedFileTypes = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.webm', '.m4a'];
 
   try {
-    const result = isFullScan
-      ? await runFullScan(db, folders, config, supportedFileTypes)
-      : await runBasicScan(db, folders, config, supportedFileTypes);
+    let result;
+    if (mode === 'artists') {
+      result = await runArtistRules(db, config);
+    } else if (mode === 'full') {
+      result = await runFullScan(db, folders, config, supportedFileTypes);
+    } else {
+      result = await runBasicScan(db, folders, config, supportedFileTypes);
+    }
 
     process.parentPort.postMessage({ success: true, scanned: result.scanned, removed: result.removed });
     process.exit(0);
@@ -645,4 +536,6 @@ process.parentPort.on('message', async ({ data }) => {
     process.parentPort.postMessage({ success: false, error: error.message });
     process.exit(1);
   }
-});
+}
+
+process.parentPort.on('message', handleScanRequest);

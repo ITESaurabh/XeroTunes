@@ -48,6 +48,11 @@ import {
 } from '../../config/app_settings';
 import { registerArtistIpc } from '../ipc/artists';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
+import { cleanupOrphans } from '../db/cleanup';
+import { ScanMode, REPO_URL } from '../../config/constants';
+import { CHANNEL, IDENTITY } from '../../config/channel';
+import { isUnderAnyRoot } from './libraryRules';
+import os from 'os';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
 
@@ -129,6 +134,23 @@ const emptyDir = (dir: string) => {
   rmPath(dir);
   fs.mkdirSync(dir, { recursive: true });
 };
+
+function dropTracksOutsideFolders(): number {
+  const roots = (db.prepare('SELECT Uri FROM MusicFolder').all() as { Uri: string }[]).map(
+    r => r.Uri
+  );
+  const tracks = db.prepare('SELECT Id, Uri FROM Track').all() as { Id: number; Uri: string }[];
+  const del = db.prepare('DELETE FROM Track WHERE Id = ?');
+
+  let removed = 0;
+  for (const track of tracks) {
+    if (isUnderAnyRoot(track.Uri, roots)) continue;
+    del.run(track.Id);
+    removed++;
+  }
+  if (removed > 0) cleanupOrphans(db, { ALBUM_ART_DIR, ARTIST_ART_DIR });
+  return removed;
+}
 
 // Ordered, not a lookup map: resetting themes rewrites settings.json, so it has
 // to run before a settings reset deletes the file out from under it.
@@ -330,9 +352,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // Tracks any running scan worker so we never spawn duplicates
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let activeScanWorker: any = null;
-  // Mode of the running scan, so the renderer can tell a heavy full rescan
-  // (which locks the nav) apart from a lightweight basic/auto scan.
-  let activeScanMode: 'basic' | 'full' | null = null;
+  // Mode of the running scan; the renderer locks navigation only for a full rescan.
+  let activeScanMode: ScanMode | null = null;
 
   mainWin.on('minimize', () => {
     mainWin.setOpacity(1);
@@ -472,7 +493,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // }
 
   ipcMain.handle('get-scan-status', () => {
-    return { isScanning: activeScanWorker !== null, isFullScan: activeScanMode === 'full' };
+    return { isScanning: activeScanWorker !== null, scanMode: activeScanMode };
   });
 
   ipcMain.handle('get-library-stats', () => {
@@ -548,7 +569,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
-  function spawnScanWorker(mode: 'basic' | 'full'): Promise<unknown> {
+  function spawnScanWorker(mode: ScanMode): Promise<unknown> {
     if (activeScanWorker) {
       return Promise.resolve({ success: false, error: 'Scan already in progress' });
     }
@@ -613,6 +634,91 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('scan-media', () => spawnScanWorker('basic'));
 
   ipcMain.handle('full-rescan', () => spawnScanWorker('full'));
+
+  ipcMain.handle('reapply-artist-rules', () => spawnScanWorker('artists'));
+
+  // Byte-identical files only: FileHash is a sha1 of the whole file, so the same
+  // song at a different bitrate is a different file and deliberately not reported.
+  ipcMain.handle('find-duplicate-tracks', () => {
+    const rows = db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Duration,
+        Track.FileHash,
+        Track.DateAdded,
+        ${TRACK_ARTIST_NAMES},
+        Album.Title AS AlbumTitle
+      FROM Track
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      WHERE Track.FileHash IN (
+        SELECT FileHash FROM Track
+        WHERE FileHash IS NOT NULL AND TRIM(FileHash) <> ''
+        GROUP BY FileHash HAVING COUNT(*) > 1
+      )
+      ORDER BY Track.FileHash, Track.DateAdded, Track.Id
+    `
+      )
+      .all() as Array<{ FileHash: string }>;
+
+    const groups = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const group = groups.get(row.FileHash);
+      if (group) group.push(row);
+      else groups.set(row.FileHash, [row]);
+    }
+    return [...groups.entries()].map(([fileHash, tracks]) => ({ fileHash, tracks }));
+  });
+
+  // Remembers the paths too, so the next scan doesn't re-add files still on disk.
+  ipcMain.handle('remove-tracks-from-library', (_e, { trackIds }: { trackIds?: number[] }) => {
+    const ids = (trackIds ?? []).filter(id => Number.isInteger(id));
+    if (!ids.length) return { success: true, removed: 0 };
+
+    const select = db.prepare('SELECT Uri FROM Track WHERE Id = ?');
+    const ignore = db.prepare('INSERT OR REPLACE INTO IgnoredTrack (Uri, IgnoredAt) VALUES (?, ?)');
+    const del = db.prepare('DELETE FROM Track WHERE Id = ?');
+
+    db.transaction(() => {
+      for (const id of ids) {
+        const row = select.get(id) as { Uri: string } | undefined;
+        if (row?.Uri) ignore.run(row.Uri, Date.now());
+        del.run(id);
+      }
+    })();
+    cleanupOrphans(db, { ALBUM_ART_DIR, ARTIST_ART_DIR });
+
+    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: ids.length });
+    return { success: true, removed: ids.length };
+  });
+
+  ipcMain.handle('get-ignored-track-count', () => {
+    return (db.prepare('SELECT COUNT(*) AS count FROM IgnoredTrack').get() as { count: number })
+      .count;
+  });
+
+  // Forgetting the list is enough; the files are still on disk, so the next scan
+  // puts them back.
+  ipcMain.handle('restore-ignored-tracks', () => {
+    const removed = db.prepare('DELETE FROM IgnoredTrack').run().changes;
+    return { success: true, restored: removed };
+  });
+
+  ipcMain.handle('get-app-info', () => ({
+    name: IDENTITY.productName,
+    version: app.getVersion(),
+    channel: CHANNEL,
+    license: 'GPL-3.0',
+    repo: REPO_URL,
+    electron: process.versions.electron,
+    chrome: process.versions.chrome,
+    node: process.versions.node,
+    platform: `${os.type()} ${os.release()} (${process.arch})`,
+    dataDir: APP_CONF_FOLDER,
+  }));
 
   mainWin.webContents.on('before-input-event', (event, input) => {
     if ((input.control && input.shift && input.key.toLowerCase() === 'i') || input.key === 'F12') {
@@ -690,7 +796,19 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     Version INTEGER,
     FolderPath TEXT,
     PlayedTimes INTEGER DEFAULT 0,
-    LastPlayedAt BIGINT
+    LastPlayedAt BIGINT,
+    RawArtist TEXT,
+    RawAlbumArtist TEXT
+  )
+`
+  ).run();
+
+  // Files the user dropped from the library without deleting them from disk.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS IgnoredTrack (
+    Uri TEXT PRIMARY KEY,
+    IgnoredAt BIGINT
   )
 `
   ).run();
@@ -736,6 +854,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   }
   if (!existingCols.includes('LastPlayedAt')) {
     db.prepare('ALTER TABLE Track ADD COLUMN LastPlayedAt BIGINT').run();
+  }
+  // NULL means the row predates raw-tag storage; the artist-rules pass backfills it.
+  if (!existingCols.includes('RawArtist')) {
+    db.prepare('ALTER TABLE Track ADD COLUMN RawArtist TEXT').run();
+  }
+  if (!existingCols.includes('RawAlbumArtist')) {
+    db.prepare('ALTER TABLE Track ADD COLUMN RawAlbumArtist TEXT').run();
   }
 
   ipcMain.handle('save-image', async (_e, { src, suggestedName }) => {
@@ -1088,11 +1213,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       }
     }
 
+    // Dropped by "not under any root" rather than by the removed path: library
+    // folders can nest, so a broader root may still cover these files.
+    const removed = wiped ? 0 : dropTracksOutsideFolders();
+
     // Removal runs no scan, so tell the renderer to refresh caches/stats itself;
     // `wiped` also signals it to drop the now-dangling playback queue.
-    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: wiped ? 1 : 0, wiped });
+    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: wiped ? 1 : removed, wiped });
 
-    return { success: true, wiped };
+    return { success: true, wiped, removed };
   });
 
   ipcMain.handle('get-all-songs', () => {
@@ -1672,6 +1801,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('reveal-file', (_, { filePath }: { filePath: string }) => {
     shell.showItemInFolder(filePath);
     return { success: true };
+  });
+
+  // http(s) only: shell.openExternal also launches file:// and custom protocol
+  // handlers, and this URL comes from renderer-side data.
+  ipcMain.on('open-external', (_, { url }: { url: string }) => {
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+    shell.openExternal(url);
   });
 
   ipcMain.on('reveal-folder', (_, { folderPath }: { folderPath: string }) => {
