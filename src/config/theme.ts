@@ -22,7 +22,16 @@ export interface AppTheme {
   name: string;
   light: ThemeColors;
   dark: ThemeColors;
+  /** Corner roundness in px (MUI's shape.borderRadius). Unset means DEFAULT_RADIUS. */
+  radius?: number;
 }
+
+export const DEFAULT_RADIUS = 18;
+export const MIN_RADIUS = 0;
+export const MAX_RADIUS = 28;
+
+export const clampRadius = (value: number): number =>
+  Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, value));
 
 /**
  * Surfaces the UI needs that MUI's palette has no name for. These used to be hardcoded
@@ -235,17 +244,25 @@ const parseColors = (raw: unknown, mode: string): ThemeColors | string => {
 /** Imported files are untrusted input: accept only a complete, well-formed theme. */
 export const parseTheme = (raw: unknown): { theme: AppTheme } | { error: string } => {
   if (!raw || typeof raw !== 'object') return { error: 'Not a theme file' };
-  const { name, light, dark } = raw as Record<string, unknown>;
+  const { name, light, dark, radius } = raw as Record<string, unknown>;
   if (typeof name !== 'string' || !name.trim()) return { error: 'Theme is missing a name' };
   const parsedLight = parseColors(light, 'light');
   if (typeof parsedLight === 'string') return { error: parsedLight };
   const parsedDark = parseColors(dark, 'dark');
   if (typeof parsedDark === 'string') return { error: parsedDark };
-  return { theme: { name: name.trim().slice(0, 60), light: parsedLight, dark: parsedDark } };
+  return {
+    theme: {
+      name: name.trim().slice(0, 60),
+      light: parsedLight,
+      dark: parsedDark,
+      ...(typeof radius === 'number' ? { radius: clampRadius(radius) } : {}),
+    },
+  };
 };
 
 export const getBaseTheme = (mode: PaletteMode, theme: AppTheme = AMETHYST) => {
   const c = theme[mode] ?? AMETHYST[mode];
+  const radius = theme.radius ?? DEFAULT_RADIUS;
   const surfaces = surfacesFor(c, mode);
   return {
     palette: {
@@ -301,7 +318,7 @@ export const getBaseTheme = (mode: PaletteMode, theme: AppTheme = AMETHYST) => {
       },
     },
     shape: {
-      borderRadius: 18,
+      borderRadius: radius,
     },
     components: {
       MuiButton: {

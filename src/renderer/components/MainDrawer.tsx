@@ -347,7 +347,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
           component={Link}
           className="no-drag"
           sx={{
-            borderRadius: 15,
+            borderRadius: theme => theme.shape.borderRadius,
             mb: 1,
             // MUI's default selected state is a neutral grey wash, which turns muddy
             // over a tinted surface. Tint with the primary so the active item reads.

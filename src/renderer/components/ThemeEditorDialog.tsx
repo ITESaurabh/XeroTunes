@@ -1,11 +1,14 @@
 import React from 'react';
-import { Box, Button, Stack, TextField, Typography, Alert } from '@mui/material';
+import { Box, Button, Slider, Stack, TextField, Typography, Alert } from '@mui/material';
 import { Icon } from '@iconify/react';
 import wandIcon from '@iconify/icons-fluent/wand-24-regular';
 import AppDialog from './AppDialog';
 import {
   AppTheme,
+  DEFAULT_RADIUS,
   DEFAULT_SEED,
+  MAX_RADIUS,
+  MIN_RADIUS,
   THEME_FIELDS,
   ThemeColors,
   isHexColor,
@@ -155,6 +158,26 @@ const ThemeEditorDialog: React.FC<ThemeEditorDialogProps> = ({
         <Alert severity={colorError ? 'error' : 'info'} sx={{ py: 0 }}>
           {colorError || 'Everything else (hover, disabled, contrast text) is derived from these.'}
         </Alert>
+
+        <Stack direction="row" spacing={2} alignItems="center">
+          <Typography variant="body2" sx={{ flexShrink: 0 }}>
+            Roundness
+          </Typography>
+          <Slider
+            size="small"
+            value={draft.radius ?? DEFAULT_RADIUS}
+            min={MIN_RADIUS}
+            max={MAX_RADIUS}
+            valueLabelDisplay="auto"
+            onChange={(_e, value) => setDraft(d => ({ ...d, radius: value as number }))}
+          />
+          <Typography variant="body2" color="text.secondary" sx={{ width: 24, flexShrink: 0 }}>
+            {draft.radius ?? DEFAULT_RADIUS}
+          </Typography>
+          <Button size="small" onClick={() => setDraft(d => ({ ...d, radius: undefined }))}>
+            Reset
+          </Button>
+        </Stack>
 
         <Box
           sx={{
