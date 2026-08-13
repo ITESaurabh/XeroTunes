@@ -862,6 +862,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   if (!existingCols.includes('RawAlbumArtist')) {
     db.prepare('ALTER TABLE Track ADD COLUMN RawAlbumArtist TEXT').run();
   }
+  const existingArtistCols = (db.pragma('table_info(Artist)') as { name: string }[]).map(
+    c => c.name
+  );
+  if (!existingArtistCols.includes('ArtistMetaJson')) {
+    db.prepare('ALTER TABLE Artist ADD COLUMN ArtistMetaJson TEXT').run();
+  }
+  if (!existingArtistCols.includes('ArtistFetchedAt')) {
+    db.prepare('ALTER TABLE Artist ADD COLUMN ArtistFetchedAt INTEGER').run();
+  }
 
   ipcMain.handle('save-image', async (_e, { src, suggestedName }) => {
     try {
