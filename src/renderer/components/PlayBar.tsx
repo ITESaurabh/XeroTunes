@@ -54,6 +54,8 @@ import chevronRight20Regular from '@iconify/icons-fluent/chevron-right-20-regula
 import shuffle24Filled from '@iconify/icons-fluent/arrow-shuffle-24-filled';
 import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-filled';
 import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
+import heart24Regular from '@iconify/icons-fluent/heart-24-regular';
+import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
 import { Image } from 'mui-image';
 import { DEFAULT_AA } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
@@ -88,6 +90,20 @@ const CoverImageInteractive = styled(CoverImage, {
   shouldForwardProp: prop => prop !== 'hasArt',
 })<{ hasArt: boolean }>(({ hasArt }) => ({
   cursor: hasArt ? 'zoom-in' : 'default',
+  position: 'relative',
+}));
+
+const FavouriteButton = styled(IconButton, {
+  shouldForwardProp: prop => prop !== 'isFavourite',
+})<{ isFavourite: boolean }>(({ theme, isFavourite }) => ({
+  position: 'absolute',
+  top: 4,
+  right: 4,
+  padding: 4,
+  zIndex: 1,
+  color: isFavourite ? theme.palette.error.main : theme.palette.common.white,
+  backgroundColor: alpha(theme.palette.common.black, 0.45),
+  '&:hover': { backgroundColor: alpha(theme.palette.common.black, 0.65) },
 }));
 
 const TinyText = styled(Typography)({
@@ -1181,6 +1197,44 @@ export default function PlayBar() {
 
   const handleClosePreview = useCallback(() => setPreviewOpen(false), []);
 
+  // ── Favourite toggle ──────────────────────────────────────────────────────
+  // Files played via "Open with" are keyed by path, not by a library row, so
+  // there is nothing to favourite.
+  const trackId = state.track?.Id;
+  const canFavourite = typeof trackId === 'number';
+  const [isFavourite, setIsFavourite] = useState(false);
+
+  useEffect(() => {
+    if (!canFavourite) {
+      setIsFavourite(false);
+      return;
+    }
+    // Re-checked on library-updated so removing it from the Favourites screen
+    // (or any other window) is reflected here.
+    const check = () =>
+      ipcRenderer
+        .invoke('is-favourite', { trackId })
+        .then((v: unknown) => setIsFavourite(!!v))
+        .catch(() => undefined);
+    check();
+    ipcRenderer.on('library-updated', check);
+    return () => {
+      ipcRenderer.removeListener('library-updated', check);
+    };
+  }, [trackId, canFavourite]);
+
+  const handleToggleFavourite = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!canFavourite) return;
+      const res = (await ipcRenderer.invoke('toggle-favourite', { trackId })) as {
+        favourite?: boolean;
+      };
+      setIsFavourite(!!res?.favourite);
+    },
+    [trackId, canFavourite]
+  );
+
   const handleTitleClick = useCallback(() => {
     if (!state.queueSource) return;
     navigate(state.queueSource, {
@@ -1452,6 +1506,17 @@ export default function PlayBar() {
                 style={AlbumArtImageStyle}
                 fit="contain"
               />
+              {canFavourite && (
+                <FavouriteButton
+                  size="medium"
+                  isFavourite={isFavourite}
+                  onClick={handleToggleFavourite}
+                  aria-label={isFavourite ? 'remove from favourites' : 'add to favourites'}
+                  title={isFavourite ? 'Remove from Favourites' : 'Add to Favourites'}
+                >
+                  <Icon icon={isFavourite ? heart24Filled : heart24Regular} width={25} />
+                </FavouriteButton>
+              )}
             </CoverImageInteractive>
             <ImagePreviewDialog
               open={previewOpen}

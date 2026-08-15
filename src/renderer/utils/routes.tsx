@@ -11,6 +11,7 @@ const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
 const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
 const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
+const Favourites = lazy(() => import('../views/Favourites'));
 const Folders = lazy(() => import('../views/Folders'));
 const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
 const Genres = lazy(() => import('../views/Genres'));
@@ -50,7 +51,7 @@ const routes = [
         path: 'favourites',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Favourites />
           </React.Suspense>
         ),
       },

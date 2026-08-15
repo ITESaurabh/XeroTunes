@@ -92,6 +92,7 @@ export type ResetTarget =
   | 'settings'
   | 'themes'
   | 'database'
+  | 'favourites'
   | 'firstrun'
   | 'albumArts'
   | 'artistArts';

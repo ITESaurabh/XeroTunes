@@ -52,6 +52,7 @@ import { cleanupOrphans } from '../db/cleanup';
 import { ScanMode, REPO_URL } from '../../config/constants';
 import { CHANNEL, IDENTITY } from '../../config/channel';
 import { isUnderAnyRoot } from './libraryRules';
+import { buildTrackIndex, matchFavourite } from './favouriteMatch';
 import os from 'os';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
@@ -152,12 +153,143 @@ function dropTracksOutsideFolders(): number {
   return removed;
 }
 
+// ── Favourites portability ───────────────────────────────────────────────────
+// Favourites are stored by TrackId, which a wipe or a fresh install invalidates.
+// Both the .xtfav export and the reset stash below carry file hash + filename
+// instead: the sha1 covers the whole file, so it survives a rename but not a tag
+// edit — the filename catches the tracks whose tags changed.
+
+const PENDING_FAVOURITES_FILE = path.join(APP_CONF_FOLDER, 'pending_favourites.xtfav');
+const FAVOURITES_FILE_VERSION = 1;
+
+export interface FavouriteEntry {
+  hash: string | null;
+  file: string;
+  title: string;
+  artist: string;
+  favouritedAt: number | null;
+}
+
+function snapshotFavourites(): FavouriteEntry[] {
+  const rows = db
+    .prepare(
+      `SELECT Track.Uri, Track.FileHash, Track.Title, ${TRACK_ARTIST_NAMES}, Favourite.AddedAt
+       FROM Favourite
+       JOIN Track ON Track.Id = Favourite.TrackId
+       ORDER BY Favourite.AddedAt DESC`
+    )
+    .all() as Array<{
+    Uri: string | null;
+    FileHash: string | null;
+    Title: string | null;
+    ArtistName: string | null;
+    AddedAt: number | null;
+  }>;
+  return rows.map(row => ({
+    hash: row.FileHash || null,
+    file: path.basename(row.Uri || ''),
+    title: row.Title || '',
+    artist: row.ArtistName || '',
+    favouritedAt: row.AddedAt ?? null,
+  }));
+}
+
+function restoreFavourites(entries: FavouriteEntry[]): {
+  imported: number;
+  skipped: number;
+  failed: FavouriteEntry[];
+} {
+  const index = buildTrackIndex(db.prepare('SELECT Id, Uri, FileHash FROM Track').all());
+  const insert = db.prepare('INSERT OR IGNORE INTO Favourite (TrackId, AddedAt) VALUES (?, ?)');
+
+  let imported = 0;
+  let skipped = 0;
+  const failed: FavouriteEntry[] = [];
+  for (const entry of entries) {
+    const trackId = matchFavourite(index, entry);
+    if (trackId == null) {
+      if (entry && typeof entry === 'object') failed.push(entry);
+      continue;
+    }
+    if (insert.run(trackId, entry.favouritedAt ?? Date.now()).changes > 0) imported++;
+    else skipped++;
+  }
+  return { imported, skipped, failed };
+}
+
+function favouritesFileBody(tracks: FavouriteEntry[]) {
+  return {
+    app: IDENTITY.productName,
+    type: 'favourites',
+    version: FAVOURITES_FILE_VERSION,
+    exportedAt: Date.now(),
+    tracks,
+  };
+}
+
+function readFavouritesFile(filePath: string): FavouriteEntry[] {
+  const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  if (parsed?.type !== 'favourites' || !Array.isArray(parsed.tracks)) {
+    throw new Error('Not a XeroTunes favourites file');
+  }
+  return parsed.tracks as FavouriteEntry[];
+}
+
+// Wiping the database throws the TrackIds away, so stash the favourites first and
+// re-attach them once a scan has repopulated the library. Entries that still have
+// no match stay in the file, so adding the rest of the folders later picks them up.
+function stashFavourites(): void {
+  const tracks = snapshotFavourites();
+  if (!tracks.length) return;
+  try {
+    ensureAppConfFolder();
+    fs.writeFileSync(PENDING_FAVOURITES_FILE, JSON.stringify(favouritesFileBody(tracks), null, 2));
+  } catch (error) {
+    console.warn('Failed to stash favourites before wipe:', error);
+  }
+}
+
+function restorePendingFavourites(): number {
+  if (!fs.existsSync(PENDING_FAVOURITES_FILE)) return 0;
+  try {
+    const { imported, failed } = restoreFavourites(readFavouritesFile(PENDING_FAVOURITES_FILE));
+    if (failed.length) {
+      fs.writeFileSync(
+        PENDING_FAVOURITES_FILE,
+        JSON.stringify(favouritesFileBody(failed), null, 2)
+      );
+    } else {
+      rmPath(PENDING_FAVOURITES_FILE);
+    }
+    if (imported > 0) console.log(`[favourites] Restored ${imported} favourite(s) after reset.`);
+    return imported;
+  } catch (error) {
+    console.warn('Failed to restore pending favourites:', error);
+    rmPath(PENDING_FAVOURITES_FILE);
+    return 0;
+  }
+}
+
 // Ordered, not a lookup map: resetting themes rewrites settings.json, so it has
-// to run before a settings reset deletes the file out from under it.
+// to run before a settings reset deletes the file out from under it. 'favourites'
+// runs after 'database' so selecting both drops the stash the wipe just made.
 const RESET_ACTIONS: Array<[Exclude<ResetTarget, 'localState'>, () => void]> = [
   ['themes', () => writeSettingsFile({ ...readSettingsFile(), theme: DEFAULT_APP_SETTINGS.theme })],
   ['settings', () => rmPath(SETTINGS_FILE)],
-  ['database', wipeDatabase],
+  [
+    'database',
+    () => {
+      stashFavourites();
+      wipeDatabase();
+    },
+  ],
+  [
+    'favourites',
+    () => {
+      db.prepare('DELETE FROM Favourite').run();
+      rmPath(PENDING_FAVOURITES_FILE);
+    },
+  ],
   ['firstrun', () => rmPath(FIRSTRUN_FILE)],
   ['albumArts', () => emptyDir(ALBUM_ART_DIR)],
   ['artistArts', () => emptyDir(ARTIST_ART_DIR)],
@@ -528,8 +660,14 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           )
           .get() as { count: number }
       ).count;
-      // Favourites and Playlists tables don't exist yet — return 0
-      const favourites = 0;
+      const favourites = (
+        db
+          .prepare(
+            'SELECT COUNT(*) AS count FROM Favourite JOIN Track ON Track.Id = Favourite.TrackId'
+          )
+          .get() as { count: number }
+      ).count;
+      // Playlists table doesn't exist yet — return 0
       const playlists = 0;
       const recentlyAdded = Math.min(
         200,
@@ -611,7 +749,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       } else if (msg.success) {
         const scanned = msg.scanned ?? 0;
         const removed = msg.removed ?? 0;
-        if (scanned > 0 || removed > 0) {
+        const restored = restorePendingFavourites();
+        if (scanned > 0 || removed > 0 || restored > 0) {
           sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
         resolvePromise({ success: true, scanned, removed });
@@ -809,6 +948,18 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   CREATE TABLE IF NOT EXISTS IgnoredTrack (
     Uri TEXT PRIMARY KEY,
     IgnoredAt BIGINT
+  )
+`
+  ).run();
+
+  // Rows can outlive their track (a deleted file leaves one behind); every read
+  // joins Track, so orphans are invisible. Track ids are AUTOINCREMENT and never
+  // reused, so a stale row can't attach itself to a different song.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS Favourite (
+    TrackId INTEGER PRIMARY KEY,
+    AddedAt BIGINT
   )
 `
   ).run();
@@ -1228,7 +1379,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
     // Removal runs no scan, so tell the renderer to refresh caches/stats itself;
     // `wiped` also signals it to drop the now-dangling playback queue.
-    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: wiped ? 1 : removed, wiped });
+    sendMessageToRendererProcess(mainWin, 'library-updated', {
+      removed: wiped ? 1 : removed,
+      wiped,
+    });
 
     return { success: true, wiped, removed };
   });
@@ -1288,6 +1442,89 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     `
       )
       .all();
+  });
+
+  // ── Favourites ──────────────────────────────────────────────────────────────
+  ipcMain.handle('is-favourite', (_e, { trackId }) => {
+    if (trackId == null) return false;
+    return !!db.prepare('SELECT 1 FROM Favourite WHERE TrackId = ?').get(trackId);
+  });
+
+  ipcMain.handle('toggle-favourite', (_e, { trackId }) => {
+    if (trackId == null) return { favourite: false };
+    const removed = db.prepare('DELETE FROM Favourite WHERE TrackId = ?').run(trackId).changes > 0;
+    if (!removed) {
+      db.prepare('INSERT INTO Favourite (TrackId, AddedAt) VALUES (?, ?)').run(trackId, Date.now());
+    }
+    // Reuses the library refresh broadcast — the renderer already rebuilds stats
+    // and list caches on it.
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { favourite: !removed };
+  });
+
+  ipcMain.handle('get-favourite-songs', () => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        Track.Duration,
+        Track.AlbumId,
+        Favourite.AddedAt AS FavouritedAt,
+        ${TRACK_ARTIST_NAMES},
+        Album.Title AS AlbumTitle,
+        Genre.Name AS GenreName
+      FROM Favourite
+      JOIN Track ON Track.Id = Favourite.TrackId
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      GROUP BY Track.Id
+      ORDER BY Favourite.AddedAt DESC
+    `
+      )
+      .all();
+  });
+
+  ipcMain.handle('export-favourites', async () => {
+    try {
+      const tracks = snapshotFavourites();
+      if (!tracks.length) return { success: false, error: 'No favourites to export' };
+      // Epoch seconds keep every export from the same day a distinct file.
+      const name = `favourites-${Math.floor(Date.now() / 1000)}.xtfav`;
+      const result = await dialog.showSaveDialog(mainWin, {
+        title: 'Export Favourites',
+        defaultPath: path.join(app.getPath('documents'), name),
+        filters: [{ name: 'XeroTunes Favourites', extensions: ['xtfav'] }],
+      });
+      if (result.canceled || !result.filePath) return { success: false, canceled: true };
+      fs.writeFileSync(result.filePath, JSON.stringify(favouritesFileBody(tracks), null, 2));
+      return { success: true, filePath: result.filePath, exported: tracks.length };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('import-favourites', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWin, {
+        title: 'Import Favourites',
+        defaultPath: app.getPath('documents'),
+        properties: ['openFile'],
+        filters: [{ name: 'XeroTunes Favourites', extensions: ['xtfav'] }],
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+      const report = restoreFavourites(readFavouritesFile(result.filePaths[0]));
+      if (report.imported > 0) sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { success: true, ...report };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
   });
 
   ipcMain.handle('get-all-albums', () => {
@@ -1781,7 +2018,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         const scanned = msg.scanned ?? 0;
         const removed = msg.removed ?? 0;
         console.log(`[Auto-scan] +${scanned} new, -${removed} removed.`);
-        if (scanned > 0 || removed > 0) {
+        const restored = restorePendingFavourites();
+        if (scanned > 0 || removed > 0 || restored > 0) {
           sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
       }

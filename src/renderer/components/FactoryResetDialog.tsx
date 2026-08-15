@@ -38,7 +38,13 @@ const RESET_ITEMS: ResetItem[] = [
   {
     key: 'database',
     label: 'Library database',
-    detail: 'Empties every table: tracks, albums, artists, music folders, play counts',
+    detail:
+      'Empties every table: tracks, albums, artists, music folders, play counts. Favourites are kept aside and re-attached by the next scan unless you tick them below',
+  },
+  {
+    key: 'favourites',
+    label: 'Favourites',
+    detail: 'Forgets every favourited song. Export them first if you want them back',
   },
   {
     key: 'firstrun',
