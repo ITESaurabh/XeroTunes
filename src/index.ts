@@ -84,6 +84,15 @@ function handleSquirrelEvent(): boolean {
     case '--squirrel-updated': {
       run(`"${updateExe}" --createShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
 
+      // app icon for windows installed apps
+      if (fs.existsSync(iconPath)) {
+        try {
+          fs.copyFileSync(iconPath, path.resolve(exePath, '..', '..', 'app.ico'));
+        } catch (_) {
+          /* ignore */
+        }
+      }
+
       const ctxRoot = `HKCU\\Software\\Classes\\*\\shell\\${IDENTITY.menuKey}`;
       regWrite(ctxRoot, null, `Open with ${IDENTITY.productName}`);
       regWrite(ctxRoot, 'Icon', exePath);
