@@ -26,6 +26,19 @@ export const gridCardSx: SxProps<Theme> = {
   },
 };
 
+/**
+ * Put this class on a card's outer container so descendants using
+ * `revealOnCardHoverSx` (e.g. `CardHoverAction`) fade in only on hover.
+ * A CSS descendant selector, not React state, so it's free to add anywhere.
+ */
+export const CARD_HOVER_CLASS = 'xt-hover-card';
+
+export const revealOnCardHoverSx: SxProps<Theme> = {
+  opacity: 0,
+  transition: 'opacity 0.15s ease',
+  [`.${CARD_HOVER_CLASS}:hover &`]: { opacity: 1 },
+};
+
 export const detailBannerBg = (theme: Theme) => alpha(theme.palette.text.primary, 0.04);
 
 /** @deprecated Shown in a hero block when there is no real artwork. */

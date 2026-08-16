@@ -8,10 +8,11 @@ const Albums = lazy(() => import('../views/Albums'));
 const AlbumDetail = lazy(() => import('../views/AlbumDetail'));
 const AllArtists = lazy(() => import('../views/artists/AllArtists'));
 const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
-const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
 const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
 const Favourites = lazy(() => import('../views/Favourites'));
+const Playlists = lazy(() => import('../views/Playlists'));
+const PlaylistDetail = lazy(() => import('../views/PlaylistDetail'));
 const Folders = lazy(() => import('../views/Folders'));
 const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
 const Genres = lazy(() => import('../views/Genres'));
@@ -59,7 +60,15 @@ const routes = [
         path: 'playlists',
         element: (
           <React.Suspense fallback={<BigLoader />}>
-            <Search />
+            <Playlists />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'playlists/:playlistId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <PlaylistDetail />
           </React.Suspense>
         ),
       },

@@ -53,6 +53,9 @@ import { ScanMode, REPO_URL } from '../../config/constants';
 import { CHANNEL, IDENTITY } from '../../config/channel';
 import { isUnderAnyRoot } from './libraryRules';
 import { buildTrackIndex, matchFavourite } from './favouriteMatch';
+import { parsePlaylistFile, writePlaylistFile } from './playlistFormats';
+// eslint-disable-next-line import/no-unresolved -- ESM-only package; same gap ipc.tsx already has
+import { parseFile as parseAudioFile } from 'music-metadata';
 import os from 'os';
 
 const SETTINGS_FILE = path.join(APP_CONF_FOLDER, 'settings.json');
@@ -453,7 +456,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   }
 
   ipcMain.on('now-playing-notify', (_, data) => {
-    // Don't show the overlay when the main window is in focus
     if (mainWin.isFocused()) return;
     if (!overlayWin || overlayWin.isDestroyed()) overlayWin = createOverlayWin();
     const send = () => {
@@ -478,9 +480,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       'UPDATE Track SET PlayedTimes = COALESCE(PlayedTimes, 0) + 1, LastPlayedAt = ? WHERE Id = ?'
     ).run(Date.now(), trackId);
   });
-  // mainWin.webContents.send('asynchronous-message', {'SAVED': 'File Saved'});
-  // mainWin.webContents.openDevTools();
-
   // Tracks any running scan worker so we never spawn duplicates
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let activeScanWorker: any = null;
@@ -597,33 +596,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // Windows clears thumbar on minimize/restore — re-register on restore
   mainWin.on('restore', () => updateThumbar(thumbarIsPlaying));
 
-  // // Handle IPC message to play a sound
-  // ipcMain.on('playSound', (event, soundData) => {
-  //   mainWin.webContents.send('playSound', soundData);
-  // });
-
-  // // Handle IPC message to receive sound metadata
-  // ipcMain.on('soundMetadata', (event, { timeInterval, tags }) => {
-  //   // Do something with the time interval and tags
-  //   console.log('Time Interval:', timeInterval);
-  //   console.log('Tags:', tags);
-  // });
-
-  // async function parseFolder(folderPath, foldersFinalData) {
-  //    return new Promise()(resolve => {
-  //       (function recursiveReader(folderPath) {
-  //          const SongsPathList = parseDir(payload);
-  //          SongsPathList.forEach(async songPath => {
-  //             const SongInfo = await parseMusic(songPath);
-  //             console.info('Info', SongInfo);
-  //          });
-  //       });
-
-  //          resolve(foldersFinalData);
-  //       })(folderPath, foldersFinalData);
-  //    });
-  // }
-
   ipcMain.handle('get-scan-status', () => {
     return { isScanning: activeScanWorker !== null, scanMode: activeScanMode };
   });
@@ -667,8 +639,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           )
           .get() as { count: number }
       ).count;
-      // Playlists table doesn't exist yet — return 0
-      const playlists = 0;
+      const playlists = (
+        db.prepare('SELECT COUNT(*) AS count FROM Playlist').get() as { count: number }
+      ).count;
       const recentlyAdded = Math.min(
         200,
         (
@@ -966,6 +939,50 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   db.prepare(
     `
+  CREATE TABLE IF NOT EXISTS Playlist (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name TEXT NOT NULL,
+    DateAdded BIGINT,
+    DateModified BIGINT
+  )
+`
+  ).run();
+
+  // Old schema required TrackId and had no Uri, coupling every row to the
+  // library scan. Nothing worth preserving predates it, so rebuild rather than migrate.
+  const existingPlaylistTrackCols = (
+    db.pragma('table_info(PlaylistTrack)') as { name: string }[]
+  ).map(c => c.name);
+  if (existingPlaylistTrackCols.length && !existingPlaylistTrackCols.includes('Uri')) {
+    db.prepare('DROP TABLE PlaylistTrack').run();
+  }
+
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS PlaylistTrack (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    PlaylistId INTEGER NOT NULL,
+    TrackId INTEGER,
+    Uri TEXT NOT NULL,
+    Title TEXT,
+    Artist TEXT,
+    Album TEXT,
+    Duration INTEGER,
+    Position INTEGER NOT NULL
+  )
+`
+  ).run();
+  if (
+    !(db.pragma('table_info(PlaylistTrack)') as { name: string }[]).some(c => c.name === 'Album')
+  ) {
+    db.prepare('ALTER TABLE PlaylistTrack ADD COLUMN Album TEXT').run();
+  }
+  db.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_playlisttrack_playlist ON PlaylistTrack(PlaylistId, Position)'
+  ).run();
+
+  db.prepare(
+    `
   CREATE TABLE IF NOT EXISTS TrackArtist (
     Id INTEGER PRIMARY KEY AUTOINCREMENT,
     TrackId INTEGER NOT NULL,
@@ -1187,7 +1204,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
 
   // ── Folder views ────────────────────────────────────────────────────────────
-  // Flat list of every folder that holds songs in the library, sorted by name.
   // Powers the "Folders" screen.
   ipcMain.handle('get-folders-with-songs', () => {
     const rows = db
@@ -1349,7 +1365,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('remove-music-folder', (e, { Id }) => {
     db.prepare('DELETE FROM MusicFolder WHERE Id = ?').run(Id);
 
-    // If no folders remain, wipe all library data and album art
     const remaining = db.prepare('SELECT COUNT(*) AS cnt FROM MusicFolder').get() as {
       cnt: number;
     };
@@ -1362,7 +1377,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       // The artist / album-artist stats count these join tables directly.
       db.prepare('DELETE FROM TrackArtist').run();
       db.prepare('DELETE FROM AlbumArtist').run();
-      // Remove all saved album art files
       try {
         const files = fs.readdirSync(ALBUM_ART_DIR);
         for (const file of files) {
@@ -1527,6 +1541,469 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
+  // ── Playlists ────────────────────────────────────────────────────────────
+  // Import/export only speak the four real formats (M3U/M3U8/PLS/XSPF)
+  function resequencePlaylistPositions(playlistId: number): void {
+    const rows = db
+      .prepare('SELECT Id FROM PlaylistTrack WHERE PlaylistId = ? ORDER BY Position ASC')
+      .all(playlistId) as Array<{ Id: number }>;
+    const update = db.prepare('UPDATE PlaylistTrack SET Position = ? WHERE Id = ?');
+    db.transaction(() => {
+      rows.forEach((row, i) => update.run(i, row.Id));
+    })();
+  }
+
+  function touchPlaylist(playlistId: number): void {
+    db.prepare('UPDATE Playlist SET DateModified = ? WHERE Id = ?').run(Date.now(), playlistId);
+  }
+
+  // Match order: exact path, then case-insensitive path (drive letters and
+  // slashes get typed inconsistently across tools), then the same
+  // filename-anywhere-in-the-library fallback favourites use.
+  function buildPlaylistTrackIndex() {
+    const rows = db.prepare('SELECT Id, Uri FROM Track').all() as Array<{
+      Id: number;
+      Uri: string | null;
+    }>;
+    const byExactPath = new Map<string, number>();
+    const byLowerPath = new Map<string, number>();
+    const byName = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.Uri) continue;
+      if (!byExactPath.has(row.Uri)) byExactPath.set(row.Uri, row.Id);
+      const lower = row.Uri.toLowerCase();
+      if (!byLowerPath.has(lower)) byLowerPath.set(lower, row.Id);
+      const base = path.basename(row.Uri).toLowerCase();
+      if (!byName.has(base)) byName.set(base, row.Id);
+    }
+    return { byExactPath, byLowerPath, byName };
+  }
+
+  function matchPlaylistEntry(
+    index: ReturnType<typeof buildPlaylistTrackIndex>,
+    location: string
+  ): number | null {
+    const exact = index.byExactPath.get(location);
+    if (exact != null) return exact;
+    const lower = index.byLowerPath.get(location.toLowerCase());
+    if (lower != null) return lower;
+    const named = index.byName.get(path.basename(location).toLowerCase());
+    return named ?? null;
+  }
+
+  // A playlist file's own text is thin (M3U's #EXTINF and PLS's Title are one
+  // free-text label, neither carries an album). When a track isn't in the
+  // library, read its real tags instead, same as the "open with" flow does
+  // for a file played outside the library.
+  interface ExternalTrackMeta {
+    title: string;
+    artist: string | null;
+    album: string | null;
+    duration: number | null;
+  }
+
+  async function readExternalTrackMeta(
+    filePath: string,
+    fallback: { title?: string; artist?: string; duration?: number }
+  ): Promise<ExternalTrackMeta> {
+    const basenameTitle = path.basename(filePath).replace(/\.[^.]+$/, '');
+    try {
+      const meta = await parseAudioFile(filePath, { skipCovers: true });
+      return {
+        title: meta.common.title || fallback.title || basenameTitle,
+        artist: meta.common.artist || fallback.artist || null,
+        album: meta.common.album || null,
+        duration: meta.format.duration
+          ? Math.round(meta.format.duration)
+          : (fallback.duration ?? null),
+      };
+    } catch {
+      // Unreadable file or corrupt tags: fall back to the playlist entry
+      // rather than failing the import over one track.
+      return {
+        title: fallback.title || basenameTitle,
+        artist: fallback.artist || null,
+        album: null,
+        duration: fallback.duration ?? null,
+      };
+    }
+  }
+
+  ipcMain.handle('get-playlists', () => {
+    return db
+      .prepare(
+        `
+      SELECT
+        Playlist.Id,
+        Playlist.Name,
+        Playlist.DateAdded,
+        Playlist.DateModified,
+        COUNT(PlaylistTrack.Id) AS TrackCount,
+        SUM(COALESCE(Track.Duration, PlaylistTrack.Duration)) AS Duration,
+        (
+          SELECT Track2.AlbumArt FROM PlaylistTrack pt2
+          LEFT JOIN Track Track2 ON Track2.Id = pt2.TrackId
+          WHERE pt2.PlaylistId = Playlist.Id AND Track2.AlbumArt IS NOT NULL
+          ORDER BY pt2.Position ASC LIMIT 1
+        ) AS CoverUri
+      FROM Playlist
+      LEFT JOIN PlaylistTrack ON PlaylistTrack.PlaylistId = Playlist.Id
+      LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
+      GROUP BY Playlist.Id
+      ORDER BY Playlist.DateModified DESC
+    `
+      )
+      .all();
+  });
+
+  ipcMain.handle('get-playlist', (_e, { playlistId }: { playlistId: number }) => {
+    return db
+      .prepare('SELECT Id, Name, DateAdded, DateModified FROM Playlist WHERE Id = ?')
+      .get(playlistId);
+  });
+
+  ipcMain.handle('create-playlist', (_e, { name }: { name?: string }) => {
+    const trimmed = (name || '').trim() || 'New Playlist';
+    const now = Date.now();
+    const info = db
+      .prepare('INSERT INTO Playlist (Name, DateAdded, DateModified) VALUES (?, ?, ?)')
+      .run(trimmed, now, now);
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { id: info.lastInsertRowid, name: trimmed };
+  });
+
+  ipcMain.handle(
+    'rename-playlist',
+    (_e, { playlistId, name }: { playlistId: number; name?: string }) => {
+      const trimmed = (name || '').trim();
+      if (!trimmed) return { success: false, error: 'Name cannot be empty' };
+      db.prepare('UPDATE Playlist SET Name = ?, DateModified = ? WHERE Id = ?').run(
+        trimmed,
+        Date.now(),
+        playlistId
+      );
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { success: true };
+    }
+  );
+
+  ipcMain.handle('delete-playlist', (_e, { playlistId }: { playlistId: number }) => {
+    db.prepare('DELETE FROM PlaylistTrack WHERE PlaylistId = ?').run(playlistId);
+    db.prepare('DELETE FROM Playlist WHERE Id = ?').run(playlistId);
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { success: true };
+  });
+
+  // TrackId is a bonus link, not a requirement: a row plays off its own Uri
+  // whether or not it's scanned into the library. Id falls back to the Uri
+  // itself when there's no library Track, same convention "open with" uses.
+  ipcMain.handle('get-playlist-tracks', (_e, { playlistId }: { playlistId: number }) => {
+    return db
+      .prepare(
+        `
+      SELECT
+        PlaylistTrack.Id AS PlaylistTrackId,
+        PlaylistTrack.Position,
+        COALESCE(Track.Id, PlaylistTrack.Uri) AS Id,
+        COALESCE(Track.Title, PlaylistTrack.Title, PlaylistTrack.Uri) AS Title,
+        COALESCE(Track.Uri, PlaylistTrack.Uri) AS Uri,
+        Track.Extension,
+        Track.Year,
+        Track.TrackNumber,
+        Track.AlbumArt,
+        COALESCE(Track.Duration, PlaylistTrack.Duration) AS Duration,
+        Track.AlbumId,
+        COALESCE(
+          (
+            SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY ta.Id)
+            FROM TrackArtist ta
+            JOIN Artist ar ON ar.Id = ta.ArtistId
+            WHERE ta.TrackId = Track.Id
+          ),
+          PlaylistTrack.Artist
+        ) AS ArtistName,
+        COALESCE(Album.Title, PlaylistTrack.Album) AS AlbumTitle,
+        Genre.Name AS GenreName,
+        CASE WHEN Track.Id IS NULL THEN 1 ELSE 0 END AS IsExternal
+      FROM PlaylistTrack
+      LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN Genre ON Track.GenreId = Genre.Id
+      WHERE PlaylistTrack.PlaylistId = ?
+      GROUP BY PlaylistTrack.Id
+      ORDER BY PlaylistTrack.Position ASC
+    `
+      )
+      .all(playlistId);
+  });
+
+  ipcMain.handle(
+    'add-tracks-to-playlist',
+    (_e, { playlistId, trackIds }: { playlistId: number; trackIds: number[] }) => {
+      const ids = Array.isArray(trackIds) ? trackIds : [];
+      if (!ids.length) return { added: 0 };
+      const placeholders = ids.map(() => '?').join(',');
+      const rows = db
+        .prepare(
+          `SELECT Track.Id, Track.Uri, Track.Title, Track.Duration, ${TRACK_ARTIST_NAMES}, Album.Title AS AlbumTitle
+           FROM Track
+           LEFT JOIN Album ON Track.AlbumId = Album.Id
+           WHERE Track.Id IN (${placeholders})`
+        )
+        .all(...ids) as Array<{
+        Id: number;
+        Uri: string;
+        Title: string | null;
+        Duration: number | null;
+        ArtistName: string | null;
+        AlbumTitle: string | null;
+      }>;
+      const byId = new Map(rows.map(r => [r.Id, r]));
+      const maxPos = (
+        db
+          .prepare(
+            'SELECT COALESCE(MAX(Position), -1) AS pos FROM PlaylistTrack WHERE PlaylistId = ?'
+          )
+          .get(playlistId) as { pos: number }
+      ).pos;
+      const insert = db.prepare(
+        'INSERT INTO PlaylistTrack (PlaylistId, TrackId, Uri, Title, Artist, Album, Duration, Position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      let added = 0;
+      db.transaction(() => {
+        ids.forEach(trackId => {
+          const t = byId.get(trackId);
+          if (!t) return; // stale id, track was deleted since the picker loaded
+          insert.run(
+            playlistId,
+            t.Id,
+            t.Uri,
+            t.Title,
+            t.ArtistName,
+            t.AlbumTitle,
+            t.Duration,
+            maxPos + 1 + added
+          );
+          added++;
+        });
+      })();
+      touchPlaylist(playlistId);
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { added };
+    }
+  );
+
+  ipcMain.handle(
+    'remove-playlist-tracks',
+    (_e, { playlistId, playlistTrackIds }: { playlistId: number; playlistTrackIds: number[] }) => {
+      const ids = Array.isArray(playlistTrackIds) ? playlistTrackIds : [];
+      if (!ids.length) return { removed: 0 };
+      const del = db.prepare('DELETE FROM PlaylistTrack WHERE Id = ? AND PlaylistId = ?');
+      db.transaction(() => {
+        ids.forEach(id => del.run(id, playlistId));
+      })();
+      resequencePlaylistPositions(playlistId);
+      touchPlaylist(playlistId);
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { removed: ids.length };
+    }
+  );
+
+  // Takes the full new order (what Reorder.Group hands back after a drag)
+  // rather than a single from/to move, so neither side needs to reimplement
+  // array-splice-by-index.
+  ipcMain.handle(
+    'reorder-playlist-tracks',
+    (
+      _e,
+      {
+        playlistId,
+        orderedPlaylistTrackIds,
+      }: { playlistId: number; orderedPlaylistTrackIds: number[] }
+    ) => {
+      const ids = Array.isArray(orderedPlaylistTrackIds) ? orderedPlaylistTrackIds : [];
+      if (!ids.length) return { success: false };
+      const update = db.prepare(
+        'UPDATE PlaylistTrack SET Position = ? WHERE Id = ? AND PlaylistId = ?'
+      );
+      db.transaction(() => {
+        ids.forEach((id, i) => update.run(i, id, playlistId));
+      })();
+      touchPlaylist(playlistId);
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { success: true };
+    }
+  );
+
+  ipcMain.handle('import-playlist', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWin, {
+        title: 'Import Playlist',
+        defaultPath: MUSIC_DIR,
+        properties: ['openFile'],
+        filters: [
+          { name: 'All Playlists', extensions: ['m3u', 'm3u8', 'pls', 'xspf'] },
+          { name: 'M3U Playlist', extensions: ['m3u', 'm3u8'] },
+          { name: 'PLS Playlist', extensions: ['pls'] },
+          { name: 'XSPF Playlist', extensions: ['xspf'] },
+        ],
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+      const filePath = result.filePaths[0];
+      const entries = parsePlaylistFile(filePath);
+      if (!entries.length) return { success: false, error: 'No tracks found in playlist file' };
+
+      // A library match only enriches a row (cover art, album/genre links),
+      // it's never required. Every entry whose file exists becomes a playable
+      // row, library-scanned or not.
+      const index = buildPlaylistTrackIndex();
+      const rows: Array<{
+        trackId: number | null;
+        uri: string;
+        title: string;
+        artist: string | null;
+        album: string | null;
+        duration: number | null;
+      }> = [];
+      const missing: Array<{ location: string; title?: string; artist?: string }> = [];
+      let matched = 0;
+      for (const entry of entries) {
+        const trackId = matchPlaylistEntry(index, entry.location);
+        if (trackId != null) {
+          matched++;
+          rows.push({
+            trackId,
+            uri: entry.location,
+            title: entry.title || path.basename(entry.location).replace(/\.[^.]+$/, ''),
+            artist: entry.artist || null,
+            album: null,
+            duration: entry.duration ?? null,
+          });
+          continue;
+        }
+        if (!fs.existsSync(entry.location)) {
+          missing.push({ location: entry.location, title: entry.title, artist: entry.artist });
+          continue;
+        }
+        const meta = await readExternalTrackMeta(entry.location, {
+          title: entry.title,
+          artist: entry.artist,
+          duration: entry.duration,
+        });
+        rows.push({
+          trackId: null,
+          uri: entry.location,
+          title: meta.title,
+          artist: meta.artist,
+          album: meta.album,
+          duration: meta.duration,
+        });
+      }
+      if (!rows.length) {
+        return { success: false, error: 'None of the files in this playlist could be found' };
+      }
+
+      const name = path.basename(filePath).replace(/\.[^.]+$/, '');
+      const now = Date.now();
+      const info = db
+        .prepare('INSERT INTO Playlist (Name, DateAdded, DateModified) VALUES (?, ?, ?)')
+        .run(name, now, now);
+      const playlistId = info.lastInsertRowid as number;
+      const insert = db.prepare(
+        'INSERT INTO PlaylistTrack (PlaylistId, TrackId, Uri, Title, Artist, Album, Duration, Position) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      );
+      db.transaction(() => {
+        rows.forEach((row, i) =>
+          insert.run(
+            playlistId,
+            row.trackId,
+            row.uri,
+            row.title,
+            row.artist,
+            row.album,
+            row.duration,
+            i
+          )
+        );
+      })();
+
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return {
+        success: true,
+        playlistId,
+        name,
+        imported: rows.length,
+        matched,
+        external: rows.length - matched,
+        missing,
+      };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle(
+    'export-playlist',
+    async (_e, { playlistId, format }: { playlistId: number; format: string }) => {
+      try {
+        const fmt = ['m3u', 'm3u8', 'pls', 'xspf'].includes(format) ? format : 'm3u8';
+        const playlist = db.prepare('SELECT Name FROM Playlist WHERE Id = ?').get(playlistId) as
+          | { Name: string }
+          | undefined;
+        if (!playlist) return { success: false, error: 'Playlist not found' };
+        const rows = db
+          .prepare(
+            `
+          SELECT
+            COALESCE(Track.Uri, PlaylistTrack.Uri) AS Uri,
+            COALESCE(Track.Title, PlaylistTrack.Title) AS Title,
+            COALESCE(Track.Duration, PlaylistTrack.Duration) AS Duration,
+            COALESCE(
+              (
+                SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY ta.Id)
+                FROM TrackArtist ta
+                JOIN Artist ar ON ar.Id = ta.ArtistId
+                WHERE ta.TrackId = Track.Id
+              ),
+              PlaylistTrack.Artist
+            ) AS ArtistName
+          FROM PlaylistTrack
+          LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
+          WHERE PlaylistTrack.PlaylistId = ?
+          GROUP BY PlaylistTrack.Id
+          ORDER BY PlaylistTrack.Position ASC
+        `
+          )
+          .all(playlistId) as Array<{
+          Uri: string;
+          Title: string;
+          Duration: number;
+          ArtistName: string | null;
+        }>;
+        if (!rows.length) return { success: false, error: 'Playlist is empty' };
+
+        const safeName = playlist.Name.replace(/[\\/:*?"<>|]/g, '_');
+        const result = await dialog.showSaveDialog(mainWin, {
+          title: 'Export Playlist',
+          defaultPath: path.join(MUSIC_DIR, `${safeName}.${fmt}`),
+          filters: [{ name: `${fmt.toUpperCase()} Playlist`, extensions: [fmt] }],
+        });
+        if (result.canceled || !result.filePath) return { success: false, canceled: true };
+
+        const entries = rows.map(r => ({
+          location: r.Uri,
+          title: r.Title,
+          artist: r.ArtistName || undefined,
+          duration: r.Duration,
+        }));
+        writePlaylistFile(result.filePath, entries, playlist.Name);
+        return { success: true, filePath: result.filePath, exported: entries.length };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
   ipcMain.handle('get-all-albums', () => {
     const rows = db
       .prepare(
@@ -1689,7 +2166,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
 
   ipcMain.handle('open-dir', (e, { variant = 'appdata' }) => {
-    // open apps data folder in file manager
     let targetPath: string;
     if (variant === 'appdata') {
       targetPath = APP_CONF_FOLDER;
@@ -1705,7 +2181,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return { success: true };
   });
 
-  // Search functionality
   ipcMain.handle('search-library', (e, { query }) => {
     if (!query || query.trim().length === 0) {
       return {
@@ -1724,7 +2199,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     const exactQuery = query.toLowerCase();
 
     try {
-      // Search songs
       const songs = db
         .prepare(
           `
@@ -1756,7 +2230,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search albums
       const albums = db
         .prepare(
           `
@@ -1784,7 +2257,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search artists
       const artists = db
         .prepare(
           `
@@ -1807,7 +2279,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search album artists
       const albumArtists = db
         .prepare(
           `
@@ -1830,7 +2301,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search genres
       const genres = db
         .prepare(
           `
@@ -1850,7 +2320,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Search years
       const years = db
         .prepare(
           `
@@ -1866,7 +2335,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern);
 
-      // Search folders
       const folders = db
         .prepare(
           `
@@ -1884,8 +2352,22 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      // Playlists would need a separate table - returning empty for now
-      const playlists = [];
+      const playlists = db
+        .prepare(
+          `
+        SELECT
+          Playlist.Id,
+          Playlist.Name,
+          (SELECT COUNT(*) FROM PlaylistTrack WHERE PlaylistId = Playlist.Id) AS SongCount
+        FROM Playlist
+        WHERE Playlist.Name LIKE ? COLLATE NOCASE
+        ORDER BY
+          CASE WHEN LOWER(Playlist.Name) = ? THEN 0 ELSE 1 END,
+          Playlist.Name COLLATE NOCASE
+        LIMIT 10
+      `
+        )
+        .all(searchPattern, exactQuery);
 
       const normalizeTrackNumber = (trackNumber: any) => {
         if (trackNumber === null || trackNumber === undefined || trackNumber === '') return null;
@@ -1944,7 +2426,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           title: f.Name,
           songCount: f.SongCount,
         })),
-        playlists,
+        playlists: playlists.map(p => ({
+          id: p.Id,
+          title: p.Name,
+          songCount: p.SongCount,
+        })),
       };
 
       return results;
@@ -1972,7 +2458,6 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       console.warn('Failed to apply window scale on load:', err);
     }
 
-    // Don't spawn if another scan is already running
     if (activeScanWorker) return;
 
     const folders = db.prepare('SELECT * FROM MusicFolder').all();
