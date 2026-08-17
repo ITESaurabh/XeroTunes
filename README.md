@@ -16,6 +16,8 @@ XeroTunes is a powerful, open source cross-platform music player application tha
 
 - **Discord Presence Integration:** Showcase your offline music activity on Discord, just like Spotify. XeroTunes seamlessly integrates with Discord, allowing you to display your current track and listen along with friends.
 
+- **Scrobbling:** Keep your listening history on the service you already use - Last.fm, Libre.fm, ListenBrainz, or your own GNU FM / ListenBrainz server. Connect as many as you like; plays are queued while you're offline and sent when you're back.
+
 - **Mini Player with Quick File Opening:** Easily preview your music without opening the full app. XeroTunes offers a convenient mini player feature, enabling you to control playback from a compact and non-intrusive window. You can use it via right-click on a music file and select "Open in XeroTunes Mini" to instantly play the selected file in the mini player.   ****(Currently Limited to Windows only)***
 
 - **Music Library Organization:** Easily manage and organize your music library with XeroTunes's comprehensive library management features. Sort your music by artist, album, genre, or create custom tags to find your favorite tracks quickly.

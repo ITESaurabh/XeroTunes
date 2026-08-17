@@ -474,6 +474,15 @@ export default function PlayBar() {
     });
   }, []);
 
+  // ── Scrobbling (Last.fm / ListenBrainz) ──────────────────────────────
+  // Refs, not state: the 1Hz tick below reads them without restarting itself.
+  const scrobbledRef = useRef(false);
+  const trackStartedAtRef = useRef(0);
+  const startScrobbleWindow = useCallback(() => {
+    scrobbledRef.current = false;
+    trackStartedAtRef.current = Math.floor(Date.now() / 1000);
+  }, []);
+
   const artistNames = React.useMemo(() => {
     // Split only on the comma that GROUP_CONCAT uses to join multiple distinct
     // artists. Do NOT split on '&' — a single artist name can legitimately
@@ -622,6 +631,8 @@ export default function PlayBar() {
         if (state.repeatMode === 'one') {
           audio.currentTime = 0;
           audio.play().catch(() => undefined);
+          // Track id doesn't change on repeat, so arm the next scrobble here.
+          startScrobbleWindow();
         } else if (state.queueIndex < state.queue.length - 1) {
           dispatch({ type: 'NEXT_TRACK' });
         } else if (state.repeatMode === 'all') {
@@ -631,7 +642,7 @@ export default function PlayBar() {
         }
       }
     };
-  }, [state.queue, state.queueIndex, state.repeatMode, dispatch]);
+  }, [state.queue, state.queueIndex, state.repeatMode, dispatch, startScrobbleWindow]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -844,11 +855,33 @@ export default function PlayBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id]);
 
+  const scrobbleMeta = useMemo(() => {
+    const track = state.track;
+    if (!track?.Id) return null;
+    const artist = artistNames.join(', ');
+    const title = (track.Title as string) || '';
+    if (!artist || !title) return null;
+    return {
+      artist,
+      track: title,
+      album: (track.AlbumTitle as string) || undefined,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.track?.Id, artistNames]);
+  const scrobbleMetaRef = useRef(scrobbleMeta);
+  scrobbleMetaRef.current = scrobbleMeta;
+
+  useEffect(() => {
+    if (paused || !scrobbleMeta) return;
+    ipcRenderer.send('scrobbler-now-playing', { ...scrobbleMeta, duration });
+  }, [scrobbleMeta, paused, duration]);
+
   // ── Track play count / last-played + OS seek bar — coalesced 1Hz tick ──
   const playedCountedRef = useRef(false);
   useEffect(() => {
     playedCountedRef.current = false;
-  }, [state.track?.Id]);
+    startScrobbleWindow();
+  }, [state.track?.Id, startScrobbleWindow]);
 
   useEffect(() => {
     const trackId = state.track?.Id;
@@ -874,6 +907,20 @@ export default function PlayBar() {
       if (!playedCountedRef.current && pos / duration >= 0.7) {
         playedCountedRef.current = true;
         ipcRenderer.send('track-played', { trackId });
+      }
+
+      // Last.fm's rule: tracks over 30s count at half their length or 4
+      // minutes in, whichever comes first. ListenBrainz uses the same one.
+      if (!scrobbledRef.current && duration > 30 && pos >= Math.min(duration / 2, 240)) {
+        scrobbledRef.current = true;
+        const meta = scrobbleMetaRef.current;
+        if (meta) {
+          ipcRenderer.send('scrobbler-scrobble', {
+            ...meta,
+            duration,
+            timestamp: trackStartedAtRef.current,
+          });
+        }
       }
     };
 

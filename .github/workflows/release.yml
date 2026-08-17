@@ -88,3 +88,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_ENV: ${{ steps.channel.outputs.app_env }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          GCAST_APP_ID: ${{ secrets.GCAST_APP_ID }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          LIBREFM_API_KEY: ${{ secrets.LIBREFM_API_KEY }}
+          LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}

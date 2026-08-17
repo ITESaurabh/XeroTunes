@@ -2,6 +2,7 @@ import React, { useContext } from 'react';
 import type { Theme } from '@mui/material/styles';
 import {
   alpha,
+  Alert,
   Container,
   Button,
   Accordion,
@@ -46,6 +47,7 @@ import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
+import scrobbleIcon from '@iconify/icons-fluent/cloud-sync-24-regular';
 import duplicateIcon from '@iconify/icons-fluent/document-copy-24-regular';
 import warningIcon from '@iconify/icons-fluent/warning-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
@@ -90,6 +92,11 @@ import XeroLogoMark from '../components/XeroLogoMark';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
 import { APP_DISPLAY_NAME, OS_MAC } from '../../config/constants';
+import type {
+  ScrobblerStatus,
+  ScrobbleProvider,
+  ProviderStatus,
+} from '../../main/modules/Scrobbler';
 import os from 'os';
 
 interface MusicFolder {
@@ -607,6 +614,126 @@ const ChipListEditor: React.FC<ChipListEditorProps> = ({
   );
 };
 
+const SCROBBLER_BLURBS: Record<ScrobbleProvider, string> = {
+  lastfm: 'Send plays to your Last.fm profile',
+  librefm: 'The free, open Last.fm alternative',
+  listenbrainz: 'Paste the user token from listenbrainz.org/settings',
+  gnufm: 'Any self-hosted GNU FM instance',
+  'listenbrainz-custom': 'Your own ListenBrainz server',
+};
+
+interface ScrobblerRowProps {
+  status: ProviderStatus;
+  busy: boolean;
+  awaitingApproval: boolean;
+  actionError: string | null;
+  onToggle: (enabled: boolean) => void;
+  onDisconnect: () => void;
+  onStartWebAuth: (baseUrl: string) => void;
+  onFinishWebAuth: () => void;
+  onConnectToken: (token: string, baseUrl: string) => void;
+}
+
+const ScrobblerRow: React.FC<ScrobblerRowProps> = ({
+  status,
+  busy,
+  awaitingApproval,
+  actionError,
+  onToggle,
+  onDisconnect,
+  onStartWebAuth,
+  onFinishWebAuth,
+  onConnectToken,
+}) => {
+  const [baseUrl, setBaseUrl] = React.useState(status.baseUrl ?? '');
+  const [token, setToken] = React.useState('');
+  const tokenAuth = status.protocol === 'listenbrainz';
+
+  const secondary = !status.configured
+    ? 'This build ships without Last.fm API credentials'
+    : status.connected
+      ? `Connected as ${status.username ?? 'your account'}${
+          status.pending ? ` - ${status.pending} waiting to send` : ''
+        }`
+      : awaitingApproval
+        ? `Approve ${APP_DISPLAY_NAME} in your browser, then finish here`
+        : SCROBBLER_BLURBS[status.provider];
+
+  const connectDisabled =
+    busy ||
+    !status.configured ||
+    (status.selfHosted && !baseUrl.trim()) ||
+    (tokenAuth && !token.trim());
+
+  return (
+    <ListItem sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+      <ListItemIcon>
+        <Icon icon={scrobbleIcon} width={'2rem'} />
+      </ListItemIcon>
+      <ListItemText primary={status.label} secondary={secondary} />
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: 'auto', mr: 0.5 }}>
+        {status.connected ? (
+          <>
+            <IOSSwitch
+              checked={status.enabled}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => onToggle(e.target.checked)}
+            />
+            <Button size="small" variant="outlined" disabled={busy} onClick={onDisconnect}>
+              Disconnect
+            </Button>
+          </>
+        ) : (
+          <>
+            {status.selfHosted && (
+              <TextField
+                size="small"
+                placeholder="https://fm.example.org"
+                value={baseUrl}
+                onChange={e => setBaseUrl(e.target.value)}
+                sx={{ width: 220 }}
+              />
+            )}
+            {tokenAuth && (
+              <TextField
+                size="small"
+                type="password"
+                placeholder="User token"
+                value={token}
+                onChange={e => setToken(e.target.value)}
+                sx={{ width: 180 }}
+              />
+            )}
+            <Button
+              size="small"
+              variant={awaitingApproval ? 'contained' : 'outlined'}
+              disableElevation
+              disabled={connectDisabled}
+              startIcon={busy ? <CircularProgress size={16} color="inherit" /> : undefined}
+              onClick={() => {
+                if (tokenAuth) {
+                  onConnectToken(token, baseUrl);
+                  setToken('');
+                } else if (awaitingApproval) {
+                  onFinishWebAuth();
+                } else {
+                  onStartWebAuth(baseUrl);
+                }
+              }}
+            >
+              {awaitingApproval ? "I've approved" : 'Connect'}
+            </Button>
+          </>
+        )}
+      </Stack>
+      {(actionError ?? status.lastError) && (
+        <Alert severity="error" variant="outlined" sx={{ width: '100%' }}>
+          {actionError ?? status.lastError}
+        </Alert>
+      )}
+    </ListItem>
+  );
+};
+
 const Settings: React.FC = () => {
   const [expanded, setExpanded] = React.useState<boolean>(false);
   const [resetExpanded, setResetExpanded] = React.useState<boolean>(false);
@@ -617,6 +744,13 @@ const Settings: React.FC = () => {
   );
   const [missedArtists, setMissedArtists] = React.useState<number>(0);
   const [retryingArtists, setRetryingArtists] = React.useState<boolean>(false);
+  const [scrobbler, setScrobbler] = React.useState<ScrobblerStatus | null>(null);
+  const [scrobblerBusy, setScrobblerBusy] = React.useState<ScrobbleProvider | null>(null);
+  const [scrobblerError, setScrobblerError] = React.useState<{
+    provider: ScrobbleProvider;
+    message: string;
+  } | null>(null);
+  const [awaitingApproval, setAwaitingApproval] = React.useState<ScrobbleProvider | null>(null);
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
@@ -677,6 +811,38 @@ const Settings: React.FC = () => {
       .then((info: unknown) => setAppInfo(info as AppInfo))
       .catch(() => undefined);
   }, []);
+
+  React.useEffect(() => {
+    // Submissions fail in the background with no event to listen for.
+    const refresh = () =>
+      invokeEventToMainProcess('scrobbler-status')
+        .then((s: unknown) => setScrobbler(s as ScrobblerStatus))
+        .catch(() => undefined);
+    refresh();
+    const id = setInterval(refresh, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const runScrobblerAction = React.useCallback(
+    async (provider: ScrobbleProvider, action: () => Promise<unknown>) => {
+      setScrobblerBusy(provider);
+      setScrobblerError(null);
+      try {
+        const result = await action();
+        if (result) setScrobbler(result as ScrobblerStatus);
+      } catch (err) {
+        // ipcRenderer.invoke wraps the thrown message in its own boilerplate.
+        const msg = err instanceof Error ? err.message : String(err);
+        setScrobblerError({
+          provider,
+          message: msg.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, ''),
+        });
+      } finally {
+        setScrobblerBusy(null);
+      }
+    },
+    []
+  );
 
   React.useEffect(() => {
     if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -1514,6 +1680,66 @@ const Settings: React.FC = () => {
           <List
             subheader={
               <ListSubheader color="inherit" sx={subheaderSx}>
+                Scrobbling
+              </ListSubheader>
+            }
+          >
+            {(scrobbler ?? []).map(s => (
+              <ScrobblerRow
+                key={s.provider}
+                status={s}
+                busy={scrobblerBusy === s.provider}
+                awaitingApproval={awaitingApproval === s.provider}
+                actionError={
+                  scrobblerError?.provider === s.provider ? scrobblerError.message : null
+                }
+                onToggle={enabled =>
+                  runScrobblerAction(s.provider, () =>
+                    invokeEventToMainProcess('scrobbler-set-enabled', {
+                      provider: s.provider,
+                      enabled,
+                    })
+                  )
+                }
+                onDisconnect={() =>
+                  runScrobblerAction(s.provider, () =>
+                    invokeEventToMainProcess('scrobbler-disconnect', { provider: s.provider })
+                  )
+                }
+                onStartWebAuth={baseUrl =>
+                  runScrobblerAction(s.provider, async () => {
+                    await invokeEventToMainProcess('scrobbler-auth-start', {
+                      provider: s.provider,
+                      baseUrl,
+                    });
+                    setAwaitingApproval(s.provider);
+                    return null;
+                  })
+                }
+                onFinishWebAuth={() =>
+                  runScrobblerAction(s.provider, async () => {
+                    const status = await invokeEventToMainProcess('scrobbler-auth-finish', {
+                      provider: s.provider,
+                    });
+                    setAwaitingApproval(null);
+                    return status;
+                  })
+                }
+                onConnectToken={(token, baseUrl) =>
+                  runScrobblerAction(s.provider, () =>
+                    invokeEventToMainProcess('scrobbler-connect-token', {
+                      provider: s.provider,
+                      token,
+                      baseUrl,
+                    })
+                  )
+                }
+              />
+            ))}
+          </List>
+          <List
+            subheader={
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Advanced Options
               </ListSubheader>
             }
@@ -1551,8 +1777,8 @@ const Settings: React.FC = () => {
                 <AccordionDetails>
                   <Stack spacing={1.5} alignItems="flex-start">
                     <Typography variant="body2" color="text.secondary">
-                      Wipe your library, settings, themes and cached art, individually or all
-                      at once. Music files on disk are never touched.
+                      Wipe your library, settings, themes and cached art, individually or all at
+                      once. Music files on disk are never touched.
                     </Typography>
                     <Button
                       variant="contained"

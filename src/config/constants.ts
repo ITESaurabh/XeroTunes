@@ -17,6 +17,13 @@ export const IS_DEV_MODE = process.env.NODE_ENV === 'development';
 
 export const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 
+export const LASTFM_API_KEY = process.env.LASTFM_API_KEY;
+export const LASTFM_API_SECRET = process.env.LASTFM_API_SECRET;
+
+export const LIBREFM_API_KEY = process.env.LIBREFM_API_KEY || '00000000000000000000000000000000';
+export const LIBREFM_API_SECRET =
+  process.env.LIBREFM_API_SECRET || '00000000000000000000000000000000';
+
 export const CAST_RECEIVER_APP_ID = process.env.GCAST_APP_ID || '';
 
 /** Default album art – a generic music-note placeholder */

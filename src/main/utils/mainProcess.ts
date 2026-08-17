@@ -18,6 +18,19 @@ import {
   destroyPresence,
 } from '../modules/DiscordPresence';
 import {
+  ScrobbleProvider,
+  ScrobbleTrack,
+  getScrobblerStatus,
+  startWebAuth,
+  finishWebAuth,
+  connectWithToken,
+  disconnectScrobbler,
+  setScrobblerEnabled,
+  scrobblerNowPlaying,
+  scrobbleTrack,
+  initScrobbler,
+} from '../modules/Scrobbler';
+import {
   setCastListeners,
   startDiscovery as castStartDiscovery,
   stopDiscovery as castStopDiscovery,
@@ -2572,4 +2585,34 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.on('discord-set-enabled', (_, { enabled }: { enabled: boolean }) => {
     setPresenceEnabled(enabled);
   });
+
+  // ── Scrobbling IPC (Last.fm / Libre.fm / GNU FM / ListenBrainz) ───────────
+  ipcMain.handle('scrobbler-status', () => getScrobblerStatus());
+  ipcMain.handle(
+    'scrobbler-auth-start',
+    (_, { provider, baseUrl }: { provider: ScrobbleProvider; baseUrl?: string }) =>
+      startWebAuth(provider, baseUrl)
+  );
+  ipcMain.handle('scrobbler-auth-finish', (_, { provider }: { provider: ScrobbleProvider }) =>
+    finishWebAuth(provider)
+  );
+  ipcMain.handle(
+    'scrobbler-connect-token',
+    (
+      _,
+      { provider, token, baseUrl }: { provider: ScrobbleProvider; token: string; baseUrl?: string }
+    ) => connectWithToken(provider, token, baseUrl)
+  );
+  ipcMain.handle('scrobbler-disconnect', (_, { provider }: { provider: ScrobbleProvider }) =>
+    disconnectScrobbler(provider)
+  );
+  ipcMain.handle(
+    'scrobbler-set-enabled',
+    (_, { provider, enabled }: { provider: ScrobbleProvider; enabled: boolean }) =>
+      setScrobblerEnabled(provider, enabled)
+  );
+  ipcMain.on('scrobbler-now-playing', (_, track: ScrobbleTrack) => scrobblerNowPlaying(track));
+  ipcMain.on('scrobbler-scrobble', (_, track: ScrobbleTrack) => scrobbleTrack(track));
+
+  initScrobbler();
 }
