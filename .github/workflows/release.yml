@@ -93,3 +93,10 @@ jobs:
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           LIBREFM_API_KEY: ${{ secrets.LIBREFM_API_KEY }}
           LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}
+
+  # Rebuild the site so its download links pick up the new release assets.
+  netlify:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsSL -X POST -d '{}' "${{ secrets.NETLIFY_BUILD_HOOK }}"
