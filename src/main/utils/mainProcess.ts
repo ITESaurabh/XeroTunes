@@ -44,6 +44,8 @@ import {
 } from '../modules/Cast';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db: any = dbModule;
+
+type ScrobblePayload = ScrobbleTrack & { trackId?: number };
 import path from 'path';
 import fs from 'fs';
 import {
@@ -2586,6 +2588,41 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     setPresenceEnabled(enabled);
   });
 
+  /**
+   * The renderer only has `ArtistName`, a GROUP_CONCAT joined with ', ', and
+   * splitting it back apart mangles names containing a comma ("Tyler, The
+   * Creator"). The TrackArtist rows behind it are unambiguous, so the scrobble
+   * payload resolves its artists from those instead.
+   */
+  function withResolvedArtists({ trackId, ...track }: ScrobblePayload): ScrobbleTrack {
+    if (!trackId) return track;
+    const artists = db
+      .prepare(
+        `SELECT ar.Name AS Name FROM TrackArtist ta
+           JOIN Artist ar ON ar.Id = ta.ArtistId
+          WHERE ta.TrackId = ? ORDER BY ta.Id`
+      )
+      .all(trackId)
+      .map((r: { Name: string }) => (r.Name || '').trim())
+      .filter(Boolean);
+    const row = db
+      .prepare(
+        `SELECT t.RawArtist AS RawArtist, (
+            SELECT GROUP_CONCAT(ar.Name, ', ' ORDER BY aa.Id)
+              FROM AlbumArtist aa JOIN Artist ar ON ar.Id = aa.ArtistId
+             WHERE aa.AlbumId = t.AlbumId
+          ) AS AlbumArtistName
+         FROM Track t WHERE t.Id = ?`
+      )
+      .get(trackId) as { RawArtist: string | null; AlbumArtistName: string | null } | undefined;
+    return {
+      ...track,
+      artists,
+      artistRaw: row?.RawArtist || track.artist,
+      albumArtist: row?.AlbumArtistName || undefined,
+    };
+  }
+
   // ── Scrobbling IPC (Last.fm / Libre.fm / GNU FM / ListenBrainz) ───────────
   ipcMain.handle('scrobbler-status', () => getScrobblerStatus());
   ipcMain.handle(
@@ -2611,8 +2648,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     (_, { provider, enabled }: { provider: ScrobbleProvider; enabled: boolean }) =>
       setScrobblerEnabled(provider, enabled)
   );
-  ipcMain.on('scrobbler-now-playing', (_, track: ScrobbleTrack) => scrobblerNowPlaying(track));
-  ipcMain.on('scrobbler-scrobble', (_, track: ScrobbleTrack) => scrobbleTrack(track));
+  ipcMain.on('scrobbler-now-playing', (_, track: ScrobblePayload) =>
+    scrobblerNowPlaying(withResolvedArtists(track))
+  );
+  ipcMain.on('scrobbler-scrobble', (_, track: ScrobblePayload) =>
+    scrobbleTrack(withResolvedArtists(track))
+  );
 
   initScrobbler();
 }

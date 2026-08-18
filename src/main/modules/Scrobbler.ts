@@ -9,6 +9,11 @@ import {
   LIBREFM_API_SECRET,
 } from '../../config/constants';
 import { lastfmSignature } from '../utils/scrobbleSig';
+import {
+  primaryArtist,
+  audioscrobblerParams,
+  listenBrainzBody,
+} from '../utils/scrobblePayload';
 
 /**
  * Two wire protocols cover every service here: Last.fm, Libre.fm and any
@@ -33,7 +38,13 @@ export const SCROBBLE_PROVIDERS: ScrobbleProvider[] = [
 ];
 
 export interface ScrobbleTrack {
-  artist: string;
+  /** Full credit exactly as the file's tag had it. ListenBrainz gets this one. */
+  artistRaw?: string;
+  /** The credited artists as separate entities. `artists[0]` is what Last.fm gets. */
+  artists?: string[];
+  /** Legacy fallback: the joined display string, on entries queued before the split. */
+  artist?: string;
+  albumArtist?: string;
   track: string;
   album?: string;
   duration?: number;
@@ -240,24 +251,7 @@ async function submitAudioscrobbler(
   const credential = load()[provider].credential;
   if (!credential) return 'drop';
 
-  const params: Record<string, string> = { sk: credential };
-  if (nowPlaying) {
-    const t = tracks[0];
-    params.method = 'track.updateNowPlaying';
-    params.artist = t.artist;
-    params.track = t.track;
-    if (t.album) params.album = t.album;
-    if (t.duration) params.duration = String(Math.round(t.duration));
-  } else {
-    params.method = 'track.scrobble';
-    tracks.forEach((t, i) => {
-      params[`artist[${i}]`] = t.artist;
-      params[`track[${i}]`] = t.track;
-      params[`timestamp[${i}]`] = String(t.timestamp);
-      if (t.album) params[`album[${i}]`] = t.album;
-      if (t.duration) params[`duration[${i}]`] = String(Math.round(t.duration));
-    });
-  }
+  const params = audioscrobblerParams(tracks, nowPlaying, credential);
 
   try {
     await audioscrobblerRequest(provider, params);
@@ -282,27 +276,11 @@ async function submitListenBrainz(
   const root = apiRoot(provider);
   if (!credential || !root) return 'drop';
 
-  const payload = tracks.map(t => ({
-    ...(nowPlaying ? {} : { listened_at: t.timestamp }),
-    track_metadata: {
-      artist_name: t.artist,
-      track_name: t.track,
-      ...(t.album ? { release_name: t.album } : {}),
-      additional_info: {
-        media_player: 'XeroTunes',
-        ...(t.duration ? { duration_ms: Math.round(t.duration * 1000) } : {}),
-      },
-    },
-  }));
-
   try {
     const res = await fetch(`${root}/submit-listens`, {
       method: 'POST',
       headers: { Authorization: `Token ${credential}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        listen_type: nowPlaying ? 'playing_now' : tracks.length > 1 ? 'import' : 'single',
-        payload,
-      }),
+      body: JSON.stringify(listenBrainzBody(tracks, nowPlaying)),
     });
     if (res.ok) {
       noteError(provider, null);
@@ -484,7 +462,7 @@ export function setScrobblerEnabled(provider: ScrobbleProvider, enabled: boolean
 
 /** Fire-and-forget "listening now" ping. Not queued — it's worthless once stale. */
 export function scrobblerNowPlaying(track: ScrobbleTrack): void {
-  if (!track?.artist || !track?.track) return;
+  if (!track?.track || !primaryArtist(track)) return;
   const s = load();
   for (const p of SCROBBLE_PROVIDERS) {
     if (s[p].enabled && s[p].credential) void submit(p, [track], true);
@@ -493,7 +471,7 @@ export function scrobblerNowPlaying(track: ScrobbleTrack): void {
 
 /** Queue a completed play on every connected service and try to send it now. */
 export function scrobbleTrack(track: ScrobbleTrack): void {
-  if (!track?.artist || !track?.track) return;
+  if (!track?.track || !primaryArtist(track)) return;
   const s = load();
   const entry: ScrobbleTrack = {
     ...track,

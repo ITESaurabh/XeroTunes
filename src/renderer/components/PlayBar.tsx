@@ -861,7 +861,10 @@ export default function PlayBar() {
     const artist = artistNames.join(', ');
     const title = (track.Title as string) || '';
     if (!artist || !title) return null;
+    // `artist` is the joined display string, a fallback only; the main process
+    // resolves the real per-artist rows from `trackId`.
     return {
+      trackId: track.Id as number,
       artist,
       track: title,
       album: (track.AlbumTitle as string) || undefined,
