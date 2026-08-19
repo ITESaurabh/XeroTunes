@@ -2,14 +2,7 @@ import { AMETHYST, AppTheme } from './theme';
 
 export type ThemeMode = 0 | 1 | 2;
 export type TitleBarStyle =
-  | 'default'
-  | 'native'
-  | 'hidden'
-  | 'mac'
-  | 'mac-fake'
-  | 'linux-gnome'
-  | 'linux-kde'
-  | 'windows';
+  'default' | 'native' | 'hidden' | 'mac' | 'mac-fake' | 'linux-gnome' | 'linux-kde' | 'windows';
 export type ThemePaletteVariant = 'default' | 'soft' | 'highContrast';
 export type PlaybackRepeatMode = 'off' | 'all' | 'one';
 export type ViewMode = 'list' | 'grid';
@@ -69,8 +62,12 @@ export interface AppSettings {
   overlayEnabled: boolean;
   discordPresenceEnabled: boolean;
   artistImageFetchingEnabled: boolean;
+  /** Days a station's recently-played entry survives unless it is bookmarked. */
+  streamHistoryDays: number;
   windowScale: number;
 }
+
+export const STREAM_HISTORY_DAY_OPTIONS: number[] = [1, 3, 7, 15, 30];
 
 export const WINDOW_SCALE_OPTIONS: number[] = [0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2];
 export const MIN_WINDOW_SCALE = 0.5;
@@ -126,5 +123,6 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   overlayEnabled: true,
   discordPresenceEnabled: false,
   artistImageFetchingEnabled: true,
+  streamHistoryDays: 3,
   windowScale: 1,
 };

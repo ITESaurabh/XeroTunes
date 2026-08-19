@@ -17,7 +17,7 @@ import { APP_NAME, APP_EDITION, DEFAULT_AA } from '../../../config/constants';
 import MuiImage from 'mui-image';
 import { parseFile } from 'music-metadata';
 import Marquee from 'react-fast-marquee';
-import { formatTime } from '../../utils/misc';
+import { formatTime, toMediaSrc } from '../../utils/misc';
 import { getVolumeLevel, setVolumeLevel } from '../../utils/LocStoreUtil';
 
 interface SongMeta {
@@ -91,7 +91,7 @@ export default function MiniPlayerView(): React.ReactElement {
     if (!audioElement) return;
     // Without this, play() on a still-playing element races the src swap and rejects with "interrupted by a new load request" - silent until the user toggles play/pause.
     audioElement.pause();
-    audioElement.src = `file:///${path.replace(/\\/g, '/')}`;
+    audioElement.src = toMediaSrc(path);
     setPosition(0);
     setIsSeeking(false);
 

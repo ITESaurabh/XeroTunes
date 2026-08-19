@@ -39,6 +39,7 @@ import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
 import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import zoomIcon from '@iconify/icons-fluent/zoom-in-24-regular';
+import streamIcon from '@iconify/icons-fluent/live-24-regular';
 import checkmarkCircleIcon from '@iconify/icons-fluent/checkmark-circle-16-filled';
 import windowHeaderIcon from '@iconify/icons-fluent/window-header-vertical-20-regular';
 import minimizeIcon from '@iconify/icons-fluent/minimize-16-regular';
@@ -63,6 +64,8 @@ import {
   getOverlayEnabled,
   setOverlayEnabled,
   getArtistImageFetchingEnabled,
+  getStreamHistoryDays,
+  setStreamHistoryDays,
   setArtistImageFetchingEnabled,
   getWindowScale,
   setWindowScale,
@@ -83,7 +86,12 @@ import {
   deleteCustomTheme,
   uniqueThemeName,
 } from '../utils/LocStoreUtil';
-import { WINDOW_SCALE_OPTIONS, TitleBarStyle, ThemeMode } from '../../config/app_settings';
+import {
+  STREAM_HISTORY_DAY_OPTIONS,
+  WINDOW_SCALE_OPTIONS,
+  TitleBarStyle,
+  ThemeMode,
+} from '../../config/app_settings';
 import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
 import ThemeEditorDialog from '../components/ThemeEditorDialog';
 import FactoryResetDialog from '../components/FactoryResetDialog';
@@ -760,6 +768,8 @@ const Settings: React.FC = () => {
   const [outputDevices, setOutputDevices] = React.useState<MediaDeviceInfo[]>([]);
   const [outputDeviceId, setOutputDeviceIdState] = React.useState<string>(getAudioOutputDeviceId);
   const [windowScale, setWindowScaleState] = React.useState<number>(getWindowScale());
+  const [streamHistoryDays, setStreamHistoryDaysState] =
+    React.useState<number>(getStreamHistoryDays());
   const [titleBarStyle, setTitleBarStyleState] = React.useState<TitleBarStyle>(getTitleBarStyle());
   const [themeMode, setThemeModeState] = React.useState<ThemeMode>(getThemeMode());
   const [artistSeparators, setArtistSeparatorsState] =
@@ -1482,6 +1492,40 @@ const Settings: React.FC = () => {
                 {WINDOW_SCALE_OPTIONS.map(opt => (
                   <MenuItem key={opt} value={opt}>
                     {Math.round(opt * 100)}%
+                  </MenuItem>
+                ))}
+              </Select>
+            </ListItem>
+          </List>
+          <List
+            subheader={
+              <ListSubheader color="inherit" sx={subheaderSx}>
+                Streams
+              </ListSubheader>
+            }
+          >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={streamIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="select-stream-history"
+                primary="Keep recently played for"
+                secondary="Bookmarked songs will be kept forever, everything else will be vanished."
+              />
+              <Select
+                size="small"
+                value={streamHistoryDays}
+                onChange={e => {
+                  const next = Number(e.target.value);
+                  setStreamHistoryDaysState(next);
+                  setStreamHistoryDays(next);
+                }}
+                sx={{ minWidth: 110, mr: 0.5 }}
+              >
+                {STREAM_HISTORY_DAY_OPTIONS.map(opt => (
+                  <MenuItem key={opt} value={opt}>
+                    {opt} day{opt === 1 ? '' : 's'}
                   </MenuItem>
                 ))}
               </Select>

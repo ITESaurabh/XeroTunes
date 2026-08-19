@@ -1,5 +1,6 @@
 /** Self-check: run with `node src/config/theme.check.ts`. */
 import assert from 'node:assert';
+import { getContrastRatio } from '@mui/material/styles';
 import {
   AMETHYST,
   THEME_FIELDS,
@@ -48,8 +49,6 @@ for (const [key, want] of Object.entries({
   glassBorder: 'rgba(1, 1, 2, 0.25)', // was rgba(0,0,0,0.25)
   scrim: 'rgba(1, 1, 2, 0.5)', // was rgba(0,0,0,0.5) behind modals
   positive: '#2ECA45', // the iOS-style switch green
-  artFrom: '#1e1e3f',
-  artTo: '#2d2d5a',
   folder: '#facc6b',
   year: '#7cc4ff',
   genre: '#c084fc',
@@ -59,8 +58,29 @@ for (const [key, want] of Object.entries({
 
 // The light counterparts have to actually differ, or light mode is still dark-only.
 const lightSurfaces = surfacesFor(AMETHYST.light, 'light');
-for (const key of ['control', 'well', 'glass', 'scrim', 'trackOff', 'listHeader'] as const) {
+for (const key of [
+  'control',
+  'well',
+  'glass',
+  'scrim',
+  'trackOff',
+  'listHeader',
+  'artFrom',
+  'artTo',
+] as const) {
   assert.notEqual(lightSurfaces[key], darkSurfaces[key], `${key} must differ per mode`);
+}
+
+// Placeholder art carries a primary-coloured glyph, so each fill has to stay clear
+// of the primary it sits under. 3:1 is the WCAG floor for a large graphic.
+for (const [mode, colors, surfaces] of [
+  ['dark', AMETHYST.dark, darkSurfaces],
+  ['light', AMETHYST.light, lightSurfaces],
+] as const) {
+  for (const key of ['artFrom', 'artTo'] as const) {
+    const ratio = getContrastRatio(surfaces[key], colors.primary);
+    assert.ok(ratio >= 3, `${mode} ${key} glyph contrast ${ratio.toFixed(2)} is below 3:1`);
+  }
 }
 // Light chrome must be light, not a dark value reused: a tinted #F3F3F3 card over a
 // #C1C1C1 rail, with the transport discs white on top.
@@ -116,10 +136,7 @@ const extra = parseTheme({ ...good, evil: 'x', light: { ...good.light, evil: 'x'
 assert.equal('theme' in extra, true);
 if ('theme' in extra) {
   assert.deepEqual(Object.keys(extra.theme).sort(), ['dark', 'light', 'name']);
-  assert.deepEqual(
-    Object.keys(extra.theme.light).sort(),
-    THEME_FIELDS.map(f => f.key).sort()
-  );
+  assert.deepEqual(Object.keys(extra.theme.light).sort(), THEME_FIELDS.map(f => f.key).sort());
 }
 
 console.log('theme.check.ts: ok');

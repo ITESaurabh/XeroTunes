@@ -29,7 +29,7 @@ import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useConfirm } from '../utils/useConfirm';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
-import { CARD_HOVER_CLASS, gridCardSx } from '../styles/listSx';
+import { artPlaceholderSx, CARD_HOVER_CLASS, gridCardSx } from '../styles/listSx';
 import { DEFAULT_AA } from '../../config/constants';
 
 interface PlaylistRow {
@@ -332,7 +332,7 @@ const Playlists: React.FC = () => {
 
       <Box
         onScroll={e => scrollHide({ scrollTop: e.currentTarget.scrollTop })}
-        sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: 2 }}
+        sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 2, pb: 2 }}
       >
         {playlists.length === 0 ? (
           <Typography sx={{ p: 4, opacity: 0.6 }}>
@@ -361,17 +361,7 @@ const Playlists: React.FC = () => {
                         sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                       />
                     ) : (
-                      <Box
-                        sx={{
-                          width: '100%',
-                          height: '100%',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: 'text.disabled',
-                          bgcolor: 'surfaces.artFrom',
-                        }}
-                      >
+                      <Box sx={{ ...artPlaceholderSx, width: '100%', height: '100%' }}>
                         <Icon icon={playlistIcon} width={40} />
                       </Box>
                     )}

@@ -332,6 +332,14 @@ export function setArtistImageFetchingEnabled(enabled: boolean): void {
   updateSettings({ artistImageFetchingEnabled: enabled });
 }
 
+export function getStreamHistoryDays(): number {
+  return getSettings().streamHistoryDays;
+}
+
+export function setStreamHistoryDays(days: number): void {
+  updateSettings({ streamHistoryDays: days });
+}
+
 export function getWindowScale(): number {
   return clampWindowScale(getSettings().windowScale);
 }

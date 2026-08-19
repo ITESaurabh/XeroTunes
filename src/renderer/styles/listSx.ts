@@ -39,13 +39,19 @@ export const revealOnCardHoverSx: SxProps<Theme> = {
   [`.${CARD_HOVER_CLASS}:hover &`]: { opacity: 1 },
 };
 
+/** The glyph is the theme primary, so both fills have to clear it; theme.check.ts asserts that. */
+export const artPlaceholderSx: SxProps<Theme> = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: 'primary.main',
+  background: theme =>
+    `linear-gradient(135deg, ${theme.palette.surfaces.artFrom} 0%, ${theme.palette.surfaces.artTo} 100%)`,
+};
+
 export const detailBannerBg = (theme: Theme) => alpha(theme.palette.text.primary, 0.04);
 
-/** @deprecated Shown in a hero block when there is no real artwork. */
-export const heroTileBg = (theme: Theme) =>
-  `linear-gradient(135deg, ${theme.palette.surfaces.artFrom} 0%, ${theme.palette.surfaces.artTo} 100%)`;
-
-export const listRowSx = (index: number): SxProps<Theme> => {
+export const listRowSx = (index: number, interactive = true): SxProps<Theme> => {
   const striped = index % 2 !== 0;
   return {
     display: 'flex',
@@ -61,9 +67,11 @@ export const listRowSx = (index: number): SxProps<Theme> => {
     borderRadius: 0.5,
     // sx outranks MUI's own .Mui-selected rule, so the selected state is restated below.
     bgcolor: striped ? theme => alpha(theme.palette.text.primary, 0.03) : 'transparent',
-    '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.08) },
-    '&.Mui-selected, &.Mui-selected:hover': {
-      bgcolor: theme => theme.palette.surfaces.selection,
-    },
+    ...(interactive && {
+      '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.08) },
+      '&.Mui-selected, &.Mui-selected:hover': {
+        bgcolor: theme => theme.palette.surfaces.selection,
+      },
+    }),
   };
 };

@@ -75,7 +75,6 @@ export interface ThemeSurfaces {
 
 /** Fixed across modes and themes: these identify a thing, they don't decorate it. */
 const CATEGORY = { folder: '#facc6b', year: '#7cc4ff', genre: '#c084fc' } as const;
-const ART = { artFrom: '#1e1e3f', artTo: '#2d2d5a' } as const;
 
 export const surfacesFor = (c: ThemeColors, mode: PaletteMode): ThemeSurfaces => {
   const isDark = mode === 'dark';
@@ -93,16 +92,14 @@ export const surfacesFor = (c: ThemeColors, mode: PaletteMode): ThemeSurfaces =>
     control: isDark ? deep : pale,
     // Rails still step *down* from the page, or they collapse into it.
     well: isDark ? deep : darken(c.backgroundDefault, 0.2),
-    // The bar sits over an 80px blur of album art, so it stays mostly opaque in light
-    // or the art drags it off the scale above.
     glass: alpha(isDark ? deep : darken(c.backgroundDefault, 0.05), isDark ? 0.6 : 0.72),
     glassBorder: alpha(deep, isDark ? 0.25 : 0.15),
     scrim: alpha(isDark ? deep : pale, 0.5),
-    // Sits back from the accent in dark mode; a pastel primary is too loud for chrome.
     accent: isDark ? darken(c.primary, 0.32) : c.primary,
     selection: alpha(c.primary, isDark ? 0.18 : 0.16),
     positive: isDark ? '#2ECA45' : '#65C466',
-    ...ART,
+    artFrom: isDark ? darken(c.primary, 0.78) : lighten(c.primary, 0.84),
+    artTo: isDark ? darken(c.primary, 0.62) : lighten(c.primary, 0.72),
     ...CATEGORY,
   };
 };

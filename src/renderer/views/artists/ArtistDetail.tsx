@@ -24,7 +24,7 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../../utils/useScrollRestoration';
 import { Icon } from '@iconify/react';
-import { heroTileBg } from '../../styles/listSx';
+import { artPlaceholderSx } from '../../styles/listSx';
 import ChevronDownIcon from '@iconify/icons-fluent/chevron-down-24-filled';
 import AppDialog from '../../components/AppDialog';
 import ImagePreviewDialog from '../../components/ImagePreviewDialog';
@@ -97,7 +97,7 @@ const resolveImageSrc = (uri: string | null | undefined) => {
 const placeholderArt = (theme: Theme, size: number, glyph: string) =>
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="100%" height="100%" rx="${size / 15}" fill="${theme.palette.surfaces.artFrom}"/><text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter,system-ui,sans-serif" font-size="${size * 0.44}" fill="${theme.palette.common.white}" opacity="0.75">${glyph}</text></svg>`
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}"><rect width="100%" height="100%" rx="${size / 15}" fill="${theme.palette.surfaces.artFrom}"/><text x="50%" y="52%" text-anchor="middle" dominant-baseline="middle" font-family="Inter,system-ui,sans-serif" font-size="${size * 0.44}" fill="${theme.palette.primary.main}" opacity="0.85">${glyph}</text></svg>`
   );
 
 interface ArtistDetailProps {
@@ -418,19 +418,8 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                   }}
                 />
               ) : (
-                <Box
-                  sx={{
-                    width: '100%',
-                    height: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    background: heroTileBg,
-                  }}
-                >
-                  <Typography
-                    sx={{ color: 'common.white', fontSize: 48, fontWeight: 700 }}
-                  >
+                <Box sx={{ ...artPlaceholderSx, width: '100%', height: '100%' }}>
+                  <Typography sx={{ fontSize: 48, fontWeight: 700 }}>
                     {artist.Name.charAt(0).toUpperCase()}
                   </Typography>
                 </Box>
@@ -667,7 +656,9 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           key={song.Id ?? trackIndex}
                           data-track-id={song.Id ?? ''}
                           selected={song.Id === state.track?.Id}
-                          onClick={() => handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))}
+                          onClick={() =>
+                            handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))
+                          }
                           sx={{
                             width: '100%',
                             display: 'flex',

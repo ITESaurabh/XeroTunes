@@ -42,6 +42,7 @@ import {
   CastControlAction,
   CastLoadPayload,
 } from '../modules/Cast';
+import { startStreamMeta, stopStreamMeta, StreamMetadata } from '../modules/StreamMeta';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db: any = dbModule;
 
@@ -53,6 +54,7 @@ import {
   MUSIC_DIR,
   ALBUM_ART_DIR,
   ARTIST_ART_DIR,
+  STREAM_ART_DIR,
   FIRSTRUN_FILE,
 } from '../../config/core_config';
 import {
@@ -299,6 +301,8 @@ const RESET_ACTIONS: Array<[Exclude<ResetTarget, 'localState'>, () => void]> = [
     () => {
       stashFavourites();
       wipeDatabase();
+      // Stream covers are keyed by a row that no longer exists.
+      emptyDir(STREAM_ART_DIR);
     },
   ],
   [
@@ -657,6 +661,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       const playlists = (
         db.prepare('SELECT COUNT(*) AS count FROM Playlist').get() as { count: number }
       ).count;
+      const streams = (
+        db.prepare('SELECT COUNT(*) AS count FROM Stream').get() as { count: number }
+      ).count;
       const recentlyAdded = Math.min(
         200,
         (
@@ -677,6 +684,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         folders,
         favourites,
         playlists,
+        streams,
         recentlyAdded,
       };
     } catch {
@@ -690,6 +698,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         folders: 0,
         favourites: 0,
         playlists: 0,
+        streams: 0,
         recentlyAdded: 0,
       };
     }
@@ -994,6 +1003,62 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   }
   db.prepare(
     'CREATE INDEX IF NOT EXISTS idx_playlisttrack_playlist ON PlaylistTrack(PlaylistId, Position)'
+  ).run();
+
+  // Internet radio. A stream is a URL and a name: nothing the scanner can
+  // index, no duration, no position, so it gets its own table rather than a
+  // Track row with every column NULL.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS Stream (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Name TEXT NOT NULL,
+    Uri TEXT NOT NULL UNIQUE,
+    CoverUri TEXT,
+    DateAdded BIGINT
+  )
+`
+  ).run();
+  if (!(db.pragma('table_info(Stream)') as { name: string }[]).some(c => c.name === 'CoverUri')) {
+    db.prepare('ALTER TABLE Stream ADD COLUMN CoverUri TEXT').run();
+  }
+
+  // Covers chosen before they were copied in still point wherever the user
+  // picked them. Adopt those once so they stop depending on that file; a path
+  // that no longer resolves is left alone in case the drive comes back.
+  for (const row of db
+    .prepare('SELECT Id, CoverUri FROM Stream WHERE CoverUri IS NOT NULL')
+    .all() as Array<{ Id: number; CoverUri: string }>) {
+    if (path.dirname(row.CoverUri) === STREAM_ART_DIR || !fs.existsSync(row.CoverUri)) continue;
+    try {
+      db.prepare('UPDATE Stream SET CoverUri = ? WHERE Id = ?').run(
+        adoptStreamCover(row.Id, row.CoverUri),
+        row.Id
+      );
+    } catch (error) {
+      console.warn('Could not adopt stream cover', row.CoverUri, error);
+    }
+  }
+
+  // Rows age out after settings.streamHistoryDays unless bookmarked, so this
+  // stays a short "what was that song?" list rather than a permanent log.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS StreamTrack (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    StreamId INTEGER NOT NULL,
+    Raw TEXT NOT NULL,
+    Title TEXT,
+    Artist TEXT,
+    FirstHeardAt BIGINT,
+    LastHeardAt BIGINT,
+    Saved INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(StreamId, Raw)
+  )
+`
+  ).run();
+  db.prepare(
+    'CREATE INDEX IF NOT EXISTS idx_streamtrack_stream ON StreamTrack(StreamId, LastHeardAt)'
   ).run();
 
   db.prepare(
@@ -1963,8 +2028,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       try {
         const fmt = ['m3u', 'm3u8', 'pls', 'xspf'].includes(format) ? format : 'm3u8';
         const playlist = db.prepare('SELECT Name FROM Playlist WHERE Id = ?').get(playlistId) as
-          | { Name: string }
-          | undefined;
+          { Name: string } | undefined;
         if (!playlist) return { success: false, error: 'Playlist not found' };
         const rows = db
           .prepare(
@@ -2018,6 +2082,197 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       }
     }
   );
+
+  // ── Streams (internet radio) ──────────────────────────────────────────────
+  const isStreamUrl = (loc: string): boolean => /^https?:\/\//i.test(loc);
+
+  function hostLabel(url: string): string {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return url;
+    }
+  }
+
+  ipcMain.handle('get-streams', () =>
+    db
+      .prepare('SELECT Id, Name, Uri, CoverUri, DateAdded FROM Stream ORDER BY Name COLLATE NOCASE')
+      .all()
+  );
+
+  ipcMain.handle('get-stream', (_e, { streamId }: { streamId: number }) =>
+    db.prepare('SELECT Id, Name, Uri, CoverUri, DateAdded FROM Stream WHERE Id = ?').get(streamId)
+  );
+
+  ipcMain.handle('add-stream', (_e, { name, uri }: { name?: string; uri?: string }) => {
+    const url = (uri || '').trim();
+    if (!isStreamUrl(url)) return { success: false, error: 'Enter an http:// or https:// URL' };
+    const info = db
+      .prepare('INSERT OR IGNORE INTO Stream (Name, Uri, DateAdded) VALUES (?, ?, ?)')
+      .run((name || '').trim() || hostLabel(url), url, Date.now());
+    if (!info.changes) return { success: false, error: 'That stream is already in the list' };
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { success: true, id: info.lastInsertRowid };
+  });
+
+  ipcMain.handle('rename-stream', (_e, { streamId, name }: { streamId: number; name?: string }) => {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return { success: false, error: 'Name cannot be empty' };
+    db.prepare('UPDATE Stream SET Name = ? WHERE Id = ?').run(trimmed, streamId);
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { success: true };
+  });
+
+  // Copied rather than referenced in place: a cover has to survive the user
+  // moving or deleting the original. The timestamp in the name is what makes
+  // the renderer reload the <img> when a cover is replaced.
+  function adoptStreamCover(streamId: number, sourcePath: string): string {
+    const extension = path.extname(sourcePath).toLowerCase() || '.jpg';
+    const target = path.join(STREAM_ART_DIR, `${streamId}-${Date.now()}${extension}`);
+    fs.mkdirSync(STREAM_ART_DIR, { recursive: true });
+    fs.copyFileSync(sourcePath, target);
+    return target;
+  }
+
+  /** Removes a cover this app owns; a path from anywhere else is left alone. */
+  function discardStreamCover(streamId: number): void {
+    const row = db.prepare('SELECT CoverUri FROM Stream WHERE Id = ?').get(streamId) as
+      { CoverUri: string | null } | undefined;
+    const current = row?.CoverUri;
+    if (!current || path.dirname(current) !== STREAM_ART_DIR) return;
+    try {
+      fs.rmSync(current, { force: true });
+    } catch {
+      /* already gone, or locked by a viewer; the row is what matters */
+    }
+  }
+
+  ipcMain.handle(
+    'set-stream-cover',
+    async (_e, { streamId, clear }: { streamId: number; clear?: boolean }) => {
+      if (clear) {
+        discardStreamCover(streamId);
+        db.prepare('UPDATE Stream SET CoverUri = NULL WHERE Id = ?').run(streamId);
+        return { success: true, coverUri: null };
+      }
+      const result = await dialog.showOpenDialog(mainWin, {
+        title: 'Choose Stream Cover',
+        properties: ['openFile'],
+        filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'bmp'] }],
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+      try {
+        const coverUri = adoptStreamCover(streamId, result.filePaths[0]);
+        discardStreamCover(streamId);
+        db.prepare('UPDATE Stream SET CoverUri = ? WHERE Id = ?').run(coverUri, streamId);
+        return { success: true, coverUri };
+      } catch (err) {
+        return { success: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+  );
+
+  ipcMain.handle('delete-stream', (_e, { streamId }: { streamId: number }) => {
+    discardStreamCover(streamId);
+    db.prepare('DELETE FROM StreamTrack WHERE StreamId = ?').run(streamId);
+    db.prepare('DELETE FROM Stream WHERE Id = ?').run(streamId);
+    sendMessageToRendererProcess(mainWin, 'library-updated', {});
+    return { success: true };
+  });
+
+  function pruneStreamTracks(): void {
+    const days = Number(readSettingsFile().streamHistoryDays);
+    const ttlMs = (Number.isFinite(days) && days > 0 ? days : 3) * 24 * 60 * 60 * 1000;
+    db.prepare('DELETE FROM StreamTrack WHERE Saved = 0 AND LastHeardAt < ?').run(
+      Date.now() - ttlMs
+    );
+  }
+
+  function recordStreamTrack(
+    streamId: number,
+    meta: StreamMetadata
+  ): { historyId: number; saved: boolean } | null {
+    if (!Number.isFinite(streamId)) return null;
+    const now = Date.now();
+    db.prepare(
+      `INSERT INTO StreamTrack (StreamId, Raw, Title, Artist, FirstHeardAt, LastHeardAt)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(StreamId, Raw) DO UPDATE SET LastHeardAt = excluded.LastHeardAt`
+    ).run(streamId, meta.raw, meta.title, meta.artist, now, now);
+    pruneStreamTracks();
+    const row = db
+      .prepare('SELECT Id, Saved FROM StreamTrack WHERE StreamId = ? AND Raw = ?')
+      .get(streamId, meta.raw) as { Id: number; Saved: number } | undefined;
+    return row ? { historyId: row.Id, saved: !!row.Saved } : null;
+  }
+
+  // streamId is absent for a stream URL played from a playlist; those play fine
+  // and leave no history behind.
+  ipcMain.on('stream-meta-start', (_e, { url, streamId }: { url: string; streamId?: number }) => {
+    if (!url) return;
+    startStreamMeta(url, meta => {
+      const history = streamId != null ? recordStreamTrack(streamId, meta) : null;
+      sendMessageToRendererProcess(mainWin, 'stream-metadata', { ...meta, ...history });
+    });
+  });
+
+  ipcMain.on('stream-meta-stop', () => stopStreamMeta());
+
+  ipcMain.handle('get-stream-tracks', (_e, { streamId }: { streamId: number }) => {
+    pruneStreamTracks();
+    return db
+      .prepare(
+        `SELECT Id, Raw, Title, Artist, FirstHeardAt, LastHeardAt, Saved
+         FROM StreamTrack WHERE StreamId = ?
+         ORDER BY Saved DESC, LastHeardAt DESC`
+      )
+      .all(streamId);
+  });
+
+  ipcMain.handle('set-stream-track-saved', (_e, { id, saved }: { id: number; saved: boolean }) => {
+    db.prepare('UPDATE StreamTrack SET Saved = ? WHERE Id = ?').run(saved ? 1 : 0, id);
+    return { saved: !!saved };
+  });
+
+  // Station files usually carry no #EXTINF, so an unnamed single-entry file takes
+  // the file's own name (coreradio.m3u → "coreradio").
+  ipcMain.handle('import-streams', async () => {
+    try {
+      const result = await dialog.showOpenDialog(mainWin, {
+        title: 'Import Streams',
+        defaultPath: MUSIC_DIR,
+        properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Playlists', extensions: ['m3u', 'm3u8', 'pls', 'xspf'] }],
+      });
+      if (result.canceled || !result.filePaths?.length) return { success: false, canceled: true };
+
+      const insert = db.prepare(
+        'INSERT OR IGNORE INTO Stream (Name, Uri, DateAdded) VALUES (?, ?, ?)'
+      );
+      let imported = 0;
+      let duplicate = 0;
+      let local = 0;
+      for (const filePath of result.filePaths) {
+        const entries = parsePlaylistFile(filePath);
+        const urls = entries.filter(e => isStreamUrl(e.location));
+        local += entries.length - urls.length;
+        const fileBase = path.basename(filePath).replace(/\.[^.]+$/, '');
+        for (const entry of urls) {
+          const name =
+            entry.title?.trim() || (urls.length === 1 ? fileBase : hostLabel(entry.location));
+          if (insert.run(name, entry.location, Date.now()).changes) imported++;
+          else duplicate++;
+        }
+      }
+      if (!imported && !duplicate) {
+        return { success: false, error: 'No stream URLs in that file, only local files' };
+      }
+      sendMessageToRendererProcess(mainWin, 'library-updated', {});
+      return { success: true, imported, duplicate, local };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 
   ipcMain.handle('get-all-albums', () => {
     const rows = db

@@ -27,6 +27,8 @@ import FavIcon from '@iconify/icons-fluent/heart-24-regular';
 import FavActiveIcon from '@iconify/icons-fluent/heart-24-filled';
 import playlistIcon from '@iconify/icons-fluent/navigation-play-20-regular';
 import playlistActiveIcon from '@iconify/icons-fluent/navigation-play-20-filled';
+import streamIcon from '@iconify/icons-fluent/live-24-regular';
+import streamActiveIcon from '@iconify/icons-fluent/live-24-filled';
 import albumIcon from '@iconify/icons-fluent/cd-16-regular';
 import albumActiveIcon from '@iconify/icons-fluent/cd-16-filled';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
@@ -106,6 +108,13 @@ const menuItems: MenuItem[] = [
     icon: playlistIcon,
     iconActive: playlistActiveIcon,
     statKey: 'playlists',
+  },
+  {
+    title: 'Streams',
+    href: '/main_window/streams',
+    icon: streamIcon,
+    iconActive: streamActiveIcon,
+    statKey: 'streams',
   },
   {
     title: 'Recently Added',

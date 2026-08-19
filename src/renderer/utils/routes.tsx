@@ -13,6 +13,8 @@ const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
 const Favourites = lazy(() => import('../views/Favourites'));
 const Playlists = lazy(() => import('../views/Playlists'));
 const PlaylistDetail = lazy(() => import('../views/PlaylistDetail'));
+const Streams = lazy(() => import('../views/Streams'));
+const StreamDetail = lazy(() => import('../views/StreamDetail'));
 const Folders = lazy(() => import('../views/Folders'));
 const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
 const Genres = lazy(() => import('../views/Genres'));
@@ -69,6 +71,22 @@ const routes = [
         element: (
           <React.Suspense fallback={<BigLoader />}>
             <PlaylistDetail />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'streams',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <Streams />
+          </React.Suspense>
+        ),
+      },
+      {
+        path: 'streams/:streamId',
+        element: (
+          <React.Suspense fallback={<BigLoader />}>
+            <StreamDetail />
           </React.Suspense>
         ),
       },

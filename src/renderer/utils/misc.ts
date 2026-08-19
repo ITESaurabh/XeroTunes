@@ -21,3 +21,9 @@ export function debounce<T extends (...args: any[]) => void>(
     debounceTimer = setTimeout(() => func.apply(context, args), delay);
   };
 }
+
+// A queue entry is either a local path or a stream URL, so file:// only applies to the former.
+export const toMediaSrc = (uriOrPath: string): string =>
+  /^[a-z][a-z0-9+.-]*:\/\//i.test(uriOrPath)
+    ? uriOrPath
+    : `file:///${uriOrPath.replace(/\\/g, '/').replace(/^\/+/, '')}`;

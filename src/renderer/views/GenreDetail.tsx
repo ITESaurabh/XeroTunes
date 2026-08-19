@@ -24,7 +24,7 @@ import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
-import { detailBannerBg, heroTileBg, listHeaderSx, listRowSx } from '../styles/listSx';
+import { artPlaceholderSx, detailBannerBg, listHeaderSx, listRowSx } from '../styles/listSx';
 
 interface Column {
   label: string;
@@ -254,17 +254,14 @@ const GenreDetail: React.FC = () => {
       >
         <Box
           sx={{
+            ...artPlaceholderSx,
             width: isPhone ? 56 : 80,
             height: isPhone ? 56 : 80,
             borderRadius: 1,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: heroTileBg,
             flexShrink: 0,
           }}
         >
-          <Box component="span" sx={{ color: 'common.white', display: 'flex' }}>
+          <Box component="span" sx={{ display: 'flex' }}>
             <Icon icon={genresIcon} height={isPhone ? '1.75rem' : '2.5rem'} />
           </Box>
         </Box>

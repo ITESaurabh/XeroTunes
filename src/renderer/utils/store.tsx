@@ -80,6 +80,7 @@ export interface LibraryStats {
   songs: number;
   favourites: number;
   playlists: number;
+  streams: number;
   albums: number;
   artists: number;
   albumArtists: number;

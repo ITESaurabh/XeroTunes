@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
+import { toMediaSrc } from '../utils/misc';
 import {
   getVolumeLevel,
   setVolumeLevel,
@@ -57,6 +58,8 @@ import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-
 import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
 import heart24Regular from '@iconify/icons-fluent/heart-24-regular';
 import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
+import bookmark24Regular from '@iconify/icons-fluent/bookmark-24-regular';
+import bookmark24Filled from '@iconify/icons-fluent/bookmark-24-filled';
 import { Image } from 'mui-image';
 import { DEFAULT_AA } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
@@ -297,6 +300,12 @@ function syltToLrc(synchronisedText: Array<{ text: string; timestamp: number }>)
 
 // ── Component ──────────────────────────────────────────────────────────────
 
+/** `stream:12` → 12; anything else (a library id, a file path) → undefined. */
+function streamIdOf(id: string | number | undefined): number | undefined {
+  const match = typeof id === 'string' && /^stream:(\d+)$/.exec(id);
+  return match ? Number(match[1]) : undefined;
+}
+
 export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -396,8 +405,7 @@ export default function PlayBar() {
 
         const sylt = nativeFrames.find(f => f.id === 'SYLT');
         const syltVal = sylt?.value as
-          | { synchronisedText?: Array<{ text: string; timestamp: number }> }
-          | undefined;
+          { synchronisedText?: Array<{ text: string; timestamp: number }> } | undefined;
         if (syltVal?.synchronisedText?.length) {
           const lrc = syltToLrc(syltVal.synchronisedText);
           if (!cancelled) {
@@ -510,6 +518,8 @@ export default function PlayBar() {
   );
 
   const trackUri = state?.track?.Uri as string | undefined;
+  // Internet radio: no duration, no seeking, and the bar shows Live instead of times.
+  const isLive = !!trackUri && /^https?:\/\//i.test(trackUri);
   useEffect(() => {
     if (trackUri) {
       setSongPath(trackUri);
@@ -521,14 +531,53 @@ export default function PlayBar() {
     }
   }, [trackUri]);
 
+  // The ICY title is written onto the current track, so the player bar, OS controls,
+  // overlay and Discord follow along without knowing a stream is involved. The queue
+  // entry is read from here because it still holds the station's own name.
+  const streamBaseRef = useRef(state.track);
+  streamBaseRef.current = state.queue[state.queueIndex] ?? state.track;
+  // The history row for the song currently on air, so it can be bookmarked.
+  const [streamHistory, setStreamHistory] = useState<{ id: number; saved: boolean } | null>(null);
+  useEffect(() => {
+    // Cleared for every track, or a library song inherits the last station's
+    // row and shows a bookmark instead of a heart.
+    setStreamHistory(null);
+    if (!isLive) return;
+    const handleMeta = (
+      _event: Electron.IpcRendererEvent,
+      meta: {
+        title?: string;
+        artist?: string | null;
+        historyId?: number;
+        saved?: boolean;
+      }
+    ) => {
+      const base = streamBaseRef.current;
+      if (!base || !meta?.title) return;
+      setStreamHistory(meta.historyId != null ? { id: meta.historyId, saved: !!meta.saved } : null);
+      dispatch({
+        type: 'SET_CURR_TRACK',
+        payload: { ...base, Title: meta.title, ArtistName: meta.artist ?? base.ArtistName },
+      });
+    };
+    ipcRenderer.on('stream-metadata', handleMeta);
+    ipcRenderer.send('stream-meta-start', {
+      url: trackUri,
+      streamId: streamIdOf(streamBaseRef.current?.Id),
+    });
+    return () => {
+      ipcRenderer.removeListener('stream-metadata', handleMeta);
+      ipcRenderer.send('stream-meta-stop');
+    };
+  }, [trackUri, isLive, dispatch]);
+
   // setSinkId persists across src changes, but the audio element mounts lazily
   // with the first track, so re-apply on each load and on the change event below.
   const applySinkId = useCallback(async (): Promise<void> => {
     const deviceId = getAudioOutputDeviceId();
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
-        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
-        | null;
+        (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string }) | null;
       if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
       try {
         await sinkable.setSinkId(deviceId);
@@ -542,7 +591,7 @@ export default function PlayBar() {
   useEffect(() => {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
-      audio.src = `file://${songPath.replace(/\\/g, '/')}`;
+      audio.src = toMediaSrc(songPath);
       audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
       audio.muted = castingRef.current || audio.muted;
       void applySinkId();
@@ -617,7 +666,10 @@ export default function PlayBar() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const handleLoadedMetadata = () => setDuration(audio.duration);
+    // A live stream reports Infinity; 0 is what every consumer already treats as an
+    // unknown duration, so no seek, progress fill, play-count or scrobble happens.
+    const handleLoadedMetadata = () =>
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
   }, [songPath]);
@@ -665,14 +717,7 @@ export default function PlayBar() {
       if (canAdvance) dispatch({ type: 'NEXT_TRACK' });
       else dispatch({ type: 'RESET_PLAYBACK' });
     };
-  }, [
-    state.queue,
-    state.queueIndex,
-    state.repeatMode,
-    state.track,
-    dispatch,
-    startScrobbleWindow,
-  ]);
+  }, [state.queue, state.queueIndex, state.repeatMode, state.track, dispatch, startScrobbleWindow]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -851,6 +896,9 @@ export default function PlayBar() {
     } else {
       const targetVol = muteVolumeRef.current ? 0 : volumeRef.current;
       audio.volume = 0;
+      // Resuming a live stream off its stale buffer plays however long you were
+      // paused behind the broadcast; reloading snaps back to the live edge.
+      if (!Number.isFinite(audio.duration)) audio.load();
       audio.play().catch(() => undefined);
       let step = 0;
       fadeIntervalRef.current = setInterval(() => {
@@ -1131,7 +1179,8 @@ export default function PlayBar() {
 
   useEffect(() => {
     sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
-  }, [state.track?.Id, paused, discordEnabled]);
+    // Title is a dep because a stream keeps one track id across songs.
+  }, [state.track?.Id, state.track?.Title, paused, discordEnabled]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
 
   // ── Thumbnail toolbar sync ──────────────────────────────────────────
@@ -1281,10 +1330,16 @@ export default function PlayBar() {
   // Files played via "Open with" are keyed by path, not by a library row, so
   // there is nothing to favourite.
   const trackId = state.track?.Id;
-  const canFavourite = typeof trackId === 'number';
+  // A radio song has no library row; bookmarking it flags its history entry
+  // instead, which is also what keeps the entry past its expiry.
+  const canFavourite = typeof trackId === 'number' || streamHistory != null;
   const [isFavourite, setIsFavourite] = useState(false);
 
   useEffect(() => {
+    if (streamHistory) {
+      setIsFavourite(streamHistory.saved);
+      return;
+    }
     if (!canFavourite) {
       setIsFavourite(false);
       return;
@@ -1301,18 +1356,25 @@ export default function PlayBar() {
     return () => {
       ipcRenderer.removeListener('library-updated', check);
     };
-  }, [trackId, canFavourite]);
+  }, [trackId, canFavourite, streamHistory]);
 
   const handleToggleFavourite = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!canFavourite) return;
+      if (streamHistory) {
+        const next = !streamHistory.saved;
+        await ipcRenderer.invoke('set-stream-track-saved', { id: streamHistory.id, saved: next });
+        setStreamHistory({ ...streamHistory, saved: next });
+        setIsFavourite(next);
+        return;
+      }
       const res = (await ipcRenderer.invoke('toggle-favourite', { trackId })) as {
         favourite?: boolean;
       };
       setIsFavourite(!!res?.favourite);
     },
-    [trackId, canFavourite]
+    [trackId, canFavourite, streamHistory]
   );
 
   const handleTitleClick = useCallback(() => {
@@ -1591,10 +1653,39 @@ export default function PlayBar() {
                   size="medium"
                   isFavourite={isFavourite}
                   onClick={handleToggleFavourite}
-                  aria-label={isFavourite ? 'remove from favourites' : 'add to favourites'}
-                  title={isFavourite ? 'Remove from Favourites' : 'Add to Favourites'}
+                  // The red heart stays reserved for library favourites.
+                  sx={streamHistory && isFavourite ? { color: 'primary.main' } : undefined}
+                  aria-label={
+                    streamHistory
+                      ? isFavourite
+                        ? 'remove bookmark'
+                        : 'bookmark this song'
+                      : isFavourite
+                        ? 'remove from favourites'
+                        : 'add to favourites'
+                  }
+                  title={
+                    streamHistory
+                      ? isFavourite
+                        ? 'Remove bookmark'
+                        : 'Bookmark this song'
+                      : isFavourite
+                        ? 'Remove from Favourites'
+                        : 'Add to Favourites'
+                  }
                 >
-                  <Icon icon={isFavourite ? heart24Filled : heart24Regular} width={25} />
+                  <Icon
+                    icon={
+                      streamHistory
+                        ? isFavourite
+                          ? bookmark24Filled
+                          : bookmark24Regular
+                        : isFavourite
+                          ? heart24Filled
+                          : heart24Regular
+                    }
+                    width={25}
+                  />
                 </FavouriteButton>
               )}
             </CoverImageInteractive>
@@ -1663,6 +1754,8 @@ export default function PlayBar() {
               audioRef={audioRef}
               duration={duration}
               trackId={state.track.Id as string | number | null}
+              isLive={isLive}
+              paused={paused}
               onSeekCommit={handleSeekCommit}
             />
             <TransportRow>
@@ -1751,8 +1844,15 @@ export default function PlayBar() {
             <Grid xs={6}>
               <FadedIconButton
                 onClick={handleShuffle}
-                active={state.isShuffle}
-                title={state.isShuffle ? 'Shuffle: On' : 'Shuffle: Off'}
+                disabled={isLive}
+                active={state.isShuffle && !isLive}
+                title={
+                  isLive
+                    ? 'Shuffle unavailable on a stream'
+                    : state.isShuffle
+                      ? 'Shuffle: On'
+                      : 'Shuffle: Off'
+                }
                 aria-label="shuffle"
               >
                 {state.isShuffle ? (
@@ -1765,13 +1865,16 @@ export default function PlayBar() {
             <Grid xs={6}>
               <FadedIconButton
                 onClick={handleRepeat}
-                active={state.repeatMode !== 'off'}
+                disabled={isLive}
+                active={state.repeatMode !== 'off' && !isLive}
                 title={
-                  state.repeatMode === 'off'
-                    ? 'Repeat: Off'
-                    : state.repeatMode === 'all'
-                      ? 'Repeat: All'
-                      : 'Repeat: One'
+                  isLive
+                    ? 'Repeat unavailable on a stream'
+                    : state.repeatMode === 'off'
+                      ? 'Repeat: Off'
+                      : state.repeatMode === 'all'
+                        ? 'Repeat: All'
+                        : 'Repeat: One'
                 }
                 aria-label="repeat"
               >
@@ -1863,7 +1966,8 @@ export default function PlayBar() {
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <MenuItem onClick={runMenuAction(handleOpenSongInfo)}>
+        {/* A stream has no file to read tags, bitrate or path from. */}
+        <MenuItem onClick={runMenuAction(handleOpenSongInfo)} disabled={isLive}>
           <ListItemIcon>
             <Icon icon={info24Regular} width={20} />
           </ListItemIcon>
