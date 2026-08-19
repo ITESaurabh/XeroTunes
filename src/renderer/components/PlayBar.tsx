@@ -29,6 +29,7 @@ import {
   setCastVolumeLevel,
   AUDIO_OUTPUT_DEVICE_EVENT,
   CAST_STOP_EVENT,
+  PLAYBACK_ERROR_EVENT,
 } from '../utils/LocStoreUtil';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
@@ -642,7 +643,36 @@ export default function PlayBar() {
         }
       }
     };
-  }, [state.queue, state.queueIndex, state.repeatMode, dispatch, startScrobbleWindow]);
+    // A file Chromium's demuxer rejects (malformed FLAC picture block, truncated
+    // container) fires error and nothing else, so the bar would sit at 0:00 forever.
+    // Never repeat on error, even with repeatMode 'one', or it spins on a dead file.
+    audio.onerror = () => {
+      if (!audio.getAttribute('src')) return; // clearing src on queue end
+      const { code, message } = audio.error ?? {};
+      console.error('[audio] cannot play', audio.currentSrc, code, message);
+      if (castingRef.current) return;
+      const canAdvance =
+        (state.queue?.length ?? 0) > 0 &&
+        (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all');
+      const title = (state.track?.Title as string) || 'This track';
+      window.dispatchEvent(
+        new CustomEvent(PLAYBACK_ERROR_EVENT, {
+          detail: `${title} can't be played — the file is unsupported or damaged.${
+            canAdvance ? ' Skipping.' : ''
+          }`,
+        })
+      );
+      if (canAdvance) dispatch({ type: 'NEXT_TRACK' });
+      else dispatch({ type: 'RESET_PLAYBACK' });
+    };
+  }, [
+    state.queue,
+    state.queueIndex,
+    state.repeatMode,
+    state.track,
+    dispatch,
+    startScrobbleWindow,
+  ]);
 
   useEffect(() => {
     pausedRef.current = paused;

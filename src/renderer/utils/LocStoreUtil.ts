@@ -255,8 +255,9 @@ export function setPauseOnAudioOutputChange(enabled: boolean): void {
 
 export const AUDIO_OUTPUT_DEVICE_EVENT = 'xt-audio-output-device-change';
 
-/** Fired by the titlebar cast indicator; PlayBar listens and tears down the session. */
 export const CAST_STOP_EVENT = 'xt-cast-stop';
+
+export const PLAYBACK_ERROR_EVENT = 'xt-playback-error';
 
 export function getAudioOutputDeviceId(): string {
   return getPlaybackSettings().audioOutputDeviceId;

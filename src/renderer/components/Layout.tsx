@@ -1,9 +1,9 @@
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
 import Titlebar from './Titlebar';
 import { alpha, styled, Theme } from '@mui/material/styles';
 import MuiDrawer from '@mui/material/Drawer';
 import Box from '@mui/material/Box';
-import { IconButton, Paper, Stack, useMediaQuery } from '@mui/material';
+import { Alert, IconButton, Paper, Snackbar, Stack, useMediaQuery } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { Outlet } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
@@ -12,6 +12,7 @@ import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 import PlayBar from './PlayBar';
 import MainDrawer from './MainDrawer';
 import { store } from '../utils/store';
+import { PLAYBACK_ERROR_EVENT } from '../utils/LocStoreUtil';
 import SearchDialog from './SearchDialog';
 
 const drawerWidth = 320;
@@ -45,6 +46,14 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: prop => prop !== 'open' })
 function Layout() {
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { state, dispatch } = useContext(store);
+
+  // PlayBar unmounts with the track it is reporting on, so the snackbar lives here.
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => setPlaybackError((e as CustomEvent<string>).detail);
+    window.addEventListener(PLAYBACK_ERROR_EVENT, handler);
+    return () => window.removeEventListener(PLAYBACK_ERROR_EVENT, handler);
+  }, []);
 
   useEffect(() => {
     if (isPhone) {
@@ -195,6 +204,16 @@ function Layout() {
         </Stack>
       </Box>
       <SearchDialog />
+      <Snackbar
+        open={!!playbackError}
+        autoHideDuration={6000}
+        onClose={() => setPlaybackError(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="error" variant="filled" onClose={() => setPlaybackError(null)}>
+          {playbackError}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
