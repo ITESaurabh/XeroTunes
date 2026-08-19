@@ -133,8 +133,9 @@ const App = () => {
 
   useEffect(() => {
     const title = state.track?.Title;
+    const artist = state.track?.ArtistName as string | undefined;
     document.title = title
-      ? `${state.queueIndex + 1}. ${title} - ${APP_DISPLAY_NAME}`
+      ? `${state.queueIndex + 1}. ${title}${artist ? ` - ${artist}` : ''} - ${APP_DISPLAY_NAME}`
       : APP_DISPLAY_NAME;
   }, [state.track, state.queueIndex]);
 
