@@ -46,10 +46,10 @@ jobs:
         # the floor for every Linux artifact. 24.04 emitted GLIBC_2.38, which
         # excluded Debian 12 and RHEL 9; 22.04 puts the floor at 2.34.
         #
-        # Going older means building in a container, and the obvious candidates
-        # do not work: Electron's V8 headers include <source_location>, which
-        # libstdc++ only gained in GCC 11, so bullseye's default gcc-10 fails to
-        # compile better-sqlite3 and no gcc-11 exists in bullseye or backports.
+        # Going older means building in a container, and the cheap candidates
+        # fail on the compiler: Electron 43 bundles Node 24, whose headers need
+        # gcc 12.2+ (see the toolchain step). Debian bullseye tops out at
+        # gcc-10, with no gcc-11 in its archive or backports.
         os: [windows-latest, macos-latest, ubuntu-22.04]
     runs-on: ${{ matrix.os }}
 
@@ -68,9 +68,20 @@ jobs:
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Linux maker dependencies
+      # The runner's default gcc-11 cannot build better-sqlite3 against these
+      # headers: V8 puts a C++11 attribute before a GNU one in a class head,
+      # which gcc rejects until 12, and gcc-10 additionally lacks
+      # <source_location>. Node 24 documents gcc 12.2 as its minimum.
+      # LDFLAGS folds libstdc++ in so the age of the user's C++ runtime stops
+      # mattering; glibc stays a separate floor (see the matrix pin).
+      - name: Set up Linux toolchain and maker dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm fakeroot dpkg gcc-12 g++-12
+          echo "CC=gcc-12" >> "$GITHUB_ENV"
+          echo "CXX=g++-12" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -94,9 +105,6 @@ jobs:
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
         env:
-          # Folds libstdc++ into better_sqlite3.node so the age of the user's
-          # C++ runtime stops mattering. glibc is a separate floor: see matrix.
-          LDFLAGS: ${{ runner.os == 'Linux' && '-static-libstdc++ -static-libgcc' || '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_ENV: ${{ steps.channel.outputs.app_env }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
