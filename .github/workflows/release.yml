@@ -17,7 +17,7 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Require tag to be on its channel's branch
@@ -72,7 +72,7 @@ jobs:
           gcc --version | head -1
           ldd --version | head -1
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Determine channel from tag
         id: channel
@@ -86,7 +86,7 @@ jobs:
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -127,6 +127,17 @@ jobs:
   # Rebuild the site so its download links pick up the new release assets.
   netlify:
     needs: release
+    # The hook is an environment secret like the rest, so this job has to
+    # select an environment too -- without one it resolves to an empty string
+    # and curl fails with a malformed-URL error.
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsSL -X POST -d '{}' "${{ secrets.NETLIFY_BUILD_HOOK }}"
+      - env:
+          HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::NETLIFY_BUILD_HOOK is not set for this environment"
+            exit 1
+          fi
+          curl -fsSL -X POST -d '{}' "$HOOK"
