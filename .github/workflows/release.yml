@@ -41,19 +41,37 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pinned, not ubuntu-latest: better-sqlite3 ships no prebuild for
-        # Electron 43's ABI, so it compiles here and the runner's glibc becomes
-        # the floor for every Linux artifact. 24.04 emitted GLIBC_2.38, which
-        # excluded Debian 12 and RHEL 9; 22.04 puts the floor at 2.34.
-        #
-        # Going older means building in a container, and the cheap candidates
-        # fail on the compiler: Electron 43 bundles Node 24, whose headers need
-        # gcc 12.2+ (see the toolchain step). Debian bullseye tops out at
-        # gcc-10, with no gcc-11 in its archive or backports.
-        os: [windows-latest, macos-latest, ubuntu-22.04]
+        include:
+          - os: windows-latest
+          - os: macos-latest
+          # better-sqlite3 has no prebuild for Electron 43's ABI, so it is
+          # compiled during the build and whatever glibc it links against
+          # becomes the floor for every Linux artifact. This image is the one
+          # base that satisfies both ends: glibc 2.28, old enough to keep the
+          # floor low, and gcc 14, new enough for Node 24's V8 headers, which
+          # gcc 11 and 12 both reject. Stock runners force 2.38.
+          # See docs/linux-support.md before changing this.
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_28_x86_64
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
 
     steps:
+      # RPM-based and bare: checkout needs git, MakerDeb needs dpkg and fakeroot
+      # from EPEL, MakerZIP needs zip. gcc 14 is already on PATH. Root, no sudo.
+      #
+      # LDFLAGS matters more than it looks: gcc 14's libstdc++ is newer than
+      # anything a glibc 2.28 distro ships, so without folding it in the C++
+      # runtime becomes a second, higher floor and the old base buys nothing.
+      - name: Set up Linux build and maker dependencies
+        if: runner.os == 'Linux'
+        run: |
+          dnf install -y epel-release
+          dnf install -y git rpm-build zip dpkg fakeroot binutils
+          echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
+          gcc --version | head -1
+          ldd --version | head -1
+
       - uses: actions/checkout@v4
 
       - name: Determine channel from tag
@@ -67,21 +85,6 @@ jobs:
             echo "script=publish:prod" >> "$GITHUB_OUTPUT"
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
-
-      # The runner's default gcc-11 cannot build better-sqlite3 against these
-      # headers: V8 puts a C++11 attribute before a GNU one in a class head,
-      # which gcc rejects until 12, and gcc-10 additionally lacks
-      # <source_location>. Node 24 documents gcc 12.2 as its minimum.
-      # LDFLAGS folds libstdc++ in so the age of the user's C++ runtime stops
-      # mattering; glibc stays a separate floor (see the matrix pin).
-      - name: Set up Linux toolchain and maker dependencies
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y rpm fakeroot dpkg gcc-12 g++-12
-          echo "CC=gcc-12" >> "$GITHUB_ENV"
-          echo "CXX=g++-12" >> "$GITHUB_ENV"
-          echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
 
       - uses: actions/setup-node@v4
         with:
@@ -113,6 +116,13 @@ jobs:
           LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
           LIBREFM_API_KEY: ${{ secrets.LIBREFM_API_KEY }}
           LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}
+
+      - name: Report glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          BIN=$(find out -name better_sqlite3.node | head -1)
+          objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          objdump -T "$BIN" | grep -o 'GLIBCXX_[0-9.]*' | sort -uV || echo "GLIBCXX: none"
 
   # Rebuild the site so its download links pick up the new release assets.
   netlify:
