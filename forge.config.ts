@@ -64,7 +64,7 @@ const config: ForgeConfig = {
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
     }),
-    new MakerZIP({}, ['darwin', 'linux']),
+    new MakerZIP({}, ['darwin', 'linux', 'win32']),
     new MakerDeb({
       options: {
         name: IDENTITY.installName,

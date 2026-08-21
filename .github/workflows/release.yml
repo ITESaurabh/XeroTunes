@@ -41,10 +41,28 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+          - os: macos-latest
+          # better-sqlite3 ships no prebuild for Electron 43's ABI, so it gets
+          # compiled here and whatever glibc it links against becomes the floor
+          # for every Linux artifact. On the bare runner that was GLIBC_2.38,
+          # which excluded Debian 12 and Ubuntu 22.04. Bullseye's 2.31 puts the
+          # floor at 2.29 (exp/log/pow) and is the oldest base whose default
+          # gcc still takes -std=c++20, which better-sqlite3 requires.
+          - os: ubuntu-latest
+            container: debian:bullseye
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
 
     steps:
+      # The bullseye image is bare: checkout needs git, setup-node needs xz,
+      # and the deb/rpm/zip makers each need their own tool. Runs as root,
+      # so no sudo. Must precede checkout.
+      - name: Install Linux build and maker dependencies
+        if: runner.os == 'Linux'
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates git curl xz-utils build-essential python3 rpm fakeroot dpkg zip
+
       - uses: actions/checkout@v4
 
       - name: Determine channel from tag
@@ -58,10 +76,6 @@ jobs:
             echo "script=publish:prod" >> "$GITHUB_OUTPUT"
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
-
-      - name: Install Linux maker dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
 
       - uses: actions/setup-node@v4
         with:
@@ -85,6 +99,9 @@ jobs:
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
         env:
+          # Folds libstdc++ into better_sqlite3.node so the age of the user's
+          # C++ runtime stops mattering. glibc is a separate floor: see matrix.
+          LDFLAGS: ${{ runner.os == 'Linux' && '-static-libstdc++ -static-libgcc' || '' }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_ENV: ${{ steps.channel.outputs.app_env }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
