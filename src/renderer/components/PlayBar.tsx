@@ -46,6 +46,7 @@ import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
 import info24Regular from '@iconify/icons-fluent/info-24-regular';
+import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import moreHorizontal24Regular from '@iconify/icons-fluent/more-horizontal-24-regular';
 import moreHorizontal24Filled from '@iconify/icons-fluent/more-horizontal-24-filled';
 import options24Regular from '@iconify/icons-fluent/options-24-regular';
@@ -68,6 +69,8 @@ import { useNavigate, useLocation } from 'react-router';
 import { parseFile } from 'music-metadata';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
+import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
+import { isTaggable } from '../../config/constants';
 import AudioOutputMenu from './AudioOutputMenu';
 import CastDeviceMenu from './CastDeviceMenu';
 import type { CastDevice, CastLoadPayload, CastStatus } from '../../main/modules/Cast';
@@ -336,6 +339,7 @@ export default function PlayBar() {
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
   const [songInfoOpen, setSongInfoOpen] = useState(false);
+  const [editTrack, setEditTrack] = useState<EditableTrack[] | null>(null);
 
   // ── Google Cast ────────────────────────────────────────────────────────────
   const [isCasting, setIsCasting] = useState(false);
@@ -1391,6 +1395,10 @@ export default function PlayBar() {
   }, [navigate, state.track?.AlbumId]);
 
   const handleOpenSongInfo = useCallback(() => setSongInfoOpen(true), []);
+  const handleOpenTagEditor = useCallback(() => {
+    if (!state.track?.Id || !songPath) return;
+    setEditTrack([{ Id: state.track.Id, Uri: songPath, Title: state.track.Title }]);
+  }, [state.track?.Id, state.track?.Title, songPath]);
   const handleCloseSongInfo = useCallback(() => setSongInfoOpen(false), []);
 
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
@@ -1403,6 +1411,8 @@ export default function PlayBar() {
     setMenuAnchorEl(e.currentTarget);
   }, []);
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // to prevent event bubbling
+    if (!e.currentTarget.contains(e.target as Node)) return;
     e.preventDefault();
     setMenuAnchorEl(null);
     setMenuPosition({ top: e.clientY, left: e.clientX });
@@ -1957,6 +1967,9 @@ export default function PlayBar() {
         track={state.track}
         songPath={songPath}
       />
+      {editTrack && (
+        <TagEditorDialog open onClose={() => setEditTrack(null)} mode="track" tracks={editTrack} />
+      )}
       <Menu
         open={menuOpen}
         onClose={handleCloseMenu}
@@ -1972,6 +1985,15 @@ export default function PlayBar() {
             <Icon icon={info24Regular} width={20} />
           </ListItemIcon>
           <ListItemText>Properties</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={runMenuAction(handleOpenTagEditor)}
+          disabled={isLive || !songPath || !isTaggable(songPath)}
+        >
+          <ListItemIcon>
+            <Icon icon={edit24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Edit tags</ListItemText>
         </MenuItem>
         <MenuItem onClick={handleCloseMenu} disabled>
           <ListItemIcon>

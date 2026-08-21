@@ -15,14 +15,15 @@ export interface ArtDirs {
 
 // Diffing disk against the DB, rather than tracking what we just deleted, also
 // clears art left behind by older scan logic that never cleaned up.
-function sweepOrphanArt(dir: string | undefined, liveIds: Iterable<number>): number {
+function sweepOrphanArt(dir: string | undefined, liveIds: Iterable<number>, prefix = ''): number {
   if (!dir) return 0;
   let removed = 0;
   try {
     if (!fs.existsSync(dir)) return 0;
     const live = new Set(liveIds);
+    const pattern = new RegExp(`^${prefix}(\\d+)\\.jpg$`, 'i');
     for (const file of fs.readdirSync(dir)) {
-      const m = /^(\d+)\.jpg$/i.exec(file);
+      const m = pattern.exec(file);
       if (!m) continue;
       if (live.has(Number(m[1]))) continue;
       try {
@@ -57,9 +58,23 @@ export function cleanupOrphans(db: any, config: ArtDirs = {}): void {
     'DELETE FROM Genre WHERE Id NOT IN (SELECT GenreId FROM Track WHERE GenreId IS NOT NULL)'
   ).run();
 
-  const liveAlbumIds = db.prepare('SELECT Id FROM Album').all().map((r: any) => r.Id);
-  const liveArtistIds = db.prepare('SELECT Id FROM Artist').all().map((r: any) => r.Id);
-  const albumArtRemoved = sweepOrphanArt(config.ALBUM_ART_DIR, liveAlbumIds);
+  const liveAlbumIds = db
+    .prepare('SELECT Id FROM Album')
+    .all()
+    .map((r: any) => r.Id);
+  const liveArtistIds = db
+    .prepare('SELECT Id FROM Artist')
+    .all()
+    .map((r: any) => r.Id);
+  const liveTrackIds = db
+    .prepare('SELECT Id FROM Track')
+    .all()
+    .map((r: any) => r.Id);
+  const albumArtRemoved =
+    sweepOrphanArt(config.ALBUM_ART_DIR, liveAlbumIds) +
+    // track-<id>.jpg: a per-track cover, written when a tag edit must not disturb
+    // the rest of the album sharing one cache file.
+    sweepOrphanArt(config.ALBUM_ART_DIR, liveTrackIds, 'track-');
   const artistArtRemoved = sweepOrphanArt(config.ARTIST_ART_DIR, liveArtistIds);
   if (albumArtRemoved > 0 || artistArtRemoved > 0) {
     console.log(

@@ -9,9 +9,14 @@ import {
   Theme,
   Typography,
   ListItemButton,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
 import filterIcon from '@iconify/icons-fluent/filter-24-filled';
+import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
 import ArtistCell from '../components/ArtistCell';
@@ -25,6 +30,8 @@ import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { listHeaderSx, listRowSx } from '../styles/listSx';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import { isTaggable } from '../../config/constants';
 
 interface Column {
   label: string;
@@ -143,6 +150,10 @@ const AllSongs: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const listRef = React.useRef<FixedSizeList | null>(null);
+  const [editTrack, setEditTrack] = React.useState<EditableTrack[] | null>(null);
+  const [rowMenu, setRowMenu] = React.useState<{ top: number; left: number; song: Track } | null>(
+    null
+  );
 
   const {
     data: songs = [] as Track[],
@@ -199,6 +210,10 @@ const AllSongs: React.FC = () => {
           onClick={e => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handleSongClick(index);
+          }}
+          onContextMenu={e => {
+            e.preventDefault();
+            setRowMenu({ top: e.clientY, left: e.clientX, song });
           }}
         >
           {visibleColumns.map((col, i) => {
@@ -309,6 +324,38 @@ const AllSongs: React.FC = () => {
           </AutoSizer>
         </Box>
       </Container>
+
+      <Menu
+        open={rowMenu !== null}
+        onClose={() => setRowMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={rowMenu ? { top: rowMenu.top, left: rowMenu.left } : undefined}
+      >
+        <MenuItem
+          disabled={typeof rowMenu?.song.Uri !== 'string' || !isTaggable(rowMenu.song.Uri)}
+          onClick={() => {
+            if (rowMenu) {
+              setEditTrack([
+                {
+                  Id: rowMenu.song.Id as number | string,
+                  Uri: rowMenu.song.Uri as string,
+                  Title: rowMenu.song.Title as string,
+                },
+              ]);
+            }
+            setRowMenu(null);
+          }}
+        >
+          <ListItemIcon>
+            <Icon icon={edit24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Edit tags</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {editTrack && (
+        <TagEditorDialog open onClose={() => setEditTrack(null)} mode="track" tracks={editTrack} />
+      )}
     </Grid>
   );
 };

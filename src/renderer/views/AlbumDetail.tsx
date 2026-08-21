@@ -9,6 +9,10 @@ import {
   useTheme,
   Theme,
   Button,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router';
 import { FixedSizeList, ListChildComponentProps } from 'react-window';
@@ -20,10 +24,13 @@ import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { Icon } from '@iconify/react';
+import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import ArtistCell from '../components/ArtistCell';
 import { detailBannerBg, listRowSx } from '../styles/listSx';
-import { DEFAULT_AA } from '../../config/constants';
+import { DEFAULT_AA, isTaggable } from '../../config/constants';
 import EqualizerBars from '../components/EqualizerBars';
 
 interface AlbumSong extends Track {
@@ -123,6 +130,17 @@ const AlbumDetail: React.FC = () => {
   const coverUri = songs[0]?.AlbumCoverUri ?? null;
   const releaseYear = songs[0]?.['Year'] ?? null;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [editor, setEditor] = useState<{ mode: 'track' | 'album'; tracks: EditableTrack[] } | null>(
+    null
+  );
+  const [rowMenu, setRowMenu] = useState<{ top: number; left: number; song: AlbumSong } | null>(
+    null
+  );
+
+  const toEditable = (list: AlbumSong[]): EditableTrack[] =>
+    list
+      .filter(s => typeof s.Uri === 'string' && s.Id != null)
+      .map(s => ({ Id: s.Id as number | string, Uri: s.Uri as string, Title: s.Title as string }));
 
   const coverSrc = React.useMemo(() => {
     if (!coverUri) return null;
@@ -185,6 +203,10 @@ const AlbumDetail: React.FC = () => {
           onClick={e => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handlePlayAll(index);
+          }}
+          onContextMenu={e => {
+            e.preventDefault();
+            setRowMenu({ top: e.clientY, left: e.clientX, song });
           }}
           sx={{ gap: 2, px: 2, ...listRowSx(index) }}
         >
@@ -406,15 +428,19 @@ const AlbumDetail: React.FC = () => {
             </Box>
 
             {/* Play all button */}
-            <Button
-              onClick={() => handlePlayAll(0)}
-              variant="contained"
-              sx={{
-                mt: 1,
-              }}
-            >
-              ▶ Play All
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+              <Button onClick={() => handlePlayAll(0)} variant="contained">
+                ▶ Play All
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={!songs.some(x => typeof x.Uri === 'string' && isTaggable(x.Uri))}
+                startIcon={<Icon icon={edit24Regular} width={18} />}
+                onClick={() => setEditor({ mode: 'album', tracks: toEditable(songs) })}
+              >
+                Edit Tags
+              </Button>
+            </Box>
           </Box>
         </Box>
       </Box>
@@ -425,6 +451,35 @@ const AlbumDetail: React.FC = () => {
         imageSrc={coverSrc}
         imageAlt={albumTitle}
       />
+
+      <Menu
+        open={rowMenu !== null}
+        onClose={() => setRowMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={rowMenu ? { top: rowMenu.top, left: rowMenu.left } : undefined}
+      >
+        <MenuItem
+          disabled={typeof rowMenu?.song.Uri !== 'string' || !isTaggable(rowMenu.song.Uri)}
+          onClick={() => {
+            if (rowMenu) setEditor({ mode: 'track', tracks: toEditable([rowMenu.song]) });
+            setRowMenu(null);
+          }}
+        >
+          <ListItemIcon>
+            <Icon icon={edit24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Edit tags</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {editor && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditor(null)}
+          mode={editor.mode}
+          tracks={editor.tracks}
+        />
+      )}
 
       {/* Track list */}
       <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>

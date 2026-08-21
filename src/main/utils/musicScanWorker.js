@@ -124,7 +124,12 @@ function getFileHash(filePath) {
 // Without this, files the user dropped but kept on disk get re-added by the next scan.
 function ignoredUriSet(db) {
   try {
-    return new Set(db.prepare('SELECT Uri FROM IgnoredTrack').all().map(r => r.Uri));
+    return new Set(
+      db
+        .prepare('SELECT Uri FROM IgnoredTrack')
+        .all()
+        .map(r => r.Uri)
+    );
   } catch {
     return new Set();
   }
@@ -177,12 +182,16 @@ function resolveArtists(db, rawTag) {
 function writeArtistLinks(db, trackId, albumId, artistIds, albumArtistIds) {
   if (trackId) {
     db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
-    const insert = db.prepare('INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)');
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)'
+    );
     for (const aid of artistIds) insert.run(trackId, aid);
   }
   if (albumId) {
     db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
-    const insert = db.prepare('INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)');
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)'
+    );
     for (const aid of albumArtistIds) insert.run(albumId, aid);
   }
 }
@@ -288,14 +297,22 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     }
     albumArt = albumArtPath;
   }
+  // A cover written for this track alone outranks the album's shared one; it
+  // exists because a tag edit had to leave the rest of the album untouched.
+  const trackArtPath = path.join(config.ALBUM_ART_DIR, `track-${trackId}.jpg`);
+  if (musicInfo.tags.picture && fs.existsSync(trackArtPath)) {
+    albumArt = trackArtPath;
+  }
   const folderpath = path.parse(filePath).dir;
   const trackTitle =
     musicInfo.tags.title && musicInfo.tags.title.trim()
       ? musicInfo.tags.title
       : musicInfo.fileInfo.fileName;
 
+  // DateAdded is deliberately not touched: it is when the track entered the
+  // library, not when it was last read, and Recently Added sorts on it.
   db.prepare(
-    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, BitRate = ?, SampleRate = ?, Channels = ?, DiscNumber = ?, ReleaseYear = ?, DateAdded = ?, Version = ?, FolderPath = ?, RawArtist = ?, RawAlbumArtist = ? WHERE Id = ?`
+    `UPDATE Track SET Extension = ?, Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?, Year = ?, AlbumArt = ?, FileHash = ?, Duration = ?, BitRate = ?, SampleRate = ?, Channels = ?, DiscNumber = ?, ReleaseYear = ?, Version = ?, FolderPath = ?, RawArtist = ?, RawAlbumArtist = ? WHERE Id = ?`
   ).run(
     musicInfo.fileInfo.fileExt,
     trackTitle,
@@ -312,7 +329,6 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     musicInfo.tags.channels,
     musicInfo.tags.discNumber,
     musicInfo.tags.releaseYear,
-    Date.now(),
     1,
     folderpath,
     rawTagJson(musicInfo.tags.artist),
@@ -355,7 +371,11 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
       scanned++;
     } catch (err) {
       console.error('[basic-scan] Insert error:', filePath, err?.message || err);
-      process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
+      process.parentPort.postMessage({
+        type: 'file-error',
+        file: filePath,
+        error: String(err?.message || err),
+      });
     }
     processed++;
     process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
@@ -414,7 +434,11 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
         folderScanned++;
       } catch (err) {
         console.error('[full-scan] DB Insert/Update Error:', filePath, err?.message || err);
-        process.parentPort.postMessage({ type: 'file-error', file: filePath, error: String(err?.message || err) });
+        process.parentPort.postMessage({
+          type: 'file-error',
+          file: filePath,
+          error: String(err?.message || err),
+        });
       }
       processed++;
       process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
@@ -441,6 +465,47 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   return { scanned, removed };
 }
 
+// ─── Targeted file re-index ──────────────────────────────────────────
+// Re-reads an explicit list of files after the tag editor changed them on disk.
+// No directory walk and no deletion pass; the caller names its targets.
+
+async function runFileScan(db, files, config) {
+  const total = files.length;
+  let scanned = 0;
+  let processed = 0;
+  process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
+
+  for (const filePath of files) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const fileHash = await getFileHash(filePath);
+        const trackRow = db.prepare('SELECT Id FROM Track WHERE Uri = ?').get(filePath);
+        const musicInfo = await parseMusicWorker(filePath);
+        if (!trackRow) {
+          insertTrack(db, config, filePath, musicInfo, fileHash);
+        } else {
+          updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
+        }
+        scanned++;
+      }
+    } catch (err) {
+      console.error('[file-scan] Re-index error:', filePath, err?.message || err);
+      process.parentPort.postMessage({
+        type: 'file-error',
+        file: filePath,
+        error: String(err?.message || err),
+      });
+    }
+    processed++;
+    process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
+  }
+
+  // An edit can empty out the album/artist/genre the tracks used to belong to.
+  cleanupOrphans(db, config);
+  console.log(`[file-scan] Re-indexed ${scanned}/${total} file(s).`);
+  return { scanned, removed: 0 };
+}
+
 // ─── Artist rules re-apply ────────────────────────────────────────────────────
 // Re-splits stored artist tags under the current separators/exceptions. No file
 // reads once RawArtist is populated, which is what makes it cheap enough to run
@@ -456,9 +521,7 @@ async function readRawArtistTags(filePath) {
 }
 
 async function runArtistRules(db, config) {
-  const tracks = db
-    .prepare('SELECT Id, Uri, AlbumId, RawArtist, RawAlbumArtist FROM Track')
-    .all();
+  const tracks = db.prepare('SELECT Id, Uri, AlbumId, RawArtist, RawAlbumArtist FROM Track').all();
   const total = tracks.length;
   let scanned = 0;
   let processed = 0;
@@ -518,11 +581,13 @@ async function handleScanRequest({ data }) {
   const dbPath = path.join(config.APP_CONF_FOLDER, 'data.db');
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
-  const supportedFileTypes = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.webm', '.m4a'];
+  const supportedFileTypes = ['.mp3', '.wav', '.ogg', '.opus', '.aac', '.flac', '.webm', '.m4a'];
 
   try {
     let result;
-    if (mode === 'artists') {
+    if (mode === 'files') {
+      result = await runFileScan(db, data.files || [], config);
+    } else if (mode === 'artists') {
       result = await runArtistRules(db, config);
     } else if (mode === 'full') {
       result = await runFullScan(db, folders, config, supportedFileTypes);
@@ -530,7 +595,11 @@ async function handleScanRequest({ data }) {
       result = await runBasicScan(db, folders, config, supportedFileTypes);
     }
 
-    process.parentPort.postMessage({ success: true, scanned: result.scanned, removed: result.removed });
+    process.parentPort.postMessage({
+      success: true,
+      scanned: result.scanned,
+      removed: result.removed,
+    });
     process.exit(0);
   } catch (error) {
     process.parentPort.postMessage({ success: false, error: error.message });

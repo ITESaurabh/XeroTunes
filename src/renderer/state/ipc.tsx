@@ -1,6 +1,6 @@
-import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 'react';
+import React, { useEffect, useContext, createContext, useMemo, useRef, ReactNode } from 'react';
 import { parseFile } from 'music-metadata';
-import { store, LibraryStats } from '../utils/store';
+import { store, LibraryStats, Track } from '../utils/store';
 import { debounce } from '../utils/misc';
 import { ScanMode } from '../../config/constants';
 
@@ -32,7 +32,13 @@ interface IpcProviderProps {
 }
 
 export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
-  const { dispatch } = useContext(store);
+  const { state, dispatch } = useContext(store);
+  // Read through a ref so the long-lived IPC listeners below can stay on empty
+  // deps instead of being torn down and re-attached on every queue change.
+  const queueIdsRef = useRef<(string | number)[]>([]);
+  queueIdsRef.current = [
+    ...new Set([...state.queue.map(t => t.Id), ...(state.track ? [state.track.Id] : [])]),
+  ];
 
   // Sync scan state on mount — the auto-scan may have started before React mounted
   useEffect(() => {
@@ -146,7 +152,19 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
       payload?: { wiped?: boolean }
     ) => {
       refreshStats();
-      if (payload?.wiped) dispatch({ type: 'RESET_PLAYBACK' });
+      if (payload?.wiped) {
+        dispatch({ type: 'RESET_PLAYBACK' });
+        return;
+      }
+      // Title, artist and cover in the player bar come from this snapshot, not
+      // from the library queries, so re-read the rows it still points at.
+      if (!queueIdsRef.current.length) return;
+      ipcRenderer
+        .invoke('get-queue-tracks', { trackIds: queueIdsRef.current })
+        .then((rows: unknown) => {
+          dispatch({ type: 'REFRESH_QUEUE_TRACKS', payload: rows as Track[] });
+        })
+        .catch(() => undefined);
     };
 
     ipcRenderer.on('scan-start', handleScanStart);

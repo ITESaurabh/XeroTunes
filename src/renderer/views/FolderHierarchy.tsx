@@ -4,6 +4,8 @@ import {
   Box,
   Breadcrumbs,
   Button,
+  Checkbox,
+  Collapse,
   IconButton,
   LinearProgress,
   ListItemButton,
@@ -21,6 +23,8 @@ import homeIcon from '@iconify/icons-fluent/home-24-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import PageToolbar from '../components/PageToolbar';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import ArtistCell from '../components/ArtistCell';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
@@ -268,6 +272,23 @@ const FolderHierarchy: React.FC = () => {
     },
     [songs, dispatch, location.pathname, location.search]
   );
+
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(songs);
+  const [editTracks, setEditTracks] = useState<EditableTrack[] | null>(null);
+
+  // Walking into another folder ends the selection; the ids no longer belong to
+  // anything on screen.
+  useEffect(() => clear(), [currentPath, clear]);
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   const handlePlayFolder = useCallback(async () => {
     if (!currentPath) return;
@@ -574,85 +595,144 @@ const FolderHierarchy: React.FC = () => {
 
             {songs.length > 0 && (
               <Box>
-                <Typography
-                  variant="overline"
-                  sx={{ color: 'text.secondary', pl: 1, letterSpacing: 1 }}
-                >
-                  Songs ({songs.length})
-                </Typography>
+                <Collapse in={selected.length === 0}>
+                  <Typography
+                    variant="overline"
+                    sx={{ color: 'text.secondary', pl: 1, letterSpacing: 1 }}
+                  >
+                    Songs ({songs.length})
+                  </Typography>
+                </Collapse>
+                <Collapse in={selected.length > 0}>
+                  <SelectionBar
+                    selected={selected}
+                    total={songs.length}
+                    onToggleAll={toggleAll}
+                    onClear={clear}
+                    onPlay={handlePlaySelected}
+                    onEditTags={() => setEditTracks(toEditableTracks(selected))}
+                  />
+                </Collapse>
                 <Box>
-                  {songs.map((song, idx) => (
-                    <ListItemButton
-                      key={String(song.Id ?? idx)}
-                      data-track-id={song.Id ?? ''}
-                      onClick={e => {
-                        if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
-                        handleSongClick(idx);
-                      }}
-                      selected={song.Id === state.track?.Id}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        borderRadius: 1,
-                        mb: 0.25,
-                        px: 1.5,
-                        py: 0.75,
-                        '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.06) },
-                      }}
-                    >
-                      <Box
-                        component="span"
+                  {songs.map((song, idx) => {
+                    const isSelected = song.Id != null && selectedIds.has(song.Id);
+                    return (
+                      <ListItemButton
+                        key={String(song.Id ?? idx)}
+                        data-track-id={song.Id ?? ''}
+                        onClick={e => {
+                          if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
+                          handleSongClick(idx);
+                        }}
+                        selected={isSelected || song.Id === state.track?.Id}
                         sx={{
-                          color: song.Id === state.track?.Id ? 'primary.main' : 'text.secondary',
-                          flexShrink: 0,
                           display: 'flex',
+                          alignItems: 'center',
+                          gap: 1.5,
+                          borderRadius: 1,
+                          mb: 0.25,
+                          px: 1.5,
+                          py: 0.75,
+                          '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.06) },
+                          '&:hover .rowCheck': { opacity: 1 },
                         }}
                       >
-                        <Icon icon={musicNoteIcon} height="1.1rem" />
-                      </Box>
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" noWrap>
-                          {(song.Title as string) || 'Unknown'}
-                        </Typography>
-                        {!isPhone && (
-                          <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'hidden', color: 'text.secondary' }}>
-                            <Box sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
-                              <ArtistCell artistNameRaw={song.ArtistName as string | undefined} variant="caption" />
-                            </Box>
-                            {song.AlbumTitle && (
-                              <>
-                                <Typography variant="caption" sx={{ flexShrink: 0, color: 'text.secondary' }}>
-                                  &nbsp;·&nbsp;
-                                </Typography>
-                                <Typography
+                        <Box
+                          className="rowCheck"
+                          data-nav-cell="true"
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleAt(idx, e.shiftKey);
+                          }}
+                          sx={{
+                            display: 'flex',
+                            flexShrink: 0,
+                            opacity: selectedIds.size ? 1 : 0,
+                            transition: 'opacity 120ms',
+                          }}
+                        >
+                          <Checkbox
+                            size="medium"
+                            checked={isSelected}
+                            tabIndex={-1}
+                            sx={{ p: 0.25 }}
+                          />
+                        </Box>
+                        <Box
+                          component="span"
+                          sx={{
+                            color: song.Id === state.track?.Id ? 'primary.main' : 'text.secondary',
+                            flexShrink: 0,
+                            display: 'flex',
+                          }}
+                        >
+                          <Icon icon={musicNoteIcon} height="1.1rem" />
+                        </Box>
+                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                          <Typography variant="body2" noWrap>
+                            {(song.Title as string) || 'Unknown'}
+                          </Typography>
+                          {!isPhone && (
+                            <Box
+                              sx={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                overflow: 'hidden',
+                                color: 'text.secondary',
+                              }}
+                            >
+                              <Box sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
+                                <ArtistCell
+                                  artistNameRaw={song.ArtistName as string | undefined}
                                   variant="caption"
-                                  noWrap
-                                  data-nav-cell="true"
-                                  onMouseDown={e => e.stopPropagation()}
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    if (song.AlbumId != null) navigate(`/main_window/albums/${song.AlbumId as string | number}`);
-                                  }}
-                                  sx={{
-                                    flexShrink: 0,
-                                    color: 'text.secondary',
-                                    cursor: song.AlbumId != null ? 'pointer' : 'default',
-                                    '&:hover': song.AlbumId != null ? { textDecoration: 'underline', color: 'primary.main' } : undefined,
-                                  }}
-                                >
-                                  {song.AlbumTitle as string}
-                                </Typography>
-                              </>
-                            )}
-                          </Box>
-                        )}
-                      </Box>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', flexShrink: 0 }}>
-                        {formatDuration(song.Duration)}
-                      </Typography>
-                    </ListItemButton>
-                  ))}
+                                />
+                              </Box>
+                              {song.AlbumTitle && (
+                                <>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{ flexShrink: 0, color: 'text.secondary' }}
+                                  >
+                                    &nbsp;·&nbsp;
+                                  </Typography>
+                                  <Typography
+                                    variant="caption"
+                                    noWrap
+                                    data-nav-cell="true"
+                                    onMouseDown={e => e.stopPropagation()}
+                                    onClick={e => {
+                                      e.stopPropagation();
+                                      if (song.AlbumId != null)
+                                        navigate(
+                                          `/main_window/albums/${song.AlbumId as string | number}`
+                                        );
+                                    }}
+                                    sx={{
+                                      flexShrink: 0,
+                                      color: 'text.secondary',
+                                      cursor: song.AlbumId != null ? 'pointer' : 'default',
+                                      '&:hover':
+                                        song.AlbumId != null
+                                          ? { textDecoration: 'underline', color: 'primary.main' }
+                                          : undefined,
+                                    }}
+                                  >
+                                    {song.AlbumTitle as string}
+                                  </Typography>
+                                </>
+                              )}
+                            </Box>
+                          )}
+                        </Box>
+                        <Typography
+                          variant="caption"
+                          sx={{ color: 'text.secondary', flexShrink: 0 }}
+                        >
+                          {formatDuration(song.Duration)}
+                        </Typography>
+                      </ListItemButton>
+                    );
+                  })}
                 </Box>
               </Box>
             )}
@@ -665,6 +745,15 @@ const FolderHierarchy: React.FC = () => {
           </>
         )}
       </Box>
+
+      {editTracks && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditTracks(null)}
+          mode="track"
+          tracks={editTracks}
+        />
+      )}
     </Box>
   );
 };

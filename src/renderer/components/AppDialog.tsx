@@ -15,6 +15,7 @@ interface AppDialogProps {
   onClose: () => void;
   title?: React.ReactNode;
   headerAction?: React.ReactNode;
+  actions?: React.ReactNode;
   children: React.ReactNode;
   maxWidth?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   fullWidth?: boolean;
@@ -30,6 +31,7 @@ const AppDialog: React.FC<AppDialogProps> = ({
   onClose,
   title,
   headerAction,
+  actions,
   children,
   maxWidth = 'sm',
   fullWidth = true,
@@ -89,6 +91,18 @@ const AppDialog: React.FC<AppDialogProps> = ({
       >
         {children}
       </DialogContent>
+
+      {actions && (
+        <Stack
+          direction="row"
+          spacing={1}
+          useFlexGap
+          justifyContent="flex-end"
+          sx={{ p: 1.5, backgroundColor: (theme: Theme) => theme.palette.background.paper }}
+        >
+          {actions}
+        </Stack>
+      )}
     </Dialog>
   );
 };

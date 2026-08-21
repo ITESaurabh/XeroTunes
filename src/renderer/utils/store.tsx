@@ -129,6 +129,7 @@ export type AppAction =
   | { type: 'SET_QUEUE'; payload: { queue: Track[]; index?: number; source?: string | null } }
   | { type: 'SET_PATH'; payload: string | null }
   | { type: 'SET_CURR_TRACK'; payload: Track }
+  | { type: 'REFRESH_QUEUE_TRACKS'; payload: Track[] }
   | { type: 'SET_IS_PLAYING'; payload: boolean }
   | { type: 'SET_PROGRESS'; payload: number }
   | { type: 'CHANGE_TRACK' }
@@ -271,6 +272,18 @@ function reducer(state: AppState, action: AppAction): AppState {
       const slim = pickQueueTrack(action.payload);
       setQueueState(state.queue, state.queueIndex, slim, state.queueSource);
       return { ...state, track: slim };
+    }
+    // The queue holds a snapshot taken when playback started, so anything that
+    // rewrites a track in the library (tag edits, a rescan) leaves it stale.
+    case 'REFRESH_QUEUE_TRACKS': {
+      const fresh = new Map<string | number, QueueTrack>();
+      for (const t of toQueueTracks(action.payload)) fresh.set(t.Id, t);
+      if (!fresh.size) return state;
+      const queue = state.queue.map(t => fresh.get(t.Id) ?? t);
+      const track = state.track ? (fresh.get(state.track.Id) ?? state.track) : state.track;
+      if (track === state.track && queue.every((t, i) => t === state.queue[i])) return state;
+      setQueueState(queue, state.queueIndex, track, state.queueSource);
+      return { ...state, queue, track };
     }
     case 'SET_IS_PLAYING': {
       return { ...state, isPlaying: action.payload };

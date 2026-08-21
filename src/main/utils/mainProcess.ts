@@ -66,11 +66,12 @@ import {
 import { registerArtistIpc } from '../ipc/artists';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
-import { ScanMode, REPO_URL } from '../../config/constants';
+import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
 import { CHANNEL, IDENTITY } from '../../config/channel';
 import { isUnderAnyRoot } from './libraryRules';
 import { buildTrackIndex, matchFavourite } from './favouriteMatch';
 import { parsePlaylistFile, writePlaylistFile } from './playlistFormats';
+import { writeTags, TagFields } from './tagWriter';
 // eslint-disable-next-line import/no-unresolved -- ESM-only package; same gap ipc.tsx already has
 import { parseFile as parseAudioFile } from 'music-metadata';
 import os from 'os';
@@ -704,12 +705,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
-  function spawnScanWorker(mode: ScanMode): Promise<unknown> {
+  function spawnScanWorker(mode: ScanMode, files?: string[]): Promise<unknown> {
     if (activeScanWorker) {
       return Promise.resolve({ success: false, error: 'Scan already in progress' });
     }
     const folders = db.prepare('SELECT * FROM MusicFolder').all();
-    if (!folders.length) return Promise.resolve({ success: false, error: 'No folders to scan' });
+    // 'files' names its targets outright, so it does not need a folder to walk.
+    if (!folders.length && mode !== 'files') {
+      return Promise.resolve({ success: false, error: 'No folders to scan' });
+    }
 
     const config = { APP_CONF_FOLDER, MUSIC_DIR, ALBUM_ART_DIR, ARTIST_ART_DIR };
     const settings = readSettingsFile();
@@ -717,7 +721,13 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     // packaged app. Worker is bundled to .webpack/main alongside __dirname.
     activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
     activeScanMode = mode;
-    activeScanWorker.postMessage({ folders, config, mode, librarySettings: settings.library });
+    activeScanWorker.postMessage({
+      folders,
+      config,
+      mode,
+      files,
+      librarySettings: settings.library,
+    });
     sendMessageToRendererProcess(mainWin, 'scan-start', mode);
 
     let resolvePromise: (v: unknown) => void;
@@ -772,6 +782,155 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('full-rescan', () => spawnScanWorker('full'));
 
   ipcMain.handle('reapply-artist-rules', () => spawnScanWorker('artists'));
+
+  // ── Tag editing ─────────────────────────────────────────────────────────────
+  ipcMain.handle('pick-image-file', async () => {
+    const result = await dialog.showOpenDialog(mainWin, {
+      title: 'Select Album Art',
+      properties: ['openFile'],
+      // JPEG and PNG only: webp/gif/bmp embed cleanly, but Windows Explorer,
+      // Windows Media Player and most hardware players show no art for them.
+      filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png'] }],
+    });
+    if (result.canceled || !result.filePaths?.length) return { canceled: true };
+    return { canceled: false, filePath: result.filePaths[0] };
+  });
+
+  // One handler for both editor modes: an album edit is the same write repeated
+  // over every track id, with only the album-level fields set.
+  //
+  // `artOnlyTrackIds` (cover but none of the text edits) must ride along in this
+  // same call: only one scan worker runs at a time, so a second write-track-tags
+  // call would find the scan busy, skip its re-index, and leave those tracks
+  // pointing at the art cache this handler just cleared.
+  ipcMain.handle(
+    'write-track-tags',
+    async (
+      _e,
+      {
+        trackIds,
+        fields,
+        artOnlyTrackIds = [],
+      }: { trackIds: number[]; fields: TagFields; artOnlyTrackIds?: number[] }
+    ) => {
+      const editIds = Array.isArray(trackIds) ? trackIds : [];
+      const artIds = Array.isArray(artOnlyTrackIds) ? artOnlyTrackIds : [];
+      const allIds = [...new Set([...editIds, ...artIds])];
+      if (!allIds.length) {
+        return { success: false, error: 'No tracks selected' };
+      }
+      const placeholders = allIds.map(() => '?').join(', ');
+      const rows = db
+        .prepare(`SELECT Id, Uri, AlbumId FROM Track WHERE Id IN (${placeholders})`)
+        .all(...allIds) as { Id: number; Uri: string; AlbumId: number | null }[];
+      if (!rows.length) return { success: false, error: 'Tracks not found' };
+
+      const editSet = new Set(editIds);
+      const artOnlyFields: TagFields = { artPath: fields.artPath };
+      const failed: { uri: string; error: string }[] = [];
+      const written: string[] = [];
+      const writtenRows: typeof rows = [];
+      for (const row of rows) {
+        if (!isTaggable(row.Uri)) {
+          failed.push({ uri: row.Uri, error: 'This file format cannot be tagged' });
+          continue;
+        }
+        try {
+          writeTags(row.Uri, editSet.has(row.Id) ? fields : artOnlyFields);
+          written.push(row.Uri);
+          writtenRows.push(row);
+        } catch (err) {
+          failed.push({ uri: row.Uri, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      const albumJpg = (id: number) => path.join(ALBUM_ART_DIR, `${id}.jpg`);
+      const trackJpg = (id: number) => path.join(ALBUM_ART_DIR, `track-${id}.jpg`);
+      const albumIds = [
+        ...new Set(rows.map(r => r.AlbumId).filter((id): id is number => id != null)),
+      ];
+      // An album counts as shared the moment one of its tracks is outside this
+      // edit; nothing below may touch its cache, since every track on the album
+      // reads that one file.
+      const idList = allIds.map(() => '?').join(', ');
+      const shared = new Set(
+        albumIds.filter(
+          id =>
+            (
+              db
+                .prepare(
+                  `SELECT COUNT(*) AS n FROM Track WHERE AlbumId = ? AND Id NOT IN (${idList})`
+                )
+                .get(id, ...allIds) as { n: number }
+            ).n > 0
+        )
+      );
+      // The re-index invents <albumId>.jpg when it finds a picture and no cache
+      // yet, which would hand a shared album a cover it never had.
+      const cachedBefore = new Map(albumIds.map(id => [id, fs.existsSync(albumJpg(id))]));
+
+      // A busy scanner refuses the re-index, leaving the DB out of step with the
+      // files just written; the caller has to know.
+      const scan = written.length
+        ? ((await spawnScanWorker('files', written)) as { success?: boolean })
+        : null;
+
+      // Art bookkeeping runs after the re-index, so it has the last word on what
+      // the edited tracks point at.
+      if (fields.artPath !== undefined) {
+        const setAlbumArt = db.prepare('UPDATE Track SET AlbumArt = ? WHERE AlbumId = ?');
+        const setTrackArt = db.prepare('UPDATE Track SET AlbumArt = ? WHERE Id = ?');
+
+        for (const albumId of albumIds) {
+          try {
+            if (shared.has(albumId)) {
+              // Put the shared cache back exactly as it was found.
+              if (!cachedBefore.get(albumId)) fs.rmSync(albumJpg(albumId), { force: true });
+              continue;
+            }
+            // when The whole album is in this edit, so every one of its tracks ends up on <albumId>.jpg. Any per-track cover left from an earlier partial
+            // edit is stale, and the scanner would go on preferring it.
+            for (const row of rows) {
+              if (row.AlbumId === albumId) fs.rmSync(trackJpg(row.Id), { force: true });
+            }
+            if (fields.artPath === null) {
+              fs.rmSync(albumJpg(albumId), { force: true });
+              setAlbumArt.run('', albumId);
+            } else {
+              fs.copyFileSync(fields.artPath, albumJpg(albumId));
+              setAlbumArt.run(albumJpg(albumId), albumId);
+            }
+          } catch {
+            /* art will just stay stale */
+          }
+        }
+
+        // Tracks on a shared album (and tracks on no album at all) get their own
+        // cover file, so the edit shows up on exactly the files it was aimed at.
+        for (const row of writtenRows) {
+          if (row.AlbumId != null && !shared.has(row.AlbumId)) continue;
+          const trackArt = trackJpg(row.Id);
+          try {
+            if (fields.artPath === null) {
+              fs.rmSync(trackArt, { force: true });
+              setTrackArt.run('', row.Id);
+            } else {
+              fs.copyFileSync(fields.artPath, trackArt);
+              setTrackArt.run(trackArt, row.Id);
+            }
+          } catch {
+            /* art will just stay stale */
+          }
+        }
+      }
+      return {
+        success: failed.length === 0,
+        written: written.length,
+        failed,
+        reindexed: !scan || scan.success !== false,
+      };
+    }
+  );
 
   // Byte-identical files only: FileHash is a sha1 of the whole file, so the same
   // song at a different bitrate is a different file and deliberately not reported.
@@ -1507,6 +1666,34 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     `
       )
       .all();
+  });
+
+  // The playback queue lives in renderer state, not React Query, so it needs its
+  // own way to re-read rows after the library changes under it.
+  ipcMain.handle('get-queue-tracks', (_e, { trackIds }: { trackIds: (number | string)[] }) => {
+    const numeric = (trackIds || []).filter(
+      id => typeof id === 'number' || /^\d+$/.test(String(id))
+    );
+    if (!numeric.length) return [];
+    const placeholders = numeric.map(() => '?').join(', ');
+    return db
+      .prepare(
+        `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.AlbumArt,
+        Track.AlbumId,
+        ${TRACK_ARTIST_NAMES},
+        Album.Title AS AlbumTitle
+      FROM Track
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      WHERE Track.Id IN (${placeholders})
+      GROUP BY Track.Id
+    `
+      )
+      .all(...numeric);
   });
 
   ipcMain.handle('get-recently-added-songs', () => {
