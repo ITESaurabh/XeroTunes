@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
@@ -64,7 +65,7 @@ const config: ForgeConfig = {
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
     }),
-    new MakerZIP({}, ['darwin', 'linux', 'win32']),
+    new MakerZIP({}, ['linux', 'win32']),
     new MakerDeb({
       options: {
         name: IDENTITY.installName,
@@ -168,6 +169,26 @@ const config: ForgeConfig = {
       draft: false,
     }),
   ],
+  hooks: {
+    async postMake(_config, makeResults) {
+      for (const result of makeResults) {
+        result.artifacts = await Promise.all(
+          result.artifacts.map(async artifact => {
+            if (!artifact.endsWith('.dmg')) return artifact;
+            const renamed = path.join(
+              path.dirname(artifact),
+              path
+                .basename(artifact)
+                .replace(/-arm64\.dmg$/, '.dmg')
+                .replace(/-x64\.dmg$/, '-intel.dmg')
+            );
+            if (renamed !== artifact) await fs.rename(artifact, renamed);
+            return renamed;
+          })
+        );
+      }
+      return makeResults;
+    },
+  },
 };
-
 export default config;
