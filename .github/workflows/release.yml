@@ -44,6 +44,12 @@ jobs:
         include:
           - os: windows-latest
           - os: macos-latest
+          # THIS: Intel Mac
+          - os: macos-26-intel
+          # OR: Cross-compile escape hatch, for when os26 image retires.
+          # - os: macos-latest
+          #   forge_args: --arch=x64
+          #
           # better-sqlite3 has no prebuild for Electron 43's ABI, so it is
           # compiled during the build and whatever glibc it links against
           # becomes the floor for every Linux artifact. This image is the one
@@ -107,6 +113,8 @@ jobs:
 
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
+        # Cross-compile variant; pairs with the macos-latest matrix entry.
+        # run: yarn ${{ steps.channel.outputs.script }} ${{ matrix.forge_args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_ENV: ${{ steps.channel.outputs.app_env }}
