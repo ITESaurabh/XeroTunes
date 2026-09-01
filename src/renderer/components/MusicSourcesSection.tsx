@@ -14,6 +14,7 @@ import {
   ListItem,
   ListItemIcon,
   ListItemText,
+  MenuItem,
   Stack,
   TextField,
   Typography,
@@ -46,6 +47,37 @@ interface Provider {
   blurb: string;
   accent: string;
   available: boolean;
+  /** Its metadata comes from the files, so it offers the choice below. */
+  fileTags: boolean;
+}
+
+/**
+ * How much of a file share to open during a sync. Reading tens of thousands of
+ * files is expensive, and only the owner of the server knows whether that cost
+ * is worth paying.
+ */
+const METADATA_MODES = [
+  {
+    value: 'eager',
+    label: 'Read tags while syncing',
+    hint: 'Every file is opened once. Slowest to sync, and the library is complete when it finishes.',
+  },
+  {
+    value: 'onPlay',
+    label: 'Read tags when a track plays',
+    hint: 'Syncs in seconds. Tracks are named after their files until you play them.',
+  },
+  {
+    value: 'off',
+    label: 'Never read tags',
+    hint: 'Nothing is ever opened. Titles, artists and albums come from the folder names.',
+  },
+] as const;
+
+/** Absent until the check answers, so a row shows nothing rather than guessing. */
+interface SourceStatus {
+  reachable: boolean;
+  authValid: boolean;
 }
 
 interface Source {
@@ -57,6 +89,7 @@ interface Source {
   LastSyncedAt: number | null;
   TrackCount: number;
   DownloadedCount: number;
+  Metadata: string;
 }
 
 /** Until real brand marks are dropped in, shape stands in for the logo. */
@@ -87,6 +120,7 @@ export default function MusicSourcesSection() {
   const [folders, setFolders] = useState<MusicFolder[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [statuses, setStatuses] = useState<Record<number, SourceStatus>>({});
   const [downloadFolder, setDownloadFolder] = useState('');
 
   // Open state is kept separate from which step is showing: clearing the step on
@@ -98,6 +132,7 @@ export default function MusicSourcesSection() {
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [metadata, setMetadata] = useState<string>('eager');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,6 +145,10 @@ export default function MusicSourcesSection() {
       .catch(() => undefined);
     invokeEventToMainProcess('get-download-folder', undefined)
       .then(d => setDownloadFolder(String(d ?? '')))
+      .catch(() => undefined);
+    // A round trip per server, so it rides along with the list, not a timer.
+    invokeEventToMainProcess('check-sources', undefined)
+      .then(d => setStatuses((d ?? {}) as Record<number, SourceStatus>))
       .catch(() => undefined);
   }, [invokeEventToMainProcess]);
 
@@ -136,6 +175,7 @@ export default function MusicSourcesSection() {
     setBaseUrl('');
     setUsername('');
     setPassword('');
+    setMetadata('eager');
     setAddOpen(true);
   };
 
@@ -156,9 +196,7 @@ export default function MusicSourcesSection() {
       destructive: true,
     });
     if (!ok) return;
-    await invokeEventToMainProcess('remove-music-folder', { Id: folder.Id }).catch(
-      () => undefined
-    );
+    await invokeEventToMainProcess('remove-music-folder', { Id: folder.Id }).catch(() => undefined);
     refresh();
   };
 
@@ -170,6 +208,7 @@ export default function MusicSourcesSection() {
       baseUrl,
       username,
       password,
+      metadata,
     })) as { success: boolean; error?: string };
     setBusy(false);
     if (!res?.success) {
@@ -177,6 +216,13 @@ export default function MusicSourcesSection() {
       return;
     }
     closeDialog();
+    refresh();
+  };
+
+  const handleMetadataMode = async (source: Source, mode: string) => {
+    await invokeEventToMainProcess('set-source-metadata', { sourceId: source.Id, mode }).catch(
+      () => undefined
+    );
     refresh();
   };
 
@@ -191,9 +237,7 @@ export default function MusicSourcesSection() {
       destructive: true,
     });
     if (!ok) return;
-    await invokeEventToMainProcess('remove-source', { sourceId: source.Id }).catch(
-      () => undefined
-    );
+    await invokeEventToMainProcess('remove-source', { sourceId: source.Id }).catch(() => undefined);
     refresh();
   };
 
@@ -201,10 +245,9 @@ export default function MusicSourcesSection() {
   const total = folders.length + sources.length;
 
   /**
-   * ListItemIcon for the 56px gutter, then text, then actions, so every row on
-   * the page lines up. Wrapping is left to flexbox: the actions drop to their own
-   * line when the text needs the width, which secondaryAction could not do
-   * without overlapping.
+   * The icon gutter, then a block holding the text and the actions. They wrap
+   * inside that block rather than inside the row, so actions pushed onto their
+   * own line start under the text instead of against either edge.
    */
   const row = (
     key: string,
@@ -213,18 +256,42 @@ export default function MusicSourcesSection() {
     secondary: React.ReactNode,
     actions: React.ReactNode
   ) => (
-    <ListItem key={key} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-      <ListItemIcon>{icon}</ListItemIcon>
-      <ListItemText
-        primary={primary}
-        secondary={secondary}
-        sx={{ flex: '1 1 14rem', minWidth: 0, my: 0 }}
-        primaryTypographyProps={{ sx: { wordBreak: 'break-word' } }}
-        secondaryTypographyProps={{ component: 'div', sx: { wordBreak: 'break-word' } }}
-      />
-      <Stack direction="row" spacing={1} sx={{ flexShrink: 0, ml: 'auto', mr: 0.5 }}>
-        {actions}
-      </Stack>
+    <ListItem key={key} sx={{ py: 1.5 }}>
+      <ListItemIcon sx={{ minWidth: { xs: '2.75rem', sm: '3.5rem' } }}>{icon}</ListItemIcon>
+      <Box
+        sx={{
+          flex: 1,
+          minWidth: 0,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          columnGap: 1,
+          rowGap: 1.5,
+        }}
+      >
+        <ListItemText
+          primary={primary}
+          secondary={secondary}
+          sx={{ flex: '1 1 12rem', minWidth: 0, my: 0 }}
+          primaryTypographyProps={{ sx: { wordBreak: 'break-word' } }}
+          secondaryTypographyProps={{ component: 'div', sx: { wordBreak: 'break-word' } }}
+        />
+        {/* Grows into whatever the text leaves, so the last action lands on the
+            right edge whether it shares the line or wraps below. */}
+        <Stack
+          direction="row"
+          spacing={1}
+          sx={{
+            flex: '1 1 auto',
+            justifyContent: 'flex-end',
+            mr: 0.5,
+            flexWrap: 'wrap',
+            rowGap: 1,
+          }}
+        >
+          {actions}
+        </Stack>
+      </Box>
     </ListItem>
   );
 
@@ -245,51 +312,63 @@ export default function MusicSourcesSection() {
                 display: 'flex',
                 flexWrap: 'wrap',
                 alignItems: 'center',
-                rowGap: 1,
+                rowGap: 1.5,
                 minWidth: 0,
                 my: 1,
               },
             }}
           >
-            <ListItemIcon>
+            <ListItemIcon sx={{ minWidth: { xs: '2.75rem', sm: '3.5rem' } }}>
               <Icon icon={sourcesIcon} width="2rem" />
             </ListItemIcon>
-            <ListItemText
-              primary="Music Sources"
-              secondary={
-                total
-                  ? `${folders.length} folder${folders.length === 1 ? '' : 's'}, ${
-                      sources.length
-                    } external`
-                  : 'Nothing added yet'
-              }
-              sx={{ flex: '1 1 12rem', minWidth: 0, my: 0 }}
-            />
-            <Stack direction="row" spacing={1} sx={{ flexShrink: 0, ml: 'auto', mr: 0.5 }}>
-              <Button
-                startIcon={<Icon icon={addFolderIcon} height="1.2rem" />}
-                variant="contained"
-                disableElevation
-                size="small"
-                onClick={e => {
-                  e.stopPropagation();
-                  void handleAddFolder();
-                }}
-              >
-                Add Folder
-              </Button>
-              <Button
-                startIcon={<Icon icon={addIcon} height="1.2rem" />}
-                variant="outlined"
-                size="small"
-                onClick={e => {
-                  e.stopPropagation();
-                  openDialog();
-                }}
-              >
-                Add External
-              </Button>
-            </Stack>
+            <Box
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                columnGap: 1,
+                rowGap: 1.5,
+              }}
+            >
+              <ListItemText
+                primary="Music Sources"
+                secondary={
+                  total
+                    ? `${folders.length} folder${folders.length === 1 ? '' : 's'}, ${
+                        sources.length
+                      } external`
+                    : 'Nothing added yet'
+                }
+                sx={{ flex: '1 1 12rem', minWidth: 0, my: 0 }}
+              />
+              <Stack direction="row" spacing={1} sx={{ flexShrink: 0, mr: 0.5 }}>
+                <Button
+                  startIcon={<Icon icon={addFolderIcon} height="1.2rem" />}
+                  variant="contained"
+                  disableElevation
+                  size="small"
+                  onClick={e => {
+                    e.stopPropagation();
+                    void handleAddFolder();
+                  }}
+                >
+                  Add Folder
+                </Button>
+                <Button
+                  startIcon={<Icon icon={addIcon} height="1.2rem" />}
+                  variant="outlined"
+                  size="small"
+                  onClick={e => {
+                    e.stopPropagation();
+                    openDialog();
+                  }}
+                >
+                  Add External
+                </Button>
+              </Stack>
+            </Box>
           </AccordionSummary>
 
           <AccordionDetails sx={{ p: 0, pb: 1 }}>
@@ -321,12 +400,38 @@ export default function MusicSourcesSection() {
 
             {sources.map(source => {
               const provider = providers.find(p => p.type === source.Type);
+              const status = statuses[source.Id];
               return row(
                 `source-${source.Id}`,
                 <Box sx={{ color: provider?.accent, lineHeight: 0 }}>
                   <Icon icon={PROVIDER_ICON[source.Type] ?? serverIcon} width="2rem" />
                 </Box>,
-                source.Name || source.BaseUrl,
+                // A server being down is the first thing to know about the row,
+                // not a footnote under two lines of detail.
+                <Box
+                  component="span"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                >
+                  {source.Name || source.BaseUrl}
+                  {status && !status.reachable && (
+                    <Chip
+                      component="span"
+                      label="Offline"
+                      size="small"
+                      color="error"
+                      sx={{ height: 20 }}
+                    />
+                  )}
+                  {status?.reachable && !status.authValid && (
+                    <Chip
+                      component="span"
+                      label="Sign-in failed"
+                      size="small"
+                      color="warning"
+                      sx={{ height: 20 }}
+                    />
+                  )}
+                </Box>,
                 <>
                   <Box component="span" sx={{ display: 'block' }}>
                     {provider?.label ?? source.Type} · {source.BaseUrl}
@@ -337,15 +442,35 @@ export default function MusicSourcesSection() {
                     {lastSyncLabel(source.LastSyncedAt)}
                   </Box>
                 </>,
-                <Button
-                  color="error"
-                  variant="contained"
-                  size="small"
-                  disableElevation
-                  onClick={() => handleRemoveSource(source)}
-                >
-                  Remove
-                </Button>
+                <>
+                  {provider?.fileTags && (
+                    <TextField
+                      select
+                      size="small"
+                      label="Track details"
+                      value={source.Metadata ?? 'eager'}
+                      onChange={e => handleMetadataMode(source, e.target.value)}
+                      // Grows to push REMOVE to the right edge, but only so
+                      // far: six words don't need half a desktop window.
+                      sx={{ minWidth: '11.5rem', maxWidth: '20rem', flex: '1 1 auto' }}
+                    >
+                      {METADATA_MODES.map(mode => (
+                        <MenuItem key={mode.value} value={mode.value}>
+                          {mode.label}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                  <Button
+                    color="error"
+                    variant="contained"
+                    size="small"
+                    disableElevation
+                    onClick={() => handleRemoveSource(source)}
+                  >
+                    Remove
+                  </Button>
+                </>
               );
             })}
           </AccordionDetails>
@@ -467,6 +592,22 @@ export default function MusicSourcesSection() {
               }}
               fullWidth
             />
+            {chosen?.fileTags && (
+              <TextField
+                select
+                label="Track details"
+                value={metadata}
+                onChange={e => setMetadata(e.target.value)}
+                helperText={METADATA_MODES.find(m => m.value === metadata)?.hint}
+                fullWidth
+              >
+                {METADATA_MODES.map(mode => (
+                  <MenuItem key={mode.value} value={mode.value}>
+                    {mode.label}
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
           </Stack>
         )}
       </AppDialog>

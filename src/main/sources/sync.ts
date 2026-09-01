@@ -8,21 +8,21 @@
  * local-vs-remote discriminator in the schema.
  */
 
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, Session } from 'electron';
 import { app } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import dbModule from '../db';
 import { ALBUM_ART_DIR } from '../../config/core_config';
-import {
-  getProvider,
-  qualifyPath,
-  displayPath,
-  parentPath,
-  stripNamespace,
-} from './registry';
+import { getProvider, qualifyPath, displayPath, parentPath, stripNamespace } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
-import type { RemoteTrack, SourceCredentials, RemoteTrackDetails } from './types';
+import type {
+  MetadataMode,
+  RemoteTrack,
+  RemoteTrackDetails,
+  SourceCredentials,
+  SourceProvider,
+} from './types';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const db: any = dbModule;
@@ -50,13 +50,15 @@ export interface PublicSource {
   LastSyncedAt: number | null;
   TrackCount: number;
   DownloadedCount: number;
+  /** Only meaningful for a provider that reads files for their tags. */
+  Metadata: MetadataMode;
 }
 
 export function listSources(): PublicSource[] {
-  return db
+  const rows = db
     .prepare(
       `SELECT Source.Id, Source.Type, Source.Name, Source.BaseUrl, Source.Username,
-              Source.LastSyncedAt,
+              Source.LastSyncedAt, Source.ConfigJson,
               COUNT(Track.Id) AS TrackCount,
               COALESCE(SUM(CASE WHEN Track.Uri NOT LIKE 'http%' THEN 1 ELSE 0 END), 0)
                 AS DownloadedCount
@@ -65,7 +67,48 @@ export function listSources(): PublicSource[] {
        GROUP BY Source.Id
        ORDER BY Source.Name COLLATE NOCASE`
     )
-    .all() as PublicSource[];
+    .all() as Array<PublicSource & { ConfigJson: string | null }>;
+  return rows.map(({ ConfigJson, ...source }) => ({
+    ...source,
+    Metadata:
+      getProvider(source.Type)?.metadataMode?.(toCredentials({ ConfigJson } as SourceRow)) ??
+      'eager',
+  }));
+}
+
+export interface SourceStatus {
+  reachable: boolean;
+  authValid: boolean;
+}
+
+/**
+ * Every server asked at once, keyed by source id. A provider with no ping is
+ * left out rather than guessed at, so the UI shows nothing for it.
+ */
+export async function checkSources(): Promise<Record<number, SourceStatus>> {
+  const rows = db.prepare('SELECT * FROM Source').all() as SourceRow[];
+  const checks = rows.map(async row => {
+    const provider = getProvider(row.Type);
+    if (!provider?.ping) return null;
+    try {
+      return [row.Id, await provider.ping(toCredentials(row))] as const;
+    } catch {
+      return [row.Id, { reachable: false, authValid: false }] as const;
+    }
+  });
+  return Object.fromEntries(
+    (await Promise.all(checks)).filter(Boolean) as Array<readonly [number, SourceStatus]>
+  );
+}
+
+export function setMetadataMode(sourceId: number, mode: MetadataMode): { success: boolean } {
+  const row = getSourceRow(sourceId);
+  if (!row) return { success: false };
+  db.prepare('UPDATE Source SET ConfigJson = ? WHERE Id = ?').run(
+    JSON.stringify({ ...toCredentials(row).config, metadata: mode }),
+    sourceId
+  );
+  return { success: true };
 }
 
 function getSourceRow(id: number): SourceRow | null {
@@ -102,8 +145,7 @@ function toCredentials(row: SourceRow): SourceCredentials {
  */
 function getOrCreateArtist(name: string): number {
   const existing = db.prepare('SELECT Id FROM Artist WHERE Name = ? COLLATE NOCASE').get(name) as
-    | { Id: number }
-    | undefined;
+    { Id: number } | undefined;
   if (existing) return existing.Id;
   return Number(
     db.prepare('INSERT INTO Artist (Name, Version) VALUES (?, 1)').run(name).lastInsertRowid
@@ -155,12 +197,226 @@ function rawTagJson(value: string): string {
 
 function getOrCreateGenre(name: string): number {
   const existing = db.prepare('SELECT Id FROM Genre WHERE Name = ? COLLATE NOCASE').get(name) as
-    | { Id: number }
-    | undefined;
+    { Id: number } | undefined;
   if (existing) return existing.Id;
   return Number(
     db.prepare('INSERT INTO Genre (Name, Version) VALUES (?, 1)').run(name).lastInsertRowid
   );
+}
+
+// ── Writing a provider's tracks into the library ─────────────────────────────
+
+interface ImportContext {
+  sourceId: number;
+  type: string;
+  provider: SourceProvider;
+  credentials: SourceCredentials;
+  /** albumId → art URL, fetched once the rows are written. */
+  albumArtUrls: Map<number, string>;
+  /** An album's links are rebuilt by the first of its tracks to arrive; the
+   *  rest add to them, so a compilation keeps every album artist it names. */
+  albumLinksCleared: Set<number>;
+}
+
+function importContext(row: SourceRow): ImportContext | null {
+  const provider = getProvider(row.Type);
+  if (!provider) return null;
+  return {
+    sourceId: row.Id,
+    type: row.Type,
+    provider,
+    credentials: toCredentials(row),
+    albumArtUrls: new Map(),
+    albumLinksCleared: new Set(),
+  };
+}
+
+/**
+ * What the file looked like when its tags were read, and null when they weren't.
+ * The next sync skips a track whose stamp still matches; a null marks one still
+ * waiting for its tags.
+ */
+function stampFor(track: RemoteTrack): string | null {
+  return track.untagged ? null : (track.stamp ?? null);
+}
+
+function createImporter(ctx: ImportContext) {
+  const writeLinks = (
+    trackId: number,
+    albumId: number | null,
+    artistIds: number[],
+    albumArtistIds: number[]
+  ) => {
+    // Rebuilt rather than merged: an artist rename or re-key leaves the old
+    // row pointing at an Artist that no longer exists, and the joins that read
+    // these links then return nothing at all for the track.
+    db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
+    const linkTrack = db.prepare(
+      'INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)'
+    );
+    for (const aid of artistIds) linkTrack.run(trackId, aid);
+
+    if (albumId == null) return;
+    if (!ctx.albumLinksCleared.has(albumId)) {
+      db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
+      ctx.albumLinksCleared.add(albumId);
+    }
+    const linkAlbum = db.prepare(
+      'INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)'
+    );
+    for (const aid of albumArtistIds.length ? albumArtistIds : artistIds) {
+      linkAlbum.run(albumId, aid);
+    }
+  };
+
+  return db.transaction((track: RemoteTrack) => {
+    // The provider read nothing because nothing changed; the row it wrote last
+    // time is still right, and rewriting it from a path would undo real tags.
+    if (track.unchanged) return;
+
+    const artistIds = artistIdsFor(track.artists);
+    const albumArtistIds = artistIdsFor(track.albumArtists);
+    const primaryArtistId = artistIds[0] ?? null;
+
+    // Album identity is (album artist, album name), the same rule the local
+    // scanner uses. A server's own album id can't be trusted for this:
+    // Jellyfin's is really the containing folder, so one id was found
+    // spanning 33 distinct albums while 212 tracks had no id at all.
+    let albumId: number | null = null;
+    if (track.album) {
+      // Only the album artist keys the album. Falling back to the track artist
+      // splits a compilation into one album per guest credit: "LAST DAWN"
+      // became 12 albums because each track's artist named a different guest.
+      // The raw credit, not a split name: this is the album's identity, and
+      // changing how it reads would re-key every album on the next sync.
+      const albumArtistName = track.albumArtists[0] ?? '';
+      albumId = getOrCreateRemoteAlbum(
+        ctx.sourceId,
+        `album:${albumArtistName.toLowerCase()}::${track.album.toLowerCase()}`,
+        track.album,
+        albumArtistIds[0] ?? primaryArtistId,
+        track.year
+      );
+      if (!ctx.albumArtUrls.has(albumId)) {
+        const url = ctx.provider.artUrl(ctx.credentials, track);
+        if (url) ctx.albumArtUrls.set(albumId, url);
+      }
+    }
+
+    const genreId = track.genres[0] ? getOrCreateGenre(track.genres[0]) : null;
+    const uri = ctx.provider.streamUrl(ctx.credentials, track.remoteId);
+    const albumArt = albumId != null ? path.join(ALBUM_ART_DIR, `${albumId}.jpg`) : null;
+    // Scheme-qualified so the folder tree can group by server and remote paths
+    // can never collide with local ones.
+    const folderPath = track.path
+      ? qualifyPath(ctx.type, ctx.sourceId, parentPath(track.path))
+      : null;
+
+    const existing = db
+      .prepare('SELECT Id, Uri FROM Track WHERE SourceId = ? AND RemoteId = ?')
+      .get(ctx.sourceId, track.remoteId) as { Id: number; Uri: string } | undefined;
+
+    if (existing) {
+      // A downloaded track's Uri points at a real file. Overwriting it with
+      // the stream URL would silently un-download it on the next sync.
+      const keepUri = !/^https?:\/\//i.test(existing.Uri);
+      db.prepare(
+        `UPDATE Track SET
+           Uri = CASE WHEN ? THEN Uri ELSE ? END,
+           Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?,
+           Year = ?, AlbumArt = ?, Duration = ?, ReleaseYear = ?, DiscNumber = ?,
+           Extension = ?, FolderPath = ?, RawArtist = ?, RawAlbumArtist = ?,
+           RemoteStamp = ?
+         WHERE Id = ?`
+      ).run(
+        keepUri ? 1 : 0,
+        uri,
+        track.title,
+        primaryArtistId,
+        albumId,
+        genreId,
+        track.trackNumber != null ? String(track.trackNumber) : null,
+        track.year != null ? String(track.year) : null,
+        albumArt,
+        track.durationSec,
+        track.year,
+        track.discNumber,
+        track.container,
+        folderPath,
+        rawTagJson(track.artists.join(', ')),
+        rawTagJson(track.albumArtists.join(', ')),
+        stampFor(track),
+        existing.Id
+      );
+      writeLinks(existing.Id, albumId, artistIds, albumArtistIds);
+      return;
+    }
+
+    const trackId = Number(
+      db
+        .prepare(
+          `INSERT INTO Track
+            (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year,
+             AlbumArt, Duration, ReleaseYear, DiscNumber, DateAdded, Version,
+             FolderPath, RawArtist, RawAlbumArtist, RemoteStamp, SourceId, RemoteId)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          uri,
+          track.container,
+          track.title,
+          primaryArtistId,
+          albumId,
+          genreId,
+          track.trackNumber != null ? String(track.trackNumber) : null,
+          track.year != null ? String(track.year) : null,
+          albumArt,
+          track.durationSec,
+          track.year,
+          track.discNumber,
+          track.dateAdded ?? Date.now(),
+          folderPath,
+          rawTagJson(track.artists.join(', ')),
+          rawTagJson(track.albumArtists.join(', ')),
+          stampFor(track),
+          ctx.sourceId,
+          track.remoteId
+        ).lastInsertRowid
+    );
+
+    writeLinks(trackId, albumId, artistIds, albumArtistIds);
+  });
+}
+
+async function downloadAlbumArt(
+  ctx: ImportContext,
+  onProgress?: (_done: number, _total: number) => void
+): Promise<void> {
+  const jobs = [...ctx.albumArtUrls.entries()].filter(
+    ([albumId]) => !fs.existsSync(path.join(ALBUM_ART_DIR, `${albumId}.jpg`))
+  );
+  const headers = ctx.provider.requestHeaders?.(ctx.credentials);
+  for (let i = 0; i < jobs.length; i += 4) {
+    await Promise.all(
+      jobs
+        .slice(i, i + 4)
+        .map(([albumId, url]) =>
+          downloadTo(url, path.join(ALBUM_ART_DIR, `${albumId}.jpg`), headers)
+        )
+    );
+    onProgress?.(Math.min(i + 4, jobs.length), jobs.length);
+  }
+}
+
+/** What the last sync stored per track, for the providers that can skip work. */
+function knownStamps(sourceId: number): Map<string, string> {
+  const rows = db
+    .prepare(
+      `SELECT RemoteId, RemoteStamp FROM Track
+       WHERE SourceId = ? AND RemoteId IS NOT NULL AND RemoteStamp IS NOT NULL`
+    )
+    .all(sourceId) as Array<{ RemoteId: string; RemoteStamp: string }>;
+  return new Map(rows.map(r => [r.RemoteId, r.RemoteStamp]));
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
@@ -179,9 +435,8 @@ export async function syncSource(
 ): Promise<{ success: true; imported: number } | { success: false; error: string }> {
   const row = getSourceRow(id);
   if (!row) return { success: false, error: 'Source not found' };
-  const provider = getProvider(row.Type);
-  if (!provider) return { success: false, error: `Unknown source type "${row.Type}"` };
-  const credentials = toCredentials(row);
+  const ctx = importContext(row);
+  if (!ctx) return { success: false, error: `Unknown source type "${row.Type}"` };
   // Module-level state in libraryRules, and this process has its own copy of it
   // separate from the scan worker's.
   applyLibrarySettings(librarySettings);
@@ -194,8 +449,10 @@ export async function syncSource(
   try {
     let tracks: RemoteTrack[];
     try {
-      tracks = await provider.listTracks(credentials, (loaded, total) =>
-        send('scan-progress', { scanned: 0, total, processed: loaded })
+      tracks = await ctx.provider.listTracks(
+        ctx.credentials,
+        (loaded, total) => send('scan-progress', { scanned: 0, total, processed: loaded }),
+        knownStamps(id)
       );
     } catch (err) {
       return { success: false, error: (err as Error).message };
@@ -203,149 +460,7 @@ export async function syncSource(
 
     const total = tracks.length;
     let imported = 0;
-    const albumArtUrls = new Map<number, string>();
-
-    // An album's links are rebuilt by the first of its tracks to arrive; the rest
-    // add to them, so a compilation keeps every album artist it names.
-    const albumLinksCleared = new Set<number>();
-
-    const writeLinks = (
-      trackId: number,
-      albumId: number | null,
-      artistIds: number[],
-      albumArtistIds: number[]
-    ) => {
-      // Rebuilt rather than merged: an artist rename or re-key leaves the old
-      // row pointing at an Artist that no longer exists, and the joins that read
-      // these links then return nothing at all for the track.
-      db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?').run(trackId);
-      const linkTrack = db.prepare(
-        'INSERT OR IGNORE INTO TrackArtist (TrackId, ArtistId) VALUES (?, ?)'
-      );
-      for (const aid of artistIds) linkTrack.run(trackId, aid);
-
-      if (albumId == null) return;
-      if (!albumLinksCleared.has(albumId)) {
-        db.prepare('DELETE FROM AlbumArtist WHERE AlbumId = ?').run(albumId);
-        albumLinksCleared.add(albumId);
-      }
-      const linkAlbum = db.prepare(
-        'INSERT OR IGNORE INTO AlbumArtist (AlbumId, ArtistId) VALUES (?, ?)'
-      );
-      for (const aid of albumArtistIds.length ? albumArtistIds : artistIds) {
-        linkAlbum.run(albumId, aid);
-      }
-    };
-
-    const importTrack = db.transaction((track: RemoteTrack) => {
-      const artistIds = artistIdsFor(track.artists);
-      const albumArtistIds = artistIdsFor(track.albumArtists);
-      const primaryArtistId = artistIds[0] ?? null;
-
-      // Album identity is (album artist, album name), the same rule the local
-      // scanner uses. A server's own album id can't be trusted for this:
-      // Jellyfin's is really the containing folder, so one id was found
-      // spanning 33 distinct albums while 212 tracks had no id at all.
-      let albumId: number | null = null;
-      if (track.album) {
-        // Only the album artist keys the album. Falling back to the track artist
-        // splits a compilation into one album per guest credit: "LAST DAWN"
-        // became 12 albums because each track's artist named a different guest.
-        // The raw credit, not a split name: this is the album's identity, and
-        // changing how it reads would re-key every album on the next sync.
-        const albumArtistName = track.albumArtists[0] ?? '';
-        albumId = getOrCreateRemoteAlbum(
-          id,
-          `album:${albumArtistName.toLowerCase()}::${track.album.toLowerCase()}`,
-          track.album,
-          albumArtistIds[0] ?? primaryArtistId,
-          track.year
-        );
-        if (!albumArtUrls.has(albumId)) {
-          const url = provider.artUrl(credentials, track);
-          if (url) albumArtUrls.set(albumId, url);
-        }
-      }
-
-      const genreId = track.genres[0] ? getOrCreateGenre(track.genres[0]) : null;
-      const uri = provider.streamUrl(credentials, track.remoteId);
-      const albumArt = albumId != null ? path.join(ALBUM_ART_DIR, `${albumId}.jpg`) : null;
-      // Scheme-qualified so the folder tree can group by server and remote paths
-      // can never collide with local ones.
-      const folderPath = track.path ? qualifyPath(row.Type, id, parentPath(track.path)) : null;
-
-      const existing = db
-        .prepare('SELECT Id, Uri FROM Track WHERE SourceId = ? AND RemoteId = ?')
-        .get(id, track.remoteId) as { Id: number; Uri: string } | undefined;
-
-      if (existing) {
-        // A downloaded track's Uri points at a real file. Overwriting it with
-        // the stream URL would silently un-download it on the next sync.
-        const keepUri = !/^https?:\/\//i.test(existing.Uri);
-        db.prepare(
-          `UPDATE Track SET
-             Uri = CASE WHEN ? THEN Uri ELSE ? END,
-             Title = ?, ArtistId = ?, AlbumId = ?, GenreId = ?, TrackNumber = ?,
-             Year = ?, AlbumArt = ?, Duration = ?, ReleaseYear = ?, DiscNumber = ?,
-             Extension = ?, FolderPath = ?, RawArtist = ?, RawAlbumArtist = ?
-           WHERE Id = ?`
-        ).run(
-          keepUri ? 1 : 0,
-          uri,
-          track.title,
-          primaryArtistId,
-          albumId,
-          genreId,
-          track.trackNumber != null ? String(track.trackNumber) : null,
-          track.year != null ? String(track.year) : null,
-          albumArt,
-          track.durationSec,
-          track.year,
-          track.discNumber,
-          track.container,
-          folderPath,
-          rawTagJson(track.artists.join(', ')),
-          rawTagJson(track.albumArtists.join(', ')),
-          existing.Id
-        );
-        writeLinks(existing.Id, albumId, artistIds, albumArtistIds);
-        return;
-      }
-
-      const trackId = Number(
-        db
-          .prepare(
-            `INSERT INTO Track
-              (Uri, Extension, Title, ArtistId, AlbumId, GenreId, TrackNumber, Year,
-               AlbumArt, Duration, ReleaseYear, DiscNumber, DateAdded, Version,
-               FolderPath, RawArtist, RawAlbumArtist, SourceId, RemoteId)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`
-          )
-          .run(
-            uri,
-            track.container,
-            track.title,
-            primaryArtistId,
-            albumId,
-            genreId,
-            track.trackNumber != null ? String(track.trackNumber) : null,
-            track.year != null ? String(track.year) : null,
-            albumArt,
-            track.durationSec,
-            track.year,
-            track.discNumber,
-            track.dateAdded ?? Date.now(),
-            folderPath,
-            rawTagJson(track.artists.join(', ')),
-            rawTagJson(track.albumArtists.join(', ')),
-            id,
-            track.remoteId
-          ).lastInsertRowid
-      );
-
-      writeLinks(trackId, albumId, artistIds, albumArtistIds);
-    });
-
+    const importTrack = createImporter(ctx);
     for (const track of tracks) {
       importTrack(track);
       imported++;
@@ -354,23 +469,10 @@ export async function syncSource(
       }
     }
 
-    // Network I/O outside the transaction, batched so a big library doesn't open
-    // hundreds of sockets at once.
-    const jobs = [...albumArtUrls.entries()].filter(
-      ([albumId]) => !fs.existsSync(path.join(ALBUM_ART_DIR, `${albumId}.jpg`))
+    // Network I/O outside the transaction.
+    await downloadAlbumArt(ctx, (done, artTotal) =>
+      send('scan-progress', { scanned: total, total: total + artTotal, processed: total + done })
     );
-    for (let i = 0; i < jobs.length; i += 4) {
-      await Promise.all(
-        jobs
-          .slice(i, i + 4)
-          .map(([albumId, url]) => downloadTo(url, path.join(ALBUM_ART_DIR, `${albumId}.jpg`)))
-      );
-      send('scan-progress', {
-        scanned: total,
-        total: total + jobs.length,
-        processed: total + Math.min(i + 4, jobs.length),
-      });
-    }
 
     pruneEmptyAlbums(id);
     clearMissingArt(id);
@@ -448,9 +550,13 @@ function clearMissingArt(sourceId: number): void {
   })();
 }
 
-async function downloadTo(url: string, destPath: string): Promise<boolean> {
+async function downloadTo(
+  url: string,
+  destPath: string,
+  headers?: Record<string, string>
+): Promise<boolean> {
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers });
     if (!res.ok) return false;
     fs.writeFileSync(destPath, Buffer.from(await res.arrayBuffer()));
     return true;
@@ -463,12 +569,15 @@ async function downloadTo(url: string, destPath: string): Promise<boolean> {
 
 export async function addSource(
   type: string,
-  input: { baseUrl: string; username?: string; password?: string }
+  input: { baseUrl: string; username?: string; password?: string; config?: Record<string, unknown> }
 ): Promise<{ success: true; sourceId: number } | { success: false; error: string }> {
   const provider = getProvider(type);
   if (!provider) return { success: false, error: `Unknown source type "${type}"` };
   try {
     const { displayName, credentials } = await provider.connect(input);
+    // Where the metadata mode chosen in the dialog lands, before the first
+    // sync reads it.
+    credentials.config = { ...credentials.config, ...(input.config ?? {}) };
     const info = db
       .prepare(
         `INSERT INTO Source
@@ -485,6 +594,7 @@ export async function addSource(
         credentials.deviceId,
         JSON.stringify(credentials.config ?? {})
       );
+    refreshSourceAuth();
     return { success: true, sourceId: Number(info.lastInsertRowid) };
   } catch (err) {
     return { success: false, error: (err as Error).message };
@@ -524,7 +634,44 @@ export function removeSource(id: number): { success: boolean } {
   // recoverable, a failed transaction is not.
   for (const { Id } of albums) unlinkQuietly(path.join(ALBUM_ART_DIR, `${Id}.jpg`));
   for (const { Uri } of downloaded) unlinkQuietly(Uri);
+  refreshSourceAuth();
   return { success: true };
+}
+
+// ── Request auth ─────────────────────────────────────────────────────────────
+// A provider whose server wants an Authorization header rather than a token in
+// the URL (WebDAV) can't be reached by <audio> or <img>, which send neither.
+// The header is injected into the renderer's requests for that source's URLs
+// instead, from the same credentials the provider was handed.
+
+let authRules: Array<{ prefix: string; headers: Record<string, string> }> = [];
+
+/** Called whenever the set of sources changes; the hook reads the cache, not the DB. */
+export function refreshSourceAuth(): void {
+  authRules = (db.prepare('SELECT * FROM Source').all() as SourceRow[]).flatMap(row => {
+    const provider = getProvider(row.Type);
+    const headers = row.BaseUrl ? provider?.requestHeaders?.(toCredentials(row)) : null;
+    return headers && Object.keys(headers).length
+      ? [{ prefix: (row.BaseUrl as string).replace(/\/+$/, '') + '/', headers }]
+      : [];
+  });
+}
+
+export function installSourceAuth(ses: Session): void {
+  refreshSourceAuth();
+  // Fires for every http request the app makes, so it stays a startsWith over a
+  // list that is empty until a source needs it.
+  ses.webRequest.onBeforeSendHeaders(
+    { urls: ['http://*/*', 'https://*/*'] },
+    (details, callback) => {
+      const rule = authRules.find(r => details.url.startsWith(r.prefix));
+      callback({
+        requestHeaders: rule
+          ? { ...details.requestHeaders, ...rule.headers }
+          : details.requestHeaders,
+      });
+    }
+  );
 }
 
 // ── Per-track lookups, served from the server on demand ──────────────────────
@@ -552,6 +699,44 @@ function resolve(trackId: number): Resolved | null {
     type: row.Type,
     credentials: toCredentials(row),
   };
+}
+
+/**
+ * Reads one track's tags from the file and writes them into its row. This is
+ * what makes the cheaper metadata modes work: onPlay leaves every track to it,
+ * and the eager pass leaves it whatever it couldn't read. Safe to call for any
+ * track, including local ones: an indexed read decides it has nothing to do.
+ */
+export async function ensureRemoteTags(
+  trackId: number,
+  librarySettings?: SyncOptions['librarySettings']
+): Promise<{ updated: boolean }> {
+  const row = db
+    .prepare(
+      `SELECT Track.RemoteId, Track.RemoteStamp, Source.*
+       FROM Track JOIN Source ON Track.SourceId = Source.Id
+       WHERE Track.Id = ?`
+    )
+    .get(trackId) as (SourceRow & { RemoteId: string; RemoteStamp: string | null }) | undefined;
+  if (!row?.RemoteId || row.RemoteStamp) return { updated: false };
+
+  const ctx = importContext(row);
+  if (!ctx?.provider.readTrack) return { updated: false };
+
+  applyLibrarySettings(librarySettings);
+  let track: RemoteTrack | null;
+  try {
+    track = await ctx.provider.readTrack(ctx.credentials, row.RemoteId);
+  } catch (err) {
+    console.warn('[sources] Could not read tags for track', trackId, (err as Error).message);
+    return { updated: false };
+  }
+  // An unreadable file leaves the row as it is, so the next play tries again.
+  if (!track || track.untagged) return { updated: false };
+
+  createImporter(ctx)(track);
+  await downloadAlbumArt(ctx);
+  return { updated: true };
 }
 
 export async function remoteLyrics(trackId: number): Promise<string | null> {
@@ -718,7 +903,9 @@ export async function downloadTrack(
 
   try {
     fs.mkdirSync(dir, { recursive: true });
-    const res = await fetch(provider.downloadUrl(r.credentials, r.remoteId));
+    const res = await fetch(provider.downloadUrl(r.credentials, r.remoteId), {
+      headers: provider.requestHeaders?.(r.credentials),
+    });
     if (!res.ok) return { success: false, error: `Download failed (${res.status})` };
     // Write under a temp name first so an interrupted download can't leave a
     // truncated file that the DB then points at as if it were complete.

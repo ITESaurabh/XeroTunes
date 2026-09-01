@@ -66,7 +66,7 @@ import {
 import { registerArtistIpc } from '../ipc/artists';
 import { registerSourceIpc } from '../ipc/sources';
 import { schemeRoot } from '../sources/registry';
-import { syncAllSources } from '../sources/sync';
+import { installSourceAuth, syncAllSources } from '../sources/sync';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
 import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
@@ -790,13 +790,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
    * per source: the scan used to refuse outright with no music folders
    * configured, leaving a remote-only library with no way to refresh at all.
    */
-  async function refreshLibrary(mode: 'basic' | 'full') {
+  async function refreshLibrary(mode: 'basic' | 'full', { localOnly = false } = {}) {
     const hasFolders =
       (db.prepare('SELECT COUNT(*) AS c FROM MusicFolder').get() as { c: number }).c > 0;
     const hasSources =
-      (db.prepare('SELECT COUNT(*) AS c FROM Source').get() as { c: number }).c > 0;
+      !localOnly && (db.prepare('SELECT COUNT(*) AS c FROM Source').get() as { c: number }).c > 0;
     if (!hasFolders && !hasSources) {
-      return { success: false, error: 'Nothing to scan. Add a music folder or a server.' };
+      // Nothing to do isn't a failure when the caller only wanted the folders:
+      // that's a view mounting, which has no button to report an error on.
+      return localOnly
+        ? { success: true, scanned: 0 }
+        : { success: false, error: 'Nothing to scan. Add a music folder or a server.' };
     }
 
     sendMessageToRendererProcess(mainWin, 'scan-start', mode);
@@ -822,7 +826,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   }
 
-  ipcMain.handle('scan-media', () => refreshLibrary('basic'));
+  // `localOnly` is for the refresh a view fires on mount: walking a server is a
+  // round trip per folder, far too much to spend on opening a screen.
+  ipcMain.handle('scan-media', (_e, args) =>
+    refreshLibrary('basic', { localOnly: args?.localOnly === true })
+  );
 
   ipcMain.handle('full-rescan', () => refreshLibrary('full'));
 
@@ -1356,6 +1364,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (!cols.includes('RemoteId')) {
       db.prepare(`ALTER TABLE ${table} ADD COLUMN RemoteId TEXT`).run();
     }
+    // What the remote file looked like when its tags were read. NULL means they
+    // never were, which is what the on-play fill-in looks for.
+    if (table === 'Track' && !cols.includes('RemoteStamp')) {
+      db.prepare('ALTER TABLE Track ADD COLUMN RemoteStamp TEXT').run();
+    }
     const indexName = `idx_${table.toLowerCase()}_source`;
     // An abandoned 2026 prototype created this index as non-unique. IF NOT EXISTS
     // would happily keep it, leaving the upsert without its safety net.
@@ -1372,9 +1385,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       // resolves rows by SELECT-then-INSERT inside a transaction, so it stays
       // correct without it; take the plain index rather than fail startup.
       console.warn(`[db] Duplicate (SourceId, RemoteId) rows in ${table}; index not unique.`);
-      db.prepare(
-        `CREATE INDEX IF NOT EXISTS ${indexName} ON ${table}(SourceId, RemoteId)`
-      ).run();
+      db.prepare(`CREATE INDEX IF NOT EXISTS ${indexName} ON ${table}(SourceId, RemoteId)`).run();
     }
   }
 
@@ -2748,6 +2759,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
 
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
+  // A source that authenticates with a header needs it on the renderer's own
+  // requests too: the <audio> loading a stream, the <img> loading a cover.
+  installSourceAuth(mainWin.webContents.session);
   registerSourceIpc(
     mainWin,
     () => readSettingsFile().library.downloadFolder,

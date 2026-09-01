@@ -547,4 +547,8 @@ export const jellyfinProvider: SourceProvider = {
     const { baseUrl, token, deviceId, userId } = requireCreds(c);
     return fetchTrackDetails(baseUrl, token, deviceId, userId, remoteId);
   },
+
+  ping(c) {
+    return pingServer(c.baseUrl, c.accessToken ?? undefined, c.deviceId ?? undefined);
+  },
 };

@@ -10,13 +10,21 @@ export function registerSourceIpc(
 ): void {
   ipcMain.handle('get-sources', () => sources.listSources());
   ipcMain.handle('get-source-providers', () => listProviders());
+  ipcMain.handle('check-sources', () => sources.checkSources());
 
-  ipcMain.handle('add-source', async (_e, { type, baseUrl, username, password }) => {
+  ipcMain.handle('add-source', async (_e, { type, baseUrl, username, password, metadata }) => {
     if (!baseUrl || typeof baseUrl !== 'string') {
       return { success: false, error: 'Server address is required' };
     }
     const url = /^https?:\/\//i.test(baseUrl) ? baseUrl : `http://${baseUrl}`;
-    const result = await sources.addSource(type, { baseUrl: url, username, password });
+    const result = await sources.addSource(type, {
+      baseUrl: url,
+      username,
+      password,
+      // Chosen before the first sync, which is the one that would otherwise
+      // read every file on the share.
+      config: metadata ? { metadata } : undefined,
+    });
     // Sync straight away; an empty server in the list looks like a failure.
     if (result.success) {
       void sources.syncSource(result.sourceId, mainWin, {
@@ -25,6 +33,12 @@ export function registerSourceIpc(
     }
     return result;
   });
+
+  // Takes effect on the next sync: tracks already read keep their tags, and
+  // switching to a mode that reads gets them on the sync after this.
+  ipcMain.handle('set-source-metadata', (_e, { sourceId, mode }) =>
+    sources.setMetadataMode(sourceId, mode)
+  );
 
   ipcMain.handle('remove-source', (_e, { sourceId }) => {
     const result = sources.removeSource(sourceId);
@@ -38,6 +52,16 @@ export function registerSourceIpc(
   // invalidates its own list queries instead.
   // Lyrics and technical details live on the server, not in a local file; the
   // renderer asks for them by track id and doesn't need to know that.
+  // Fired when a track loads in the player; a no-op for anything already
+  // tagged, which is every local track and most remote ones.
+  ipcMain.handle('ensure-remote-tags', async (_e, { trackId }) => {
+    const result = await sources.ensureRemoteTags(trackId, getLibrarySettings());
+    // The Uri doesn't change here, only the tags, so the queue snapshot can be
+    // refreshed without the audio element reloading and restarting the song.
+    if (result.updated) mainWin.webContents.send('library-updated', {});
+    return result;
+  });
+
   ipcMain.handle('get-remote-lyrics', (_e, { trackId }) => sources.remoteLyrics(trackId));
   ipcMain.handle('get-remote-track-details', (_e, { trackId }) =>
     sources.remoteTrackDetails(trackId)

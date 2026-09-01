@@ -164,13 +164,14 @@ const RecentlyAdded: React.FC = () => {
 
   // Re-scan for new/removed files once when entering this view. Store
   // dispatches (e.g. from scroll) must NOT re-trigger this — hence empty deps
-  // + a ref to the latest `invokeEventToMainProcess`.
+  // + a ref to the latest `invokeEventToMainProcess`. Local folders only:
+  // syncing a server costs a request per folder, and nobody asked for one.
   const invokeRef = React.useRef(invokeEventToMainProcess);
   invokeRef.current = invokeEventToMainProcess;
   useEffect(() => {
     console.log('[RecentlyAdded] mounted → invoking scan-media');
     invokeRef
-      .current('scan-media', undefined)
+      .current('scan-media', { localOnly: true })
       .then(res => console.log('[RecentlyAdded] scan-media resolved:', res))
       .catch(err => console.log('[RecentlyAdded] scan-media error:', err));
   }, []);

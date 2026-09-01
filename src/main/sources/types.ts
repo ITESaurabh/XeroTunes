@@ -44,6 +44,23 @@ export interface RemoteTrack {
   dateAdded: number | null;
   /** Opaque handle the provider gets back in artUrl(); null when there's no cover. */
   artKey: string | null;
+
+  /**
+   * What the file looked like when these fields were read: an etag, or modified
+   * time and size. Stored so the next sync can tell an unchanged file from one
+   * worth reading again. Null for a provider with no such notion.
+   */
+  stamp?: string | null;
+  /**
+   * Set when the provider didn't read the file: the fields are guesses from the
+   * path, and the track is left for readTrack() to fill in when it plays.
+   */
+  untagged?: boolean;
+  /**
+   * Set when the stamp matches what the last sync stored. The row is already
+   * right, so sync leaves it alone rather than rewriting it with a guess.
+   */
+  unchanged?: boolean;
 }
 
 /** The technical details a local file would carry in its header. */
@@ -61,7 +78,24 @@ export interface ConnectInput {
   baseUrl: string;
   username?: string;
   password?: string;
+  /** Merged into the stored credentials' config; carries the metadata mode. */
+  config?: Record<string, unknown>;
 }
+
+/**
+ * How much a provider that has to read files for their tags is allowed to read,
+ * stored per source in `config.metadata`.
+ *
+ * A share with tens of thousands of files makes the eager pass expensive, and
+ * whether that cost is worth paying is the user's call, not ours.
+ */
+export type MetadataMode =
+  /** Read every file's tags during the sync, and anything it missed on play. */
+  | 'eager'
+  /** Read a track's tags the first time it plays; the list shows its path until then. */
+  | 'onPlay'
+  /** Never read a file; titles come from the path and stay that way. */
+  | 'off';
 
 export interface ConnectResult {
   /** Server's own name where it has one, else something derived from the URL. */
@@ -83,12 +117,20 @@ export interface SourceProvider {
 
   connect(_input: ConnectInput): Promise<ConnectResult>;
 
+  /**
+   * `known` maps remoteId to the stamp stored for it, so a provider that reads
+   * files can skip the ones that haven't changed since the last sync.
+   */
   listTracks(
     _credentials: SourceCredentials,
-    _onProgress?: (_loaded: number, _total: number) => void
+    _onProgress?: (_loaded: number, _total: number) => void,
+    _known?: ReadonlyMap<string, string>
   ): Promise<RemoteTrack[]>;
 
-  /** Must be playable by a bare <audio> element: no custom headers. */
+  /**
+   * Must be playable by a bare <audio> element. A provider whose server needs a
+   * header rather than a token in the URL returns requestHeaders() as well.
+   */
   streamUrl(_credentials: SourceCredentials, _remoteId: string): string;
 
   /** The original file, for offline downloads. */
@@ -101,4 +143,34 @@ export interface SourceProvider {
 
   /** Optional; the info dialog falls back to what the DB already holds. */
   details?(_credentials: SourceCredentials, _remoteId: string): Promise<RemoteTrackDetails | null>;
+
+  /**
+   * Headers every request to this source needs, for a server that authenticates
+   * with one. <audio> and <img> can't set headers, so sync.installSourceAuth
+   * injects these into the renderer's requests for the source's URLs, and the
+   * main process's own fetches pass them explicitly.
+   */
+  requestHeaders?(_credentials: SourceCredentials): Record<string, string>;
+
+  /**
+   * True for a provider whose metadata lives in the files rather than in a
+   * library on the server; only those offer the user a MetadataMode.
+   */
+  readonly readsFileTags?: boolean;
+
+  /** How this source's config answers the question; only a readsFileTags provider has one. */
+  metadataMode?(_credentials: SourceCredentials): MetadataMode;
+
+  /**
+   * One track, read in full. Backs the fill-in when an untagged track plays, so
+   * only a provider that reads files needs it.
+   */
+  readTrack?(_credentials: SourceCredentials, _remoteId: string): Promise<RemoteTrack | null>;
+
+  /**
+   * Whether the server answers, and whether the stored credentials still work.
+   * Kept apart because they need different fixes: one is a server to start, the
+   * other a password to re-enter.
+   */
+  ping?(_credentials: SourceCredentials): Promise<{ reachable: boolean; authValid: boolean }>;
 }

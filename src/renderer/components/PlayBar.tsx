@@ -442,8 +442,7 @@ export default function PlayBar() {
 
         const sylt = nativeFrames.find(f => f.id === 'SYLT');
         const syltVal = sylt?.value as
-          | { synchronisedText?: Array<{ text: string; timestamp: number }> }
-          | undefined;
+          { synchronisedText?: Array<{ text: string; timestamp: number }> } | undefined;
         if (syltVal?.synchronisedText?.length) {
           const lrc = syltToLrc(syltVal.synchronisedText);
           if (!cancelled) {
@@ -564,6 +563,18 @@ export default function PlayBar() {
   // Not backed by a local file: internet radio, or a remote track we haven't
   // downloaded. Gates the features that need real bytes on disk.
   const isRemote = !!trackUri && /^https?:\/\//i.test(trackUri);
+
+  // A source set to read tags lazily hands the library a track named after its
+  // file, and playing it is what fills in the rest. Main answers immediately
+  // for anything already tagged.
+  const currentTrackId = state?.track?.Id;
+  useEffect(() => {
+    if (!isRemote || isLive || currentTrackId == null) return;
+    void ipcRenderer
+      .invoke('ensure-remote-tags', { trackId: currentTrackId })
+      .catch(() => undefined);
+  }, [isRemote, isLive, currentTrackId]);
+
   useEffect(() => {
     if (trackUri) {
       setSongPath(trackUri);
@@ -621,8 +632,7 @@ export default function PlayBar() {
     const deviceId = getAudioOutputDeviceId();
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
-        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
-        | null;
+        (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string }) | null;
       if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
       try {
         await sinkable.setSinkId(deviceId);
@@ -1818,6 +1828,7 @@ export default function PlayBar() {
               duration={duration}
               trackId={state.track.Id as string | number | null}
               isLive={isLive}
+              isRemote={isRemote}
               paused={paused}
               onSeekCommit={handleSeekCommit}
             />

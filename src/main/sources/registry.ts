@@ -1,11 +1,12 @@
 import type { SourceProvider } from './types';
 import { jellyfinProvider } from './jellyfin';
+import { webdavProvider } from './webdav';
 
 /**
  * Adding a remote library type means writing one provider and adding it here.
  * Nothing else in the app needs to know the type exists.
  */
-const PROVIDERS: SourceProvider[] = [jellyfinProvider];
+const PROVIDERS: SourceProvider[] = [jellyfinProvider, webdavProvider];
 
 const BY_TYPE = new Map(PROVIDERS.map(p => [p.type, p]));
 
@@ -22,6 +23,8 @@ export interface ProviderInfo {
   accent: string;
   /** False renders the card as "Coming soon". Derived, never hand-maintained. */
   available: boolean;
+  /** Its metadata comes from the files, so it offers a MetadataMode. */
+  fileTags: boolean;
 }
 
 /**
@@ -34,7 +37,7 @@ export interface ProviderInfo {
  * client to stream or download the audio, so they aren't "coming soon", they
  * are not possible.
  */
-const CATALOGUE: Omit<ProviderInfo, 'available'>[] = [
+const CATALOGUE: Omit<ProviderInfo, 'available' | 'fileTags'>[] = [
   {
     type: 'jellyfin',
     label: 'Jellyfin',
@@ -81,7 +84,11 @@ const CATALOGUE: Omit<ProviderInfo, 'available'>[] = [
 
 /** Feeds the "Add external" picker, so a new provider shows up there for free. */
 export function listProviders(): ProviderInfo[] {
-  return CATALOGUE.map(entry => ({ ...entry, available: BY_TYPE.has(entry.type) }));
+  return CATALOGUE.map(entry => ({
+    ...entry,
+    available: BY_TYPE.has(entry.type),
+    fileTags: !!BY_TYPE.get(entry.type)?.readsFileTags,
+  }));
 }
 
 /**

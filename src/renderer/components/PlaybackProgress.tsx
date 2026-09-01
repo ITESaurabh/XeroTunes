@@ -124,6 +124,8 @@ interface PlaybackProgressProps {
   trackId?: string | number | null;
   /** Internet radio: no seeking, no end to count down to. */
   isLive?: boolean;
+  /** Streamed from a server: it takes a moment to start and can run dry mid-track. */
+  isRemote?: boolean;
   paused?: boolean;
   onSeekCommit: (_pos: number) => void;
 }
@@ -135,6 +137,7 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   duration,
   trackId,
   isLive,
+  isRemote,
   paused,
   onSeekCommit,
 }: PlaybackProgressProps) {
@@ -178,14 +181,15 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   }, []);
 
   // `waiting` means the element ran out of data; on a stream that is the gap
-  // between the buffer draining and the next chunk arriving.
+  // between the buffer draining and the next chunk arriving, and on a remote
+  // file the wait before the first bytes land.
   const [buffering, setBuffering] = useState(false);
   useEffect(() => {
     const audio = audioRef.current;
     // Local files fire `waiting` on every track change and are ready again a
     // frame later; swapping the fill for a sweeping bar there reads as the
     // progress jumping backwards.
-    if (!audio || !isLive) {
+    if (!audio || (!isLive && !isRemote)) {
       setBuffering(false);
       return;
     }
@@ -203,6 +207,9 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
       clearPending();
       setBuffering(false);
     };
+    // `loadstart` too: a remote track that hasn't answered yet has nothing to
+    // wait on, so it would otherwise sit silent with the bar at zero.
+    audio.addEventListener('loadstart', start);
     audio.addEventListener('waiting', start);
     audio.addEventListener('stalled', start);
     audio.addEventListener('playing', stop);
@@ -210,13 +217,14 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     audio.addEventListener('pause', stop);
     return () => {
       clearPending();
+      audio.removeEventListener('loadstart', start);
       audio.removeEventListener('waiting', start);
       audio.removeEventListener('stalled', start);
       audio.removeEventListener('playing', stop);
       audio.removeEventListener('canplay', stop);
       audio.removeEventListener('pause', stop);
     };
-  }, [audioRef, trackId, isLive]);
+  }, [audioRef, trackId, isLive, isRemote]);
 
   // Subscribe to timeupdate — DOM only, no React render
   useEffect(() => {
@@ -344,9 +352,7 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
             {buffering ? 'Buffering' : 'Live'}
           </LiveRow>
         ) : (
-          <TimeText>
-            <span ref={remTextRef}>-0:00</span>
-          </TimeText>
+          <TimeText>{buffering ? 'Buffering' : <span ref={remTextRef}>-0:00</span>}</TimeText>
         )}
       </TimeRow>
     </Root>
