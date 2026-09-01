@@ -64,6 +64,9 @@ import {
   clampWindowScale,
 } from '../../config/app_settings';
 import { registerArtistIpc } from '../ipc/artists';
+import { registerSourceIpc } from '../ipc/sources';
+import { schemeRoot } from '../sources/registry';
+import { syncAllSources } from '../sources/sync';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
 import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
@@ -705,7 +708,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
-  function spawnScanWorker(mode: ScanMode, files?: string[]): Promise<unknown> {
+  function spawnScanWorker(
+    mode: ScanMode,
+    files?: string[],
+    // Off when the caller brackets several phases with its own scan-start/end.
+    emitLifecycle = true
+  ): Promise<unknown> {
     if (activeScanWorker) {
       return Promise.resolve({ success: false, error: 'Scan already in progress' });
     }
@@ -728,7 +736,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       files,
       librarySettings: settings.library,
     });
-    sendMessageToRendererProcess(mainWin, 'scan-start', mode);
+    if (emitLifecycle) sendMessageToRendererProcess(mainWin, 'scan-start', mode);
 
     let resolvePromise: (v: unknown) => void;
     let rejectPromise: (e: unknown) => void;
@@ -770,16 +778,53 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       console.log(`[${mode}-scan] Worker exited with code ${code}`);
       activeScanWorker = null;
       activeScanMode = null;
-      sendMessageToRendererProcess(mainWin, 'scan-end', null);
+      if (emitLifecycle) sendMessageToRendererProcess(mainWin, 'scan-end', null);
       if (code !== 0) rejectPromise('Worker exited with code ' + code);
     });
 
     return scanPromise;
   }
 
-  ipcMain.handle('scan-media', () => spawnScanWorker('basic'));
+  /**
+   * Local folders first, then every connected server. One button rather than one
+   * per source: the scan used to refuse outright with no music folders
+   * configured, leaving a remote-only library with no way to refresh at all.
+   */
+  async function refreshLibrary(mode: 'basic' | 'full') {
+    const hasFolders =
+      (db.prepare('SELECT COUNT(*) AS c FROM MusicFolder').get() as { c: number }).c > 0;
+    const hasSources =
+      (db.prepare('SELECT COUNT(*) AS c FROM Source').get() as { c: number }).c > 0;
+    if (!hasFolders && !hasSources) {
+      return { success: false, error: 'Nothing to scan. Add a music folder or a server.' };
+    }
 
-  ipcMain.handle('full-rescan', () => spawnScanWorker('full'));
+    sendMessageToRendererProcess(mainWin, 'scan-start', mode);
+    try {
+      const local = hasFolders
+        ? ((await spawnScanWorker(mode, undefined, false)) as {
+            success?: boolean;
+            scanned?: number;
+            error?: string;
+          })
+        : { success: true, scanned: 0 };
+      const remote = hasSources
+        ? await syncAllSources(mainWin, readSettingsFile().library)
+        : { synced: 0, imported: 0, error: undefined as string | undefined };
+      return {
+        success: local.success !== false,
+        scanned: (local.scanned ?? 0) + remote.imported,
+        syncedSources: remote.synced,
+        error: local.error ?? remote.error,
+      };
+    } finally {
+      sendMessageToRendererProcess(mainWin, 'scan-end', null);
+    }
+  }
+
+  ipcMain.handle('scan-media', () => refreshLibrary('basic'));
+
+  ipcMain.handle('full-rescan', () => refreshLibrary('full'));
 
   ipcMain.handle('reapply-artist-rules', () => spawnScanWorker('artists'));
 
@@ -1254,6 +1299,27 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     ).run();
   }
 
+  // A remote library (Jellyfin) the user has connected. Its tracks live in the
+  // normal Track/Album/Artist tables tagged with SourceId, so everything that
+  // reads the library works on them unchanged; SourceId IS NULL means local.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS Source (
+    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Type TEXT NOT NULL,
+    Name TEXT,
+    BaseUrl TEXT,
+    Username TEXT,
+    UserId TEXT,
+    AccessToken TEXT,
+    DeviceId TEXT,
+    LastSyncedAt BIGINT,
+    ConfigJson TEXT,
+    Version INTEGER DEFAULT 1
+  )
+`
+  ).run();
+
   // ── Migrations for existing databases ────────────────────────────────────────
   const existingCols = (db.pragma('table_info(Track)') as { name: string }[]).map(c => c.name);
   if (!existingCols.includes('PlayedTimes')) {
@@ -1277,6 +1343,39 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   }
   if (!existingArtistCols.includes('ArtistFetchedAt')) {
     db.prepare('ALTER TABLE Artist ADD COLUMN ArtistFetchedAt INTEGER').run();
+  }
+
+  // Provenance for rows imported from a remote Source. The unique index backs the
+  // sync upsert; local rows leave both columns NULL, which SQLite treats as
+  // distinct, so any number of them coexist under a unique index.
+  for (const table of ['Track', 'Album', 'Artist'] as const) {
+    const cols = (db.pragma(`table_info(${table})`) as { name: string }[]).map(c => c.name);
+    if (!cols.includes('SourceId')) {
+      db.prepare(`ALTER TABLE ${table} ADD COLUMN SourceId INTEGER`).run();
+    }
+    if (!cols.includes('RemoteId')) {
+      db.prepare(`ALTER TABLE ${table} ADD COLUMN RemoteId TEXT`).run();
+    }
+    const indexName = `idx_${table.toLowerCase()}_source`;
+    // An abandoned 2026 prototype created this index as non-unique. IF NOT EXISTS
+    // would happily keep it, leaving the upsert without its safety net.
+    const stale = (db.pragma(`index_list(${table})`) as { name: string; unique: number }[]).find(
+      i => i.name === indexName && !i.unique
+    );
+    if (stale) db.prepare(`DROP INDEX ${indexName}`).run();
+    try {
+      db.prepare(
+        `CREATE UNIQUE INDEX IF NOT EXISTS ${indexName} ON ${table}(SourceId, RemoteId)`
+      ).run();
+    } catch {
+      // Pre-existing duplicates would make the unique index unbuildable. Sync
+      // resolves rows by SELECT-then-INSERT inside a transaction, so it stays
+      // correct without it; take the plain index rather than fail startup.
+      console.warn(`[db] Duplicate (SourceId, RemoteId) rows in ${table}; index not unique.`);
+      db.prepare(
+        `CREATE INDEX IF NOT EXISTS ${indexName} ON ${table}(SourceId, RemoteId)`
+      ).run();
+    }
   }
 
   ipcMain.handle('save-image', async (_e, { src, suggestedName }) => {
@@ -1499,7 +1598,33 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           };
         });
 
-        return { subfolders, songs: [], isRoot: true };
+        // Each connected server is a root of its own, alongside the local music
+        // folders. Its paths all share a `<scheme>://<id>/` prefix, so the same
+        // walk below drills into it with no special-casing, and two servers of
+        // the same type stay in separate namespaces.
+        const sourceRoots = (
+          db
+            .prepare('SELECT Id, Type, Name FROM Source ORDER BY Name COLLATE NOCASE')
+            .all() as Array<{ Id: number; Type: string; Name: string | null }>
+        ).flatMap(source => {
+          const root = schemeRoot(source.Type, source.Id);
+          if (!root) return [];
+          let count = 0;
+          for (const f of allFolders) {
+            if (f.FolderPath.startsWith(root)) count += f.SongCount;
+          }
+          return [
+            {
+              Path: root,
+              Name: source.Name || source.Type,
+              SongCount: count,
+              IsRoot: true,
+              SourceType: source.Type,
+            },
+          ];
+        });
+
+        return { subfolders: [...subfolders, ...sourceRoots], songs: [], isRoot: true };
       }
 
       // Inside a folder: derive immediate children from FolderPath rows.
@@ -1655,6 +1780,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.AlbumId,
         Track.GenreId,
+        Track.SourceId,
         ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle,
         Genre.Name AS GenreName
@@ -2504,6 +2630,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.TrackNumber,
         Track.AlbumArt,
         Track.Duration,
+        Track.SourceId,
         ${TRACK_ARTIST_NAMES},
         ${albumArtistNames('AlbumArtistName')},
         Album.Title AS AlbumTitle,
@@ -2621,6 +2748,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
 
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
+  registerSourceIpc(
+    mainWin,
+    () => readSettingsFile().library.downloadFolder,
+    folder => {
+      const current = readSettingsFile();
+      writeSettingsFile({ ...current, library: { ...current.library, downloadFolder: folder } });
+    },
+    () => readSettingsFile().library
+  );
 
   ipcMain.handle('open-dir', (e, { variant = 'appdata' }) => {
     let targetPath: string;
@@ -2981,9 +3117,30 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
 
   // ── Track DB info for Info/Tags dialog ───────────────────────────────────
+  // Tag columns come along for the ride: a streamed track has no local file to
+  // read tags out of, so the synced DB row is the only source the dialog has.
   ipcMain.handle('get-track-db-info', (_, { trackId }: { trackId: number | string }) => {
     return (
-      db.prepare('SELECT PlayedTimes, LastPlayedAt FROM Track WHERE Id = ?').get(trackId) ?? null
+      db
+        .prepare(
+          `SELECT
+             Track.PlayedTimes,
+             Track.LastPlayedAt,
+             Track.Title,
+             Track.TrackNumber,
+             Track.DiscNumber,
+             Track.Year,
+             Track.ReleaseYear,
+             ${TRACK_ARTIST_NAMES},
+             Album.Title AS AlbumTitle,
+             ${albumArtistNames('AlbumArtistName')},
+             Genre.Name AS GenreName
+           FROM Track
+           LEFT JOIN Album ON Track.AlbumId = Album.Id
+           LEFT JOIN Genre ON Track.GenreId = Genre.Id
+           WHERE Track.Id = ?`
+        )
+        .get(trackId) ?? null
     );
   });
 

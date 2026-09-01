@@ -120,7 +120,7 @@ interface LyricsPanelProps {
   audioRef: React.RefObject<HTMLAudioElement>;
   lrcContent: string | null;
   lyricsType: 'synced' | 'unsynced' | null;
-  lyricsSource: 'LRC file' | 'Embedded' | null;
+  lyricsSource: 'LRC file' | 'Embedded' | 'Server' | null;
 }
 
 const OFFSET_KEY = 'lyricsOffsetSec';

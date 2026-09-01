@@ -32,12 +32,11 @@ import {
 import { Icon } from '@iconify/react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PageToolbar from '../components/PageToolbar';
-import foldersIcon from '@iconify/icons-fluent/folder-24-regular';
+import MusicSourcesSection from '../components/MusicSourcesSection';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
 import headphonesIcon from '@iconify/icons-fluent/headphones-20-regular';
 import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
-import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import zoomIcon from '@iconify/icons-fluent/zoom-in-24-regular';
 import streamIcon from '@iconify/icons-fluent/live-24-regular';
 import checkmarkCircleIcon from '@iconify/icons-fluent/checkmark-circle-16-filled';
@@ -106,11 +105,6 @@ import type {
   ProviderStatus,
 } from '../../main/modules/Scrobbler';
 import os from 'os';
-
-interface MusicFolder {
-  Id: string | number;
-  Uri: string;
-}
 
 interface AppInfo {
   name: string;
@@ -743,9 +737,7 @@ const ScrobblerRow: React.FC<ScrobblerRowProps> = ({
 };
 
 const Settings: React.FC = () => {
-  const [expanded, setExpanded] = React.useState<boolean>(false);
   const [resetExpanded, setResetExpanded] = React.useState<boolean>(false);
-  const [folders, setFolders] = React.useState<MusicFolder[]>([]);
   const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(getOverlayEnabled);
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
     getArtistImageFetchingEnabled()
@@ -801,14 +793,6 @@ const Settings: React.FC = () => {
       dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
     };
   }, [dispatch]);
-
-  React.useEffect(() => {
-    invokeEventToMainProcess('get-music-folders')
-      .then((data: unknown) => setFolders(data as MusicFolder[]))
-      .catch((err: unknown) => {
-        console.error('Error fetching music folders:', err);
-      });
-  }, []);
 
   React.useEffect(() => {
     invokeEventToMainProcess('get-missed-artist-count')
@@ -872,10 +856,6 @@ const Settings: React.FC = () => {
       navigator.mediaDevices.removeEventListener('devicechange', refresh);
     };
   }, []);
-
-  const handleExpansion = (): void => {
-    setExpanded(prevExpanded => !prevExpanded);
-  };
 
   const handleResetExpansion = (): void => {
     setResetExpanded(prevExpanded => !prevExpanded);
@@ -1032,9 +1012,6 @@ const Settings: React.FC = () => {
                   invokeEventToMainProcess('scan-media', undefined)
                     .then((data: unknown) => {
                       console.log('Media scan completed:', data);
-                      invokeEventToMainProcess('get-music-folders', undefined).then((d: unknown) =>
-                        setFolders(d as MusicFolder[])
-                      );
                     })
                     .catch((err: unknown) => {
                       console.error('Error rescanning media:', err);
@@ -1068,9 +1045,6 @@ const Settings: React.FC = () => {
                   invokeEventToMainProcess('full-rescan', undefined)
                     .then((data: unknown) => {
                       console.log('Full rescan completed:', data);
-                      invokeEventToMainProcess('get-music-folders', undefined).then((d: unknown) =>
-                        setFolders(d as MusicFolder[])
-                      );
                     })
                     .catch((err: unknown) => {
                       console.error('Error during full rescan:', err);
@@ -1080,103 +1054,7 @@ const Settings: React.FC = () => {
                 {fullScanning ? 'Scanning…' : 'Full Rescan'}
               </Button>
             </ListItem>
-            <ListItem disableGutters>
-              <Accordion
-                expanded={expanded}
-                slots={{ transition: Fade }}
-                slotProps={{ transition: { timeout: 400 } }}
-                sx={{
-                  '& .MuiAccordion-region': { height: expanded ? 'auto' : 0 },
-                  '& .MuiAccordionDetails-root': { display: expanded ? 'block' : 'none' },
-                  backgroundColor: 'background.default',
-                  width: '100%',
-                }}
-              >
-                <AccordionSummary
-                  expandIcon={<ExpandMoreIcon onClick={handleExpansion} />}
-                  aria-controls="panel1-content"
-                  id="panel1-header"
-                >
-                  <Box
-                    component={Stack}
-                    onClick={handleExpansion}
-                    alignItems={'center'}
-                    direction={'row'}
-                    width={'100%'}
-                  >
-                    {' '}
-                    <ListItemIcon sx={{ mr: -2 }}>
-                      <Icon icon={foldersIcon} height={'1.5rem'} />
-                    </ListItemIcon>
-                    <ListItemText primary="Music Folders" />
-                  </Box>
-                  <Button
-                    startIcon={<Icon icon={addFolderIcon} height={'1.2rem'} />}
-                    variant="contained"
-                    disableElevation
-                    size="small"
-                    fullWidth
-                    onClick={() =>
-                      invokeEventToMainProcess('add-music-folder', undefined)
-                        .then(() => {
-                          invokeEventToMainProcess('get-music-folders', undefined).then(
-                            (d: unknown) => setFolders(d as MusicFolder[])
-                          );
-                        })
-                        .catch((err: unknown) => {
-                          console.error('Error adding music folder:', err);
-                        })
-                    }
-                    sx={{ mr: 2, maxWidth: 150 }}
-                  >
-                    Add Folder
-                  </Button>
-                </AccordionSummary>
-                <AccordionDetails>
-                  {folders.length === 0 ? (
-                    <Typography>No items</Typography>
-                  ) : (
-                    <>
-                      {folders.map(folder => (
-                        <ListItem
-                          key={folder.Id}
-                          secondaryAction={
-                            <Button
-                              color="error"
-                              variant="contained"
-                              size="small"
-                              disableElevation
-                              onClick={async () => {
-                                const ok = await confirm({
-                                  title: 'Remove music folder?',
-                                  message: `Remove "${folder.Uri}" from your library?`,
-                                  detail:
-                                    'Its tracks will be removed from the library on the next scan. Files on disk are not deleted.',
-                                  confirmLabel: 'Remove',
-                                  destructive: true,
-                                });
-                                if (!ok) return;
-                                invokeEventToMainProcess('remove-music-folder', {
-                                  Id: folder.Id,
-                                }).then(() =>
-                                  invokeEventToMainProcess('get-music-folders', undefined).then(
-                                    (d: unknown) => setFolders(d as MusicFolder[])
-                                  )
-                                );
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          }
-                        >
-                          <ListItemText primary={folder.Uri} />
-                        </ListItem>
-                      ))}
-                    </>
-                  )}
-                </AccordionDetails>
-              </Accordion>
-            </ListItem>
+            <MusicSourcesSection />
             <ListItem>
               <ListItemIcon>
                 <Icon icon={duplicateIcon} width={'2rem'} />

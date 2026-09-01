@@ -44,6 +44,7 @@ export function cleanupOrphans(db: any, config: ArtDirs = {}): void {
     'DELETE FROM Album WHERE Id NOT IN (SELECT AlbumId FROM Track WHERE AlbumId IS NOT NULL)'
   ).run();
   db.prepare('DELETE FROM TrackArtist WHERE TrackId NOT IN (SELECT Id FROM Track)').run();
+  db.prepare('DELETE FROM TrackArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
   db.prepare('DELETE FROM AlbumArtist WHERE AlbumId NOT IN (SELECT Id FROM Album)').run();
   db.prepare('DELETE FROM AlbumArtist WHERE ArtistId NOT IN (SELECT Id FROM Artist)').run();
   db.prepare(

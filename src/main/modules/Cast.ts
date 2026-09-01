@@ -382,7 +382,11 @@ export async function loadMedia(payload: CastLoadPayload): Promise<void> {
       listeners.onError?.('No LAN address to serve media from');
       return;
     }
-    mediaFilePath = payload.filePath;
+    // A remote track is already served over HTTP, so the device can fetch it
+    // straight from the source; proxying it would mean streaming every byte
+    // through this machine, and the local file server would 404 on a URL anyway.
+    const isRemote = /^https?:\/\//i.test(payload.filePath);
+    mediaFilePath = isRemote ? null : payload.filePath;
     mediaArtPath =
       payload.artPath && fs.existsSync(payload.artPath) ? payload.artPath : null;
     const port = await ensureMediaServer();
@@ -391,7 +395,7 @@ export async function loadMedia(payload: CastLoadPayload): Promise<void> {
     // Cache-buster so the receiver refetches when the shared server path changes track.
     const ts = Date.now();
     const media = {
-      contentId: `http://${ip}:${port}/media?ts=${ts}`,
+      contentId: isRemote ? payload.filePath : `http://${ip}:${port}/media?ts=${ts}`,
       contentType: CONTENT_TYPES[path.extname(payload.filePath).toLowerCase()] ?? 'audio/mpeg',
       streamType: 'BUFFERED',
       metadata: {

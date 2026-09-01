@@ -344,8 +344,10 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
 // fs.existsSync so it never reads/hashes unchanged files.
 
 async function runBasicScan(db, folders, config, supportedFileTypes) {
-  // Build set of known URIs from DB for O(1) lookups
-  const knownTracks = db.prepare('SELECT Id, Uri FROM Track').all();
+  // Deliberately includes rows from remote sources: a downloaded remote track
+  // keeps its SourceId but points at a real file, so it must count as known or a
+  // scan would index it twice.
+  const knownTracks = db.prepare('SELECT Id, Uri, SourceId FROM Track').all();
   const knownUriSet = new Set(knownTracks.map(t => t.Uri));
   const ignored = ignoredUriSet(db);
 
@@ -381,10 +383,12 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
     process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
   }
 
-  // Cheap deletion pass: check if tracked files still exist on disk
+  // Skips remote rows: their Uri is an http URL, so existsSync is always false
+  // and this would wipe the whole synced library. Reconciling those is the
+  // source sync's job.
   let removed = 0;
   for (const track of knownTracks) {
-    if (!fs.existsSync(track.Uri)) {
+    if (track.SourceId == null && !fs.existsSync(track.Uri)) {
       db.prepare('DELETE FROM Track WHERE Id = ?').run(track.Id);
       removed++;
     }
@@ -449,8 +453,10 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   }
 
   // validPaths already excludes ignored files, so those get dropped here too.
+  // Remote rows are excluded: their http Uri is never in validPaths, so this
+  // pass would delete the entire synced library on every full rescan.
   const validPaths = new Set([...filesByFolder.values()].flat());
-  const allTracks = db.prepare('SELECT Id, Uri FROM Track').all();
+  const allTracks = db.prepare('SELECT Id, Uri FROM Track WHERE SourceId IS NULL').all();
   let removed = 0;
   for (const track of allTracks) {
     if (!validPaths.has(track.Uri)) {
@@ -521,7 +527,14 @@ async function readRawArtistTags(filePath) {
 }
 
 async function runArtistRules(db, config) {
-  const tracks = db.prepare('SELECT Id, Uri, AlbumId, RawArtist, RawAlbumArtist FROM Track').all();
+  // Local tracks only. Remote ones store their raw tags too, but this pass
+  // resolves artists by name alone, creating untagged Artist rows; a synced
+  // track re-pointed at those would be undone by the next sync and orphaned by
+  // removing the source. Unifying artist identity is the fix; until then the
+  // split simply doesn't reach remote libraries.
+  const tracks = db
+    .prepare('SELECT Id, Uri, AlbumId, RawArtist, RawAlbumArtist FROM Track WHERE SourceId IS NULL')
+    .all();
   const total = tracks.length;
   let scanned = 0;
   let processed = 0;

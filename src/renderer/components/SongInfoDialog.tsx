@@ -22,6 +22,15 @@ const { ipcRenderer } = window.require('electron');
 interface DbTrackInfo {
   PlayedTimes: number;
   LastPlayedAt: number | null;
+  Title: string | null;
+  TrackNumber: string | null;
+  DiscNumber: number | null;
+  Year: string | null;
+  ReleaseYear: number | null;
+  ArtistName: string | null;
+  AlbumTitle: string | null;
+  AlbumArtistName: string | null;
+  GenreName: string | null;
 }
 
 interface SongInfoDialogProps {
@@ -110,12 +119,28 @@ function InfoRow({ label, value }: { label: string; value?: string | number | nu
   );
 }
 
+interface RemoteTrackDetails {
+  codec: string | null;
+  bitRate: number | null;
+  sampleRate: number | null;
+  channels: number | null;
+  container: string | null;
+  size: number | null;
+  path: string | null;
+}
+
 export default function SongInfoDialog({ open, onClose, track, songPath }: SongInfoDialogProps) {
   const [metadata, setMetadata] = useState<IAudioMetadata | null>(null);
   const [dbInfo, setDbInfo] = useState<DbTrackInfo | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
+  const [remoteInfo, setRemoteInfo] = useState<RemoteTrackDetails | null>(null);
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState(0);
+
+  // Streamed track: parseFile and statSync both want a real path, so the
+  // technical details come from the server instead. Tag-level fields still come
+  // from the DB row, same as for a local file.
+  const isRemote = !!songPath && /^https?:\/\//i.test(songPath);
 
   useEffect(() => {
     if (!open || !songPath) return;
@@ -125,26 +150,35 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
     setMetadata(null);
     setDbInfo(null);
     setFileSize(null);
+    setRemoteInfo(null);
 
     (async () => {
-      const [meta, db] = await Promise.all([
-        parseFile(songPath, { skipCovers: false }),
+      const [meta, db, remote] = await Promise.all([
+        isRemote ? null : parseFile(songPath, { skipCovers: false }).catch(() => null),
         track?.Id
           ? ipcRenderer.invoke('get-track-db-info', { trackId: track.Id })
+          : Promise.resolve(null),
+        isRemote && track?.Id
+          ? ipcRenderer.invoke('get-remote-track-details', { trackId: track.Id }).catch(() => null)
           : Promise.resolve(null),
       ]);
 
       if (cancelled) return;
 
-      try {
-        const fs = window.require('fs') as typeof import('fs');
-        setFileSize(fs.statSync(songPath).size);
-      } catch {
-        /* ignore */
+      if (isRemote) {
+        setFileSize((remote as RemoteTrackDetails | null)?.size ?? null);
+      } else {
+        try {
+          const fs = window.require('fs') as typeof import('fs');
+          setFileSize(fs.statSync(songPath).size);
+        } catch {
+          /* ignore */
+        }
       }
 
       setMetadata(meta);
       setDbInfo(db);
+      setRemoteInfo(remote as RemoteTrackDetails | null);
       setLoading(false);
     })().catch(() => {
       if (!cancelled) setLoading(false);
@@ -153,30 +187,57 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
     return () => {
       cancelled = true;
     };
-  }, [open, songPath]);
+  }, [open, songPath, isRemote]);
 
   const handleRevealFile = () => {
-    if (songPath) ipcRenderer.invoke('reveal-file', { filePath: songPath });
+    if (songPath && !isRemote) ipcRenderer.invoke('reveal-file', { filePath: songPath });
   };
+
+  // The streaming URL embeds the access token, so show the server's own path for
+  // the file instead: more useful to read, and not a credential.
+  const displayPath = isRemote ? (remoteInfo?.path ?? 'Streamed from server') : songPath;
 
   const fmt = metadata?.format;
   const common = metadata?.common;
   const extension = ((track?.Extension as string) || '').toLowerCase();
 
-  const formatLine = fmt
+  const shape = fmt
+    ? {
+        container: fmt.container,
+        duration: fmt.duration,
+        sampleRate: fmt.sampleRate,
+        bitsPerSample: fmt.bitsPerSample,
+        channels: fmt.numberOfChannels,
+        bitrate: fmt.bitrate,
+      }
+    : remoteInfo
+      ? {
+          container: remoteInfo.container ?? remoteInfo.codec ?? undefined,
+          // The server reports duration per track, not per stream.
+          duration: (track?.Duration as number) || undefined,
+          sampleRate: remoteInfo.sampleRate ?? undefined,
+          bitsPerSample: undefined,
+          channels: remoteInfo.channels ?? undefined,
+          bitrate: remoteInfo.bitRate ?? undefined,
+        }
+      : null;
+
+  const formatLine = shape
     ? [
-        extension.toUpperCase() || fmt.container,
-        fmt.duration ? `${Math.round(fmt.duration)} sec (${formatDuration(fmt.duration)})` : null,
-        fmt.sampleRate ? `${fmt.sampleRate} Hz` : null,
-        fmt.bitsPerSample ? `${fmt.bitsPerSample} bit` : null,
-        fmt.numberOfChannels != null
-          ? fmt.numberOfChannels === 2
-            ? 'Stereo'
-            : fmt.numberOfChannels === 1
-              ? 'Mono'
-              : `${fmt.numberOfChannels}ch`
+        extension.toUpperCase() || shape.container,
+        shape.duration
+          ? `${Math.round(shape.duration)} sec (${formatDuration(shape.duration)})`
           : null,
-        fmt.bitrate ? `${Math.round(fmt.bitrate / 1000)} kbps` : null,
+        shape.sampleRate ? `${shape.sampleRate} Hz` : null,
+        shape.bitsPerSample ? `${shape.bitsPerSample} bit` : null,
+        shape.channels != null
+          ? shape.channels === 2
+            ? 'Stereo'
+            : shape.channels === 1
+              ? 'Mono'
+              : `${shape.channels}ch`
+          : null,
+        shape.bitrate ? `${Math.round(shape.bitrate / 1000)} kbps` : null,
         fileSize ? formatFileSize(fileSize) : null,
       ]
         .filter(Boolean)
@@ -193,9 +254,22 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
       ? common.track.of
         ? `${common.track.no} / ${common.track.of}`
         : `${common.track.no}`
-      : null;
+      : // The scanner stores track numbers as text and some land as "3.0".
+        (dbInfo?.TrackNumber?.replace(/\.0+$/, '') ?? null);
 
-  const discLabel = common?.disk?.no != null ? `${common.disk.no}` : null;
+  const discLabel =
+    common?.disk?.no != null ? `${common.disk.no}` : (dbInfo?.DiscNumber?.toString() ?? null);
+
+  // A streamed track has no local file to parse, so its tags come from the DB
+  // row the sync wrote. Parsed tags still win where both exist.
+  const tag = {
+    title: common?.title ?? dbInfo?.Title,
+    year: common?.year ?? dbInfo?.ReleaseYear ?? dbInfo?.Year,
+    genre: common?.genre?.join(', ') ?? dbInfo?.GenreName,
+    artist: common?.artist ?? dbInfo?.ArtistName,
+    album: common?.album ?? dbInfo?.AlbumTitle,
+    albumartist: common?.albumartist ?? dbInfo?.AlbumArtistName,
+  };
 
   return (
     <AppDialog
@@ -239,14 +313,14 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
                 <Typography
                   variant="body2"
                   sx={{
-                    textDecoration: 'underline',
-                    cursor: 'pointer',
+                    textDecoration: isRemote ? 'none' : 'underline',
+                    cursor: isRemote ? 'default' : 'pointer',
                     wordBreak: 'break-all',
                     opacity: 0.85,
                   }}
                   onClick={handleRevealFile}
                 >
-                  {songPath}
+                  {displayPath}
                 </Typography>
               </Grid>
             )}
@@ -276,14 +350,14 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
               <Divider />
             </Grid>
 
-            <InfoRow label="Title" value={common?.title} />
+            <InfoRow label="Title" value={tag.title} />
             <InfoRow label="Track" value={trackLabel} />
             <InfoRow label="Disc" value={discLabel} />
-            <InfoRow label="Year" value={common?.year} />
-            <InfoRow label="Genre" value={common?.genre?.join(', ')} />
-            <InfoRow label="Artist" value={common?.artist} />
-            <InfoRow label="Album" value={common?.album} />
-            <InfoRow label="Album Artist" value={common?.albumartist} />
+            <InfoRow label="Year" value={tag.year} />
+            <InfoRow label="Genre" value={tag.genre} />
+            <InfoRow label="Artist" value={tag.artist} />
+            <InfoRow label="Album" value={tag.album} />
+            <InfoRow label="Album Artist" value={tag.albumartist} />
             <InfoRow
               label="Composer"
               value={common?.composer?.length ? common.composer.join(', ') : null}
@@ -314,7 +388,7 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
               wordBreak: 'break-all',
             }}
           >
-            {JSON.stringify(sanitizeForDisplay(metadata), null, 2)}
+            {JSON.stringify(sanitizeForDisplay(metadata ?? { ...remoteInfo, ...dbInfo }), null, 2)}
           </Box>
         )}
       </Box>

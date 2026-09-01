@@ -1,0 +1,475 @@
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardActionArea,
+  Chip,
+  Divider,
+  Grid,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { Icon } from '@iconify/react';
+import sourcesIcon from '@iconify/icons-fluent/music-note-2-24-regular';
+import folderIcon from '@iconify/icons-fluent/folder-24-regular';
+import serverIcon from '@iconify/icons-fluent/server-24-regular';
+import cloudIcon from '@iconify/icons-fluent/cloud-24-regular';
+import networkIcon from '@iconify/icons-fluent/globe-24-regular';
+import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
+import addIcon from '@iconify/icons-fluent/add-24-regular';
+import downloadIcon from '@iconify/icons-fluent/arrow-download-24-regular';
+import AppDialog from './AppDialog';
+import { useIpc } from '../state/ipc';
+import { useConfirm } from '../utils/useConfirm';
+
+const { ipcRenderer } = window.require('electron');
+
+interface MusicFolder {
+  Id: number;
+  Uri: string;
+  Name?: string;
+}
+
+interface Provider {
+  type: string;
+  label: string;
+  blurb: string;
+  accent: string;
+  available: boolean;
+}
+
+interface Source {
+  Id: number;
+  Type: string;
+  Name: string | null;
+  BaseUrl: string | null;
+  Username: string | null;
+  LastSyncedAt: number | null;
+  TrackCount: number;
+  DownloadedCount: number;
+}
+
+/** Until real brand marks are dropped in, shape stands in for the logo. */
+const PROVIDER_ICON: Record<string, typeof serverIcon> = {
+  jellyfin: serverIcon,
+  emby: serverIcon,
+  plex: serverIcon,
+  subsonic: serverIcon,
+  upnp: networkIcon,
+  nextcloud: cloudIcon,
+  webdav: cloudIcon,
+};
+
+function lastSyncLabel(at: number | null): string {
+  if (!at) return 'never synced';
+  // Seconds add width without telling anyone anything useful here.
+  return `synced ${new Date(at).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })}`;
+}
+
+export default function MusicSourcesSection() {
+  const { invokeEventToMainProcess } = useIpc();
+  const confirm = useConfirm();
+
+  const [expanded, setExpanded] = useState(false);
+  const [folders, setFolders] = useState<MusicFolder[]>([]);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [downloadFolder, setDownloadFolder] = useState('');
+
+  // Open state is kept separate from which step is showing: clearing the step on
+  // close would swap the content back to the form for the length of the exit
+  // transition, which reads as a flash of the wrong screen.
+  const [addOpen, setAddOpen] = useState(false);
+  // '' = choosing a type, otherwise the type being configured.
+  const [addingType, setAddingType] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    invokeEventToMainProcess('get-music-folders', undefined)
+      .then(d => setFolders(d as MusicFolder[]))
+      .catch(() => undefined);
+    invokeEventToMainProcess('get-sources', undefined)
+      .then(d => setSources(d as Source[]))
+      .catch(() => undefined);
+    invokeEventToMainProcess('get-download-folder', undefined)
+      .then(d => setDownloadFolder(String(d ?? '')))
+      .catch(() => undefined);
+  }, [invokeEventToMainProcess]);
+
+  useEffect(refresh, [refresh]);
+
+  // Folder item counts and server track counts both move on a scan or a sync.
+  useEffect(() => {
+    ipcRenderer.on('library-updated', refresh);
+    return () => {
+      ipcRenderer.removeListener('library-updated', refresh);
+    };
+  }, [refresh]);
+
+  useEffect(() => {
+    invokeEventToMainProcess('get-source-providers', undefined)
+      .then(d => setProviders(d as Provider[]))
+      .catch(() => undefined);
+  }, [invokeEventToMainProcess]);
+
+  // Fields are reset on open, not on close, for the same reason.
+  const openDialog = () => {
+    setAddingType('');
+    setError(null);
+    setBaseUrl('');
+    setUsername('');
+    setPassword('');
+    setAddOpen(true);
+  };
+
+  const closeDialog = () => setAddOpen(false);
+
+  const handleAddFolder = async () => {
+    await invokeEventToMainProcess('add-music-folder', undefined).catch(() => undefined);
+    refresh();
+  };
+
+  const handleRemoveFolder = async (folder: MusicFolder) => {
+    const ok = await confirm({
+      title: 'Remove music folder?',
+      message: `Remove "${folder.Uri}" from your library?`,
+      detail:
+        'Its tracks will be removed from the library on the next scan. Files on disk are not deleted.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+    await invokeEventToMainProcess('remove-music-folder', { Id: folder.Id }).catch(
+      () => undefined
+    );
+    refresh();
+  };
+
+  const handleConnect = async () => {
+    setBusy(true);
+    setError(null);
+    const res = (await invokeEventToMainProcess('add-source', {
+      type: addingType,
+      baseUrl,
+      username,
+      password,
+    })) as { success: boolean; error?: string };
+    setBusy(false);
+    if (!res?.success) {
+      setError(res?.error || 'Could not connect to that server');
+      return;
+    }
+    closeDialog();
+    refresh();
+  };
+
+  const handleRemoveSource = async (source: Source) => {
+    const ok = await confirm({
+      title: 'Remove server?',
+      message: `Remove "${source.Name || source.BaseUrl}" from your library?`,
+      detail: source.DownloadedCount
+        ? `Its ${source.TrackCount} tracks will be removed, including ${source.DownloadedCount} downloaded file(s), which are deleted from disk. Nothing on the server is touched.`
+        : 'Its tracks will be removed from your library. Nothing on the server is touched.',
+      confirmLabel: 'Remove',
+      destructive: true,
+    });
+    if (!ok) return;
+    await invokeEventToMainProcess('remove-source', { sourceId: source.Id }).catch(
+      () => undefined
+    );
+    refresh();
+  };
+
+  const chosen = providers.find(p => p.type === addingType);
+  const total = folders.length + sources.length;
+
+  /**
+   * ListItemIcon for the 56px gutter, then text, then actions, so every row on
+   * the page lines up. Wrapping is left to flexbox: the actions drop to their own
+   * line when the text needs the width, which secondaryAction could not do
+   * without overlapping.
+   */
+  const row = (
+    key: string,
+    icon: React.ReactNode,
+    primary: React.ReactNode,
+    secondary: React.ReactNode,
+    actions: React.ReactNode
+  ) => (
+    <ListItem key={key} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+      <ListItemIcon>{icon}</ListItemIcon>
+      <ListItemText
+        primary={primary}
+        secondary={secondary}
+        sx={{ flex: '1 1 14rem', minWidth: 0, my: 0 }}
+        primaryTypographyProps={{ sx: { wordBreak: 'break-word' } }}
+        secondaryTypographyProps={{ component: 'div', sx: { wordBreak: 'break-word' } }}
+      />
+      <Stack direction="row" spacing={1} sx={{ flexShrink: 0, ml: 'auto', mr: 0.5 }}>
+        {actions}
+      </Stack>
+    </ListItem>
+  );
+
+  return (
+    <>
+      <ListItem disableGutters>
+        <Accordion
+          expanded={expanded}
+          onChange={(_e, v) => setExpanded(v)}
+          sx={{ backgroundColor: 'background.default', width: '100%' }}
+        >
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            id="music-sources-header"
+            sx={{
+              px: 2,
+              '& .MuiAccordionSummary-content': {
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                rowGap: 1,
+                minWidth: 0,
+                my: 1,
+              },
+            }}
+          >
+            <ListItemIcon>
+              <Icon icon={sourcesIcon} width="2rem" />
+            </ListItemIcon>
+            <ListItemText
+              primary="Music Sources"
+              secondary={
+                total
+                  ? `${folders.length} folder${folders.length === 1 ? '' : 's'}, ${
+                      sources.length
+                    } external`
+                  : 'Nothing added yet'
+              }
+              sx={{ flex: '1 1 12rem', minWidth: 0, my: 0 }}
+            />
+            <Stack direction="row" spacing={1} sx={{ flexShrink: 0, ml: 'auto', mr: 0.5 }}>
+              <Button
+                startIcon={<Icon icon={addFolderIcon} height="1.2rem" />}
+                variant="contained"
+                disableElevation
+                size="small"
+                onClick={e => {
+                  e.stopPropagation();
+                  void handleAddFolder();
+                }}
+              >
+                Add Folder
+              </Button>
+              <Button
+                startIcon={<Icon icon={addIcon} height="1.2rem" />}
+                variant="outlined"
+                size="small"
+                onClick={e => {
+                  e.stopPropagation();
+                  openDialog();
+                }}
+              >
+                Add External
+              </Button>
+            </Stack>
+          </AccordionSummary>
+
+          <AccordionDetails sx={{ p: 0, pb: 1 }}>
+            {total === 0 && (
+              <Typography sx={{ px: 2, py: 1 }}>
+                No sources yet. Add a folder on this computer, or connect an external server.
+              </Typography>
+            )}
+
+            {folders.map(folder =>
+              row(
+                `folder-${folder.Id}`,
+                <Icon icon={folderIcon} width="2rem" />,
+                folder.Uri,
+                'Folder on this computer',
+                <Button
+                  color="error"
+                  variant="contained"
+                  size="small"
+                  disableElevation
+                  onClick={() => handleRemoveFolder(folder)}
+                >
+                  Remove
+                </Button>
+              )
+            )}
+
+            {folders.length > 0 && sources.length > 0 && <Divider sx={{ my: 1 }} />}
+
+            {sources.map(source => {
+              const provider = providers.find(p => p.type === source.Type);
+              return row(
+                `source-${source.Id}`,
+                <Box sx={{ color: provider?.accent, lineHeight: 0 }}>
+                  <Icon icon={PROVIDER_ICON[source.Type] ?? serverIcon} width="2rem" />
+                </Box>,
+                source.Name || source.BaseUrl,
+                <>
+                  <Box component="span" sx={{ display: 'block' }}>
+                    {provider?.label ?? source.Type} · {source.BaseUrl}
+                  </Box>
+                  <Box component="span" sx={{ display: 'block' }}>
+                    {source.TrackCount} tracks
+                    {source.DownloadedCount ? ` · ${source.DownloadedCount} downloaded` : ''} ·{' '}
+                    {lastSyncLabel(source.LastSyncedAt)}
+                  </Box>
+                </>,
+                <Button
+                  color="error"
+                  variant="contained"
+                  size="small"
+                  disableElevation
+                  onClick={() => handleRemoveSource(source)}
+                >
+                  Remove
+                </Button>
+              );
+            })}
+          </AccordionDetails>
+        </Accordion>
+      </ListItem>
+
+      {row(
+        'download-folder',
+        <Icon icon={downloadIcon} width="2rem" />,
+        'Download folder for external media',
+        downloadFolder || 'Where tracks downloaded from a server are saved',
+        <>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={async () => {
+              await invokeEventToMainProcess('choose-download-folder', undefined).catch(
+                () => undefined
+              );
+              refresh();
+            }}
+          >
+            Change
+          </Button>
+          <Button
+            size="small"
+            onClick={async () => {
+              await invokeEventToMainProcess('reset-download-folder', undefined).catch(
+                () => undefined
+              );
+              refresh();
+            }}
+          >
+            Default
+          </Button>
+        </>
+      )}
+
+      <AppDialog
+        open={addOpen}
+        onClose={closeDialog}
+        title={addingType === '' ? 'Add External Source' : `Add ${chosen?.label ?? 'Server'}`}
+        maxWidth={addingType ? 'xs' : 'sm'}
+        actions={
+          addingType === '' ? (
+            <Button onClick={closeDialog}>Cancel</Button>
+          ) : (
+            <>
+              <Button onClick={() => setAddingType('')}>Back</Button>
+              <Button
+                variant="contained"
+                disableElevation
+                disabled={!baseUrl || busy}
+                onClick={handleConnect}
+              >
+                {busy ? 'Connecting…' : 'Connect'}
+              </Button>
+            </>
+          )
+        }
+      >
+        {addingType === '' ? (
+          <Grid container spacing={1.5}>
+            {providers.map(provider => (
+              <Grid item xs={6} sm={4} key={provider.type}>
+                <Card
+                  variant="outlined"
+                  sx={{ height: '100%', opacity: provider.available ? 1 : 0.5 }}
+                >
+                  <CardActionArea
+                    disabled={!provider.available}
+                    onClick={() => {
+                      setAddingType(provider.type);
+                      setError(null);
+                    }}
+                    sx={{ p: 1.5, height: '100%' }}
+                  >
+                    <Stack spacing={0.75} alignItems="flex-start">
+                      <Box sx={{ color: provider.accent, lineHeight: 0 }}>
+                        <Icon icon={PROVIDER_ICON[provider.type] ?? serverIcon} height="1.75rem" />
+                      </Box>
+                      <Typography variant="subtitle2">{provider.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {provider.blurb}
+                      </Typography>
+                      {!provider.available && (
+                        <Chip label="Coming soon" size="small" sx={{ height: 20 }} />
+                      )}
+                    </Stack>
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            ))}
+          </Grid>
+        ) : (
+          <Stack spacing={2}>
+            {error && <Alert severity="error">{error}</Alert>}
+            <TextField
+              label="Server address"
+              placeholder="http://192.168.1.10:8096"
+              value={baseUrl}
+              onChange={e => setBaseUrl(e.target.value)}
+              fullWidth
+              autoFocus
+            />
+            <TextField
+              label="Username"
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              fullWidth
+            />
+            <TextField
+              label="Password"
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && baseUrl && !busy) void handleConnect();
+              }}
+              fullWidth
+            />
+          </Stack>
+        )}
+      </AppDialog>
+    </>
+  );
+}

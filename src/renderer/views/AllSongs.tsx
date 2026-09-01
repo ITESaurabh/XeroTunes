@@ -31,6 +31,7 @@ import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { listHeaderSx, listRowSx } from '../styles/listSx';
 import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import DownloadMenuItem from '../components/DownloadMenuItem';
 import { isTaggable } from '../../config/constants';
 
 interface Column {
@@ -351,6 +352,7 @@ const AllSongs: React.FC = () => {
           </ListItemIcon>
           <ListItemText>Edit tags</ListItemText>
         </MenuItem>
+        <DownloadMenuItem song={rowMenu?.song} onDone={() => setRowMenu(null)} />
       </Menu>
 
       {editTrack && (

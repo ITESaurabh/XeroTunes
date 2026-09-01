@@ -2,7 +2,14 @@ import { AMETHYST, AppTheme } from './theme';
 
 export type ThemeMode = 0 | 1 | 2;
 export type TitleBarStyle =
-  'default' | 'native' | 'hidden' | 'mac' | 'mac-fake' | 'linux-gnome' | 'linux-kde' | 'windows';
+  | 'default'
+  | 'native'
+  | 'hidden'
+  | 'mac'
+  | 'mac-fake'
+  | 'linux-gnome'
+  | 'linux-kde'
+  | 'windows';
 export type ThemePaletteVariant = 'default' | 'soft' | 'highContrast';
 export type PlaybackRepeatMode = 'off' | 'all' | 'one';
 export type ViewMode = 'list' | 'grid';
@@ -42,6 +49,7 @@ export const DEFAULT_CAST_VOLUME = 10;
 export interface LibrarySettings {
   multiArtistSeparators: string[];
   multiArtistExceptions: string[];
+  downloadFolder: string;
 }
 
 export interface FolderViewSettings {
@@ -115,6 +123,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   library: {
     multiArtistSeparators: [',', '&'],
     multiArtistExceptions: ['AC/DC', '+/-'],
+    downloadFolder: '',
   },
   views: {
     folders: { viewMode: 'list', gridSize: 'medium' },

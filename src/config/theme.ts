@@ -71,10 +71,17 @@ export interface ThemeSurfaces {
   folder: string;
   year: string;
   genre: string;
+  /** A remote library's root, so it reads as somewhere else at a glance. */
+  server: string;
 }
 
 /** Fixed across modes and themes: these identify a thing, they don't decorate it. */
-const CATEGORY = { folder: '#facc6b', year: '#7cc4ff', genre: '#c084fc' } as const;
+const CATEGORY = {
+  folder: '#facc6b',
+  year: '#7cc4ff',
+  genre: '#c084fc',
+  server: '#5eead4',
+} as const;
 
 export const surfacesFor = (c: ThemeColors, mode: PaletteMode): ThemeSurfaces => {
   const isDark = mode === 'dark';

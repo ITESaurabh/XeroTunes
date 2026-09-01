@@ -42,6 +42,8 @@ interface SubFolder {
   Name: string;
   SongCount: number;
   IsRoot?: boolean;
+  /** Set on a remote library's root, e.g. 'jellyfin'. Absent for local folders. */
+  SourceType?: string;
 }
 
 interface FolderChildren {
@@ -148,7 +150,11 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
       <Box
         component="span"
         sx={{
-          color: folder.IsRoot ? 'surfaces.year' : 'surfaces.folder',
+          color: folder.SourceType
+            ? 'surfaces.server'
+            : folder.IsRoot
+              ? 'surfaces.year'
+              : 'surfaces.folder',
           flexShrink: 0,
           display: 'flex',
         }}

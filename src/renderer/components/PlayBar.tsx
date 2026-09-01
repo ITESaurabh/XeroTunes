@@ -303,6 +303,9 @@ function syltToLrc(synchronisedText: Array<{ text: string; timestamp: number }>)
 
 // ── Component ──────────────────────────────────────────────────────────────
 
+/** An LRC line carrying a timestamp, i.e. lyrics that can follow playback. */
+const SYNCED_LRC = /\[\d{2}:\d{2}[.:]\d{2}/;
+
 /** `stream:12` → 12; anything else (a library id, a file path) → undefined. */
 function streamIdOf(id: string | number | undefined): number | undefined {
   const match = typeof id === 'string' && /^stream:(\d+)$/.exec(id);
@@ -365,8 +368,12 @@ export default function PlayBar() {
   const isLyricsExpanded = state.isLyricsExpanded;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lrcContent, setLrcContent] = useState<string | null>(null);
-  const [lyricsSource, setLyricsSource] = useState<'LRC file' | 'Embedded' | null>(null);
+  const [lyricsSource, setLyricsSource] = useState<'LRC file' | 'Embedded' | 'Server' | null>(null);
   const [lyricsType, setLyricsType] = useState<'synced' | 'unsynced' | null>(null);
+
+  // Streamed track: there is no local file to find a sidecar .lrc beside, and
+  // no local bytes to read embedded lyrics out of.
+  const isRemoteSongPath = !!songPath && /^https?:\/\//i.test(songPath);
 
   useEffect(() => {
     if (!songPath) {
@@ -376,6 +383,32 @@ export default function PlayBar() {
       return;
     }
     let cancelled = false;
+
+    // A streamed track has no local file to read, but the server keeps the
+    // lyrics and hands them back as LRC, so the same parser below applies.
+    if (isRemoteSongPath) {
+      const trackId = state.track?.Id;
+      if (trackId == null) return;
+      ipcRenderer
+        .invoke('get-remote-lyrics', { trackId })
+        .then((lrc: unknown) => {
+          if (cancelled) return;
+          if (typeof lrc === 'string' && lrc.trim()) {
+            setLrcContent(lrc);
+            setLyricsSource('Server');
+            setLyricsType(SYNCED_LRC.test(lrc) ? 'synced' : 'unsynced');
+          } else {
+            setLrcContent(null);
+            setLyricsSource(null);
+            setLyricsType(null);
+          }
+        })
+        .catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    }
+
     (async () => {
       const fs = window.require('fs') as typeof import('fs');
       const nodePath = window.require('path') as typeof import('path');
@@ -387,7 +420,7 @@ export default function PlayBar() {
       if (fs.existsSync(lrcPath)) {
         try {
           const content = fs.readFileSync(lrcPath, 'utf8');
-          const isSynced = /\[\d{2}:\d{2}[.:]\d{2}/.test(content);
+          const isSynced = SYNCED_LRC.test(content);
           if (!cancelled) {
             setLrcContent(content);
             setLyricsSource('LRC file');
@@ -409,7 +442,8 @@ export default function PlayBar() {
 
         const sylt = nativeFrames.find(f => f.id === 'SYLT');
         const syltVal = sylt?.value as
-          { synchronisedText?: Array<{ text: string; timestamp: number }> } | undefined;
+          | { synchronisedText?: Array<{ text: string; timestamp: number }> }
+          | undefined;
         if (syltVal?.synchronisedText?.length) {
           const lrc = syltToLrc(syltVal.synchronisedText);
           if (!cancelled) {
@@ -424,7 +458,7 @@ export default function PlayBar() {
         const usltVal = uslt?.value as { text?: string } | undefined;
         if (usltVal?.text) {
           const text: string = usltVal.text;
-          const isSynced = /\[\d{2}:\d{2}[.:]\d{2}/.test(text);
+          const isSynced = SYNCED_LRC.test(text);
           if (!cancelled) {
             setLrcContent(text);
             setLyricsSource('Embedded');
@@ -463,7 +497,7 @@ export default function PlayBar() {
     return () => {
       cancelled = true;
     };
-  }, [songPath]);
+  }, [songPath, isRemoteSongPath, state.track?.Id]);
 
   const handleLyricsToggle = useCallback(() => {
     dispatch({ type: 'SET_LYRICS_EXPANDED', payload: !isLyricsExpanded });
@@ -523,7 +557,13 @@ export default function PlayBar() {
 
   const trackUri = state?.track?.Uri as string | undefined;
   // Internet radio: no duration, no seeking, and the bar shows Live instead of times.
-  const isLive = !!trackUri && /^https?:\/\//i.test(trackUri);
+  // Keyed on the queue id, not the URL scheme: the Streams view is the only thing
+  // that enqueues a `stream:<id>`, whereas a synced remote track also has an http
+  // Uri but is finite and seekable like any other song.
+  const isLive = streamIdOf(state?.track?.Id) !== undefined;
+  // Not backed by a local file: internet radio, or a remote track we haven't
+  // downloaded. Gates the features that need real bytes on disk.
+  const isRemote = !!trackUri && /^https?:\/\//i.test(trackUri);
   useEffect(() => {
     if (trackUri) {
       setSongPath(trackUri);
@@ -581,7 +621,8 @@ export default function PlayBar() {
     const deviceId = getAudioOutputDeviceId();
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
-        (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string }) | null;
+        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
+        | null;
       if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
       try {
         await sinkable.setSinkId(deviceId);
@@ -711,6 +752,18 @@ export default function PlayBar() {
         (state.queue?.length ?? 0) > 0 &&
         (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all');
       const title = (state.track?.Title as string) || 'This track';
+      // An unreachable server fails every one of its tracks identically, so
+      // advancing would race through the queue firing a toast per song, and
+      // "damaged file" would be the wrong diagnosis every time. Stop once instead.
+      if (/^https?:\/\//i.test(String(state.track?.Uri ?? ''))) {
+        window.dispatchEvent(
+          new CustomEvent(PLAYBACK_ERROR_EVENT, {
+            detail: `Can't reach the server for ${title}. Check that it's online.`,
+          })
+        );
+        dispatch({ type: 'RESET_PLAYBACK' });
+        return;
+      }
       window.dispatchEvent(
         new CustomEvent(PLAYBACK_ERROR_EVENT, {
           detail: `${title} can't be played — the file is unsupported or damaged.${
@@ -1979,7 +2032,6 @@ export default function PlayBar() {
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        {/* A stream has no file to read tags, bitrate or path from. */}
         <MenuItem onClick={runMenuAction(handleOpenSongInfo)} disabled={isLive}>
           <ListItemIcon>
             <Icon icon={info24Regular} width={20} />
@@ -1988,7 +2040,7 @@ export default function PlayBar() {
         </MenuItem>
         <MenuItem
           onClick={runMenuAction(handleOpenTagEditor)}
-          disabled={isLive || !songPath || !isTaggable(songPath)}
+          disabled={isRemote || !songPath || !isTaggable(songPath)}
         >
           <ListItemIcon>
             <Icon icon={edit24Regular} width={20} />

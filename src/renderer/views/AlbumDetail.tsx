@@ -28,6 +28,7 @@ import { Icon } from '@iconify/react';
 import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
 import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import DownloadMenuItem from '../components/DownloadMenuItem';
 import ArtistCell from '../components/ArtistCell';
 import { detailBannerBg, listRowSx } from '../styles/listSx';
 import { DEFAULT_AA, isTaggable } from '../../config/constants';
@@ -470,6 +471,7 @@ const AlbumDetail: React.FC = () => {
           </ListItemIcon>
           <ListItemText>Edit tags</ListItemText>
         </MenuItem>
+        <DownloadMenuItem song={rowMenu?.song} onDone={() => setRowMenu(null)} />
       </Menu>
 
       {editor && (
