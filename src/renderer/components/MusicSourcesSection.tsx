@@ -74,6 +74,23 @@ const METADATA_MODES = [
   },
 ] as const;
 
+/**
+ * What to type in the address field, where a server type wants something other
+ * than a plain `host:port`.
+ */
+const ADDRESS_HINT: Record<string, { placeholder: string; helper?: string }> = {
+  nextcloud: {
+    placeholder: 'https://cloud.example.com',
+    helper:
+      'Needs the Music app, and the password it generates under Settings → Music — not your account password.',
+  },
+  subsonic: {
+    placeholder: 'http://localhost:4533',
+    helper: 'Navidrome, Airsonic, Gonic and friends. The same sign-in as the server’s own web app.',
+  },
+  webdav: { placeholder: 'http://192.168.1.10:8081/music' },
+};
+
 /** Absent until the check answers, so a row shows nothing rather than guessing. */
 interface SourceStatus {
   reachable: boolean;
@@ -570,7 +587,8 @@ export default function MusicSourcesSection() {
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
               label="Server address"
-              placeholder="http://192.168.1.10:8096"
+              placeholder={ADDRESS_HINT[addingType]?.placeholder ?? 'http://192.168.1.10:8096'}
+              helperText={ADDRESS_HINT[addingType]?.helper}
               value={baseUrl}
               onChange={e => setBaseUrl(e.target.value)}
               fullWidth

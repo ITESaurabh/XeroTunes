@@ -406,7 +406,6 @@ function toRemoteTrack(
     durationSec: format?.duration ? Math.round(format.duration) : null,
     container: extname(file.path).replace('.', '') || null,
     path: file.path,
-    dateAdded: file.modified,
     // A cover file beside the track is the cheaper of the two: one URL shared by
     // the whole album, rather than a copy of the image per track.
     artKey: coverPath ?? embeddedArt(metadata),

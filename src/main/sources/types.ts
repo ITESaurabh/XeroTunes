@@ -41,7 +41,6 @@ export interface RemoteTrack {
   container: string | null;
   /** Where the file sits on the server. Displayed, and used to build the folder tree. */
   path: string | null;
-  dateAdded: number | null;
   /** Opaque handle the provider gets back in artUrl(); null when there's no cover. */
   artKey: string | null;
 

@@ -479,7 +479,6 @@ function toRemoteTrack(item: JellyfinAudioItem): RemoteTrack {
     durationSec: ticksToSeconds(item.RunTimeTicks),
     container: item.Container ?? null,
     path: item.Path ?? null,
-    dateAdded: item.DateCreated ? new Date(item.DateCreated).getTime() : null,
     // The track's own embedded cover, which belongs to this album. Jellyfin's
     // AlbumId cover can belong to a folder holding many albums, so it's only
     // the fallback; see the album grouping note in sync.ts.

@@ -1,12 +1,18 @@
 import type { SourceProvider } from './types';
 import { jellyfinProvider } from './jellyfin';
+import { nextcloudProvider, subsonicProvider } from './subsonic';
 import { webdavProvider } from './webdav';
 
 /**
  * Adding a remote library type means writing one provider and adding it here.
  * Nothing else in the app needs to know the type exists.
  */
-const PROVIDERS: SourceProvider[] = [jellyfinProvider, webdavProvider];
+const PROVIDERS: SourceProvider[] = [
+  jellyfinProvider,
+  nextcloudProvider,
+  subsonicProvider,
+  webdavProvider,
+];
 
 const BY_TYPE = new Map(PROVIDERS.map(p => [p.type, p]));
 
@@ -71,7 +77,7 @@ const CATALOGUE: Omit<ProviderInfo, 'available' | 'fileTags'>[] = [
   {
     type: 'nextcloud',
     label: 'Nextcloud',
-    blurb: 'Music stored in your Nextcloud files',
+    blurb: 'Your Nextcloud Music app library',
     accent: '#0082C9',
   },
   {

@@ -374,7 +374,11 @@ function createImporter(ctx: ImportContext) {
           track.durationSec,
           track.year,
           track.discNumber,
-          track.dateAdded ?? Date.now(),
+          // When the track entered this library, which is what the scan worker
+          // stores for a local file and what Recently Added sorts on. The
+          // server's own date is a file's age, and using it would bury a
+          // freshly added library under every local track ever scanned.
+          Date.now(),
           folderPath,
           rawTagJson(track.artists.join(', ')),
           rawTagJson(track.albumArtists.join(', ')),
@@ -469,6 +473,9 @@ export async function syncSource(
       }
     }
 
+    const removed = pruneMissingTracks(id, new Set(tracks.map(t => t.remoteId)));
+    if (removed) console.log(`[sources] Removed ${removed} track(s) gone from source ${id}`);
+
     // Network I/O outside the transaction.
     await downloadAlbumArt(ctx, (done, artTotal) =>
       send('scan-progress', { scanned: total, total: total + artTotal, processed: total + done })
@@ -510,6 +517,36 @@ export async function syncAllSources(
     imported += result.imported;
   }
   return { synced, imported, error };
+}
+
+/**
+ * Tracks the server no longer lists. listTracks always returns the whole
+ * library; `known` only lets a provider mark an entry unchanged, never omit it.
+ * So a remoteId missing from the sync is a deleted track, not a skipped one.
+ */
+function pruneMissingTracks(sourceId: number, live: Set<string>): number {
+  // A server can answer successfully and still list nothing, as a Nextcloud
+  // whose Music app failed to index does. Taking that at its word would wipe the
+  // source, so an empty listing counts as no news; the cost is that a server
+  // emptied for real keeps its tracks until the source is removed.
+  if (!live.size) return 0;
+  const stale = (
+    db
+      .prepare('SELECT Id, RemoteId, Uri FROM Track WHERE SourceId = ? AND RemoteId IS NOT NULL')
+      .all(sourceId) as Array<{ Id: number; RemoteId: string; Uri: string | null }>
+  ).filter(r => !live.has(r.RemoteId));
+  if (!stale.length) return 0;
+  db.transaction(() => {
+    const delLink = db.prepare('DELETE FROM TrackArtist WHERE TrackId = ?');
+    const delTrack = db.prepare('DELETE FROM Track WHERE Id = ?');
+    for (const { Id } of stale) {
+      delLink.run(Id);
+      delTrack.run(Id);
+    }
+  })();
+  // As in removeSource: the rows first, then the offline copies they owned.
+  for (const { Uri } of stale) if (Uri && !Uri.startsWith('http')) unlinkQuietly(Uri);
+  return stale.length;
 }
 
 /**
