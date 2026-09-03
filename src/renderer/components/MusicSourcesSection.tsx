@@ -435,7 +435,7 @@ export default function MusicSourcesSection() {
           <AccordionDetails sx={{ p: 0, pb: 1 }}>
             {total === 0 && (
               <Typography sx={{ px: 2, py: 1 }}>
-                No sources yet. Add a folder on this computer, or connect an external server.
+                No sources yet. Add a folder on this device, or connect an external server.
               </Typography>
             )}
 
@@ -444,7 +444,7 @@ export default function MusicSourcesSection() {
                 `folder-${folder.Id}`,
                 <Icon icon={folderIcon} width="2rem" />,
                 folder.Uri,
-                'Folder on this computer',
+                'Folder on this device',
                 <Button
                   color="error"
                   variant="contained"

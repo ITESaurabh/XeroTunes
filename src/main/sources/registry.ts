@@ -1,4 +1,5 @@
 import type { SourceProvider } from './types';
+import { embyProvider } from './emby';
 import { jellyfinProvider } from './jellyfin';
 import { nextcloudProvider, subsonicProvider } from './subsonic';
 import { upnpProvider } from './upnp';
@@ -9,6 +10,7 @@ import { webdavProvider } from './webdav';
  * Nothing else in the app needs to know the type exists.
  */
 const PROVIDERS: SourceProvider[] = [
+  embyProvider,
   jellyfinProvider,
   nextcloudProvider,
   subsonicProvider,
@@ -51,19 +53,19 @@ const CATALOGUE: Omit<ProviderInfo, 'available' | 'discoverable' | 'fileTags'>[]
   {
     type: 'jellyfin',
     label: 'Jellyfin',
-    blurb: 'Free software media system',
+    blurb: 'A Popular Free open software media system',
     accent: '#AA5CC3',
   },
   {
     type: 'emby',
     label: 'Emby',
-    blurb: 'Jellyfin’s parent project; near-identical API',
+    blurb: 'Jellyfin’s parent project; near-identical functionality',
     accent: '#52B54B',
   },
   {
     type: 'plex',
     label: 'Plex',
-    blurb: 'Media server with its own account model',
+    blurb: 'A popular propritary Media server',
     accent: '#E5A00D',
   },
   {

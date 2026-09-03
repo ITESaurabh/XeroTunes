@@ -1,9 +1,12 @@
 // Jellyfin provider over the public REST endpoints; no SDK dependency. All
 // requests time out quickly so an offline server doesn't hang the UI.
+//
+// Jellyfin was forked from Emby and the two still speak this API, so emby.ts is
+// a Flavour passed to providerFor() rather than its own client. Keep what
+// differs between them in the Flavour, not in branches here.
 
 import crypto from 'crypto';
 import fs from 'fs';
-import { app } from 'electron';
 import type {
   ConnectInput,
   ConnectResult,
@@ -50,6 +53,18 @@ export interface JellyfinAudioItem {
   PremiereDate?: string | null;
 }
 
+/** What differs between the two servers speaking this API. */
+export interface Flavour {
+  type: string;
+  label: string;
+  scheme: string;
+  /**
+   * The library, as this server scopes it. Callers pass `UserId` in the query
+   * regardless, which Jellyfin needs and Emby ignores.
+   */
+  itemsPath(_userId: string, _itemId?: string): string;
+}
+
 function trimTrailingSlash(url: string): string {
   return url.replace(/\/+$/, '');
 }
@@ -90,8 +105,41 @@ async function fetchWithTimeout(
 }
 
 const CLIENT_NAME = 'Xero Music Player';
-// Jellyfin shows this in its device list, so it should track the real build.
-const CLIENT_VERSION = app.getVersion();
+
+// The server lists this in its devices, so it should track the real build. Read
+// through a lazy require because a .check.ts imports this module under plain
+// node, where there is no Electron to ask.
+let cachedVersion: string | null = null;
+function clientVersion(): string {
+  if (cachedVersion === null) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+      cachedVersion = (require('electron') as typeof import('electron')).app.getVersion();
+    } catch {
+      cachedVersion = '0.0.0';
+    }
+  }
+  return cachedVersion;
+}
+
+/**
+ * Where this server's API actually lives. Emby answers at the root on a default
+ * install and under `/emby` behind most reverse proxies. Probing once at connect
+ * bakes the answer into the stored baseUrl, so nothing downstream branches on
+ * it; Jellyfin takes the first candidate and never sees the second.
+ */
+export async function resolveBaseUrl(rawBaseUrl: string): Promise<string> {
+  const base = trimTrailingSlash(rawBaseUrl);
+  for (const candidate of [base, `${base}/emby`]) {
+    try {
+      const res = await fetchWithTimeout(`${candidate}/System/Info/Public`, { timeoutMs: 4000 });
+      if (res.ok) return candidate;
+    } catch {
+      /* try the next; an unreachable server fails later with its own message */
+    }
+  }
+  return base;
+}
 
 export async function authenticateByName(
   rawBaseUrl: string,
@@ -105,18 +153,30 @@ export async function authenticateByName(
     client: CLIENT_NAME,
     device: 'Desktop',
     deviceId: useDeviceId,
-    version: CLIENT_VERSION,
+    version: clientVersion(),
   });
 
-  const res = await fetchWithTimeout(`${baseUrl}/Users/AuthenticateByName`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: authHeader,
-      'X-Emby-Authorization': authHeader,
-    },
-    body: JSON.stringify({ Username: username, Pw: password }),
-  });
+  const post = (body: unknown) =>
+    fetchWithTimeout(`${baseUrl}/Users/AuthenticateByName`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: authHeader,
+        'X-Emby-Authorization': authHeader,
+      },
+      body: JSON.stringify(body),
+    });
+
+  let res = await post({ Username: username, Pw: password });
+
+  // Emby builds older than 4.x, and Jellyfin's early releases, ignore `Pw` and
+  // want the SHA1 in `Password`. They refuse a valid password with the same 401
+  // as a wrong one, so asking again the old way is the only way to tell. Costs a
+  // round trip when the password really is wrong.
+  if (res.status === 401) {
+    const sha1 = crypto.createHash('sha1').update(password).digest('hex');
+    res = await post({ Username: username, Password: sha1, Pw: password });
+  }
 
   if (!res.ok) {
     let detail = res.statusText;
@@ -159,8 +219,10 @@ export async function authenticateByName(
 // token; that separates "server offline" from "token expired".
 export async function pingServer(
   rawBaseUrl: string,
+  flavour: Flavour,
   accessToken?: string,
-  deviceId?: string
+  deviceId?: string,
+  userId?: string
 ): Promise<{ reachable: boolean; authValid: boolean }> {
   const baseUrl = trimTrailingSlash(rawBaseUrl);
   let reachable = false;
@@ -173,16 +235,20 @@ export async function pingServer(
     return { reachable: false, authValid: false };
   }
 
-  if (reachable && accessToken) {
+  if (reachable && accessToken && userId) {
     try {
       const authHeader = buildAuthorizationHeader({
         client: CLIENT_NAME,
         device: 'Desktop',
         deviceId: deviceId || 'unknown',
-        version: CLIENT_VERSION,
+        version: clientVersion(),
         token: accessToken,
       });
-      const res = await fetchWithTimeout(`${baseUrl}/Users/Me`, {
+      // One row off the listing the sync uses, so this checks the access the
+      // provider needs. `/Users/Me` is Jellyfin-only and `/System/Info` wants an
+      // admin there.
+      const params = new URLSearchParams({ UserId: userId, Limit: '1' });
+      const res = await fetchWithTimeout(`${baseUrl}${flavour.itemsPath(userId)}?${params}`, {
         timeoutMs: 4000,
         headers: { Authorization: authHeader, 'X-Emby-Authorization': authHeader },
       });
@@ -199,6 +265,7 @@ export async function pingServer(
 // memory bounded.
 export async function listAudioItems(
   rawBaseUrl: string,
+  flavour: Flavour,
   accessToken: string,
   userId: string,
   deviceId: string,
@@ -209,7 +276,7 @@ export async function listAudioItems(
     client: CLIENT_NAME,
     device: 'Desktop',
     deviceId,
-    version: CLIENT_VERSION,
+    version: clientVersion(),
     token: accessToken,
   });
 
@@ -245,7 +312,7 @@ export async function listAudioItems(
       UserId: userId,
     });
 
-    const res = await fetchWithTimeout(`${baseUrl}/Items?${params.toString()}`, {
+    const res = await fetchWithTimeout(`${baseUrl}${flavour.itemsPath(userId)}?${params}`, {
       timeoutMs: 30000,
       headers: { Authorization: authHeader, 'X-Emby-Authorization': authHeader },
     });
@@ -276,12 +343,16 @@ export function streamUrl(
   rawBaseUrl: string,
   itemId: string,
   accessToken: string,
-  deviceId: string
+  deviceId: string,
+  userId: string
 ): string {
   const baseUrl = trimTrailingSlash(rawBaseUrl);
   const params = new URLSearchParams({
     api_key: accessToken,
     DeviceId: deviceId,
+    // Optional on Jellyfin; sent for Emby, whose /universal picks the
+    // transcoding profile from the user.
+    UserId: userId,
     // Everything Chromium decodes, so all but exotic formats direct-play: the
     // server sends the original bytes and honours Range, which is what makes
     // seeking work with no code on our side.
@@ -312,6 +383,7 @@ export function downloadUrl(rawBaseUrl: string, itemId: string, accessToken: str
 // once in a while for one song.
 export async function fetchTrackDetails(
   rawBaseUrl: string,
+  flavour: Flavour,
   accessToken: string,
   deviceId: string,
   userId: string,
@@ -322,11 +394,12 @@ export async function fetchTrackDetails(
     client: CLIENT_NAME,
     device: 'Desktop',
     deviceId,
-    version: CLIENT_VERSION,
+    version: clientVersion(),
     token: accessToken,
   });
+  const params = new URLSearchParams({ Fields: 'MediaSources', UserId: userId });
   const res = await fetchWithTimeout(
-    `${baseUrl}/Items/${encodeURIComponent(itemId)}?Fields=MediaSources&UserId=${encodeURIComponent(userId)}`,
+    `${baseUrl}${flavour.itemsPath(userId, itemId)}?${params}`,
     { headers: { Authorization: authHeader, 'X-Emby-Authorization': authHeader } }
   );
   if (!res.ok) return null;
@@ -378,7 +451,7 @@ export async function fetchLyrics(
     client: CLIENT_NAME,
     device: 'Desktop',
     deviceId,
-    version: CLIENT_VERSION,
+    version: clientVersion(),
     token: accessToken,
   });
   const res = await fetchWithTimeout(`${baseUrl}/Audio/${encodeURIComponent(itemId)}/Lyrics`, {
@@ -406,13 +479,16 @@ export function imageUrl(
   rawBaseUrl: string,
   itemId: string,
   type: 'Primary' | 'Backdrop' | 'Logo' = 'Primary',
-  options: { tag?: string; maxWidth?: number; quality?: number } = {}
+  options: { tag?: string; maxWidth?: number; quality?: number; token?: string } = {}
 ): string {
   const baseUrl = trimTrailingSlash(rawBaseUrl);
   const params = new URLSearchParams();
   if (options.tag) params.set('tag', options.tag);
   if (options.maxWidth) params.set('maxWidth', String(options.maxWidth));
   params.set('quality', String(options.quality ?? 90));
+  // Both serve covers unauthenticated by default; sent anyway so a server
+  // configured to require it still answers the <img>.
+  if (options.token) params.set('api_key', options.token);
   const qs = params.toString();
   return `${baseUrl}/Items/${encodeURIComponent(itemId)}/Images/${type}${qs ? '?' + qs : ''}`;
 }
@@ -436,14 +512,17 @@ export function ticksToSeconds(ticks?: number | null): number | null {
 
 // ── Provider adapter ─────────────────────────────────────────────────────────
 
-function requireCreds(c: SourceCredentials): {
+function requireCreds(
+  c: SourceCredentials,
+  flavour: Flavour
+): {
   baseUrl: string;
   token: string;
   deviceId: string;
   userId: string;
 } {
   if (!c.baseUrl || !c.accessToken || !c.deviceId || !c.userId) {
-    throw new Error('Jellyfin source is missing credentials');
+    throw new Error(`${flavour.label} source is missing credentials`);
   }
   return {
     baseUrl: c.baseUrl,
@@ -461,7 +540,7 @@ function pickNames(
   return named.length ? named : (fallback ?? []).filter(Boolean);
 }
 
-function toRemoteTrack(item: JellyfinAudioItem): RemoteTrack {
+export function toRemoteTrack(item: JellyfinAudioItem): RemoteTrack {
   return {
     remoteId: item.Id,
     title: item.Name || 'Unknown',
@@ -490,64 +569,81 @@ function toRemoteTrack(item: JellyfinAudioItem): RemoteTrack {
   };
 }
 
-export const jellyfinProvider: SourceProvider = {
+export function providerFor(flavour: Flavour): SourceProvider {
+  return {
+    type: flavour.type,
+    label: flavour.label,
+    scheme: flavour.scheme,
+
+    async connect(input: ConnectInput): Promise<ConnectResult> {
+      const baseUrl = await resolveBaseUrl(input.baseUrl);
+      const auth = await authenticateByName(baseUrl, input.username ?? '', input.password ?? '');
+      return {
+        displayName: auth.serverName || input.baseUrl,
+        credentials: {
+          baseUrl,
+          username: auth.username,
+          userId: auth.userId,
+          accessToken: auth.accessToken,
+          deviceId: auth.deviceId,
+          config: {},
+        },
+      };
+    },
+
+    async listTracks(c, onProgress) {
+      const { baseUrl, token, deviceId, userId } = requireCreds(c, flavour);
+      const items = await listAudioItems(baseUrl, flavour, token, userId, deviceId, onProgress);
+      return items.map(toRemoteTrack);
+    },
+
+    streamUrl(c, remoteId) {
+      const { baseUrl, token, deviceId, userId } = requireCreds(c, flavour);
+      return streamUrl(baseUrl, remoteId, token, deviceId, userId);
+    },
+
+    downloadUrl(c, remoteId) {
+      const { baseUrl, token } = requireCreds(c, flavour);
+      return downloadUrl(baseUrl, remoteId, token);
+    },
+
+    artUrl(c, track) {
+      if (!track.artKey) return null;
+      const [, itemId, tag] = track.artKey.split(':');
+      if (!itemId) return null;
+      return imageUrl(c.baseUrl, itemId, 'Primary', {
+        tag,
+        maxWidth: ART_MAX_WIDTH,
+        token: c.accessToken ?? undefined,
+      });
+    },
+
+    /** Jellyfin 10.9 and later. Emby 404s, which reads as a track with no lyrics. */
+    lyrics(c, remoteId) {
+      const { baseUrl, token, deviceId } = requireCreds(c, flavour);
+      return fetchLyrics(baseUrl, token, deviceId, remoteId);
+    },
+
+    details(c, remoteId) {
+      const { baseUrl, token, deviceId, userId } = requireCreds(c, flavour);
+      return fetchTrackDetails(baseUrl, flavour, token, deviceId, userId, remoteId);
+    },
+
+    ping(c) {
+      return pingServer(
+        c.baseUrl,
+        flavour,
+        c.accessToken ?? undefined,
+        c.deviceId ?? undefined,
+        c.userId ?? undefined
+      );
+    },
+  };
+}
+
+export const jellyfinProvider = providerFor({
   type: 'jellyfin',
   label: 'Jellyfin',
   scheme: 'jellyfin',
-
-  async connect(input: ConnectInput): Promise<ConnectResult> {
-    const auth = await authenticateByName(
-      input.baseUrl,
-      input.username ?? '',
-      input.password ?? ''
-    );
-    return {
-      displayName: auth.serverName || input.baseUrl,
-      credentials: {
-        baseUrl: input.baseUrl.replace(/\/+$/, ''),
-        username: auth.username,
-        userId: auth.userId,
-        accessToken: auth.accessToken,
-        deviceId: auth.deviceId,
-        config: {},
-      },
-    };
-  },
-
-  async listTracks(c, onProgress) {
-    const { baseUrl, token, deviceId, userId } = requireCreds(c);
-    const items = await listAudioItems(baseUrl, token, userId, deviceId, onProgress);
-    return items.map(toRemoteTrack);
-  },
-
-  streamUrl(c, remoteId) {
-    const { baseUrl, token, deviceId } = requireCreds(c);
-    return streamUrl(baseUrl, remoteId, token, deviceId);
-  },
-
-  downloadUrl(c, remoteId) {
-    const { baseUrl, token } = requireCreds(c);
-    return downloadUrl(baseUrl, remoteId, token);
-  },
-
-  artUrl(c, track) {
-    if (!track.artKey) return null;
-    const [, itemId, tag] = track.artKey.split(':');
-    if (!itemId) return null;
-    return imageUrl(c.baseUrl, itemId, 'Primary', { tag, maxWidth: ART_MAX_WIDTH });
-  },
-
-  lyrics(c, remoteId) {
-    const { baseUrl, token, deviceId } = requireCreds(c);
-    return fetchLyrics(baseUrl, token, deviceId, remoteId);
-  },
-
-  details(c, remoteId) {
-    const { baseUrl, token, deviceId, userId } = requireCreds(c);
-    return fetchTrackDetails(baseUrl, token, deviceId, userId, remoteId);
-  },
-
-  ping(c) {
-    return pingServer(c.baseUrl, c.accessToken ?? undefined, c.deviceId ?? undefined);
-  },
-};
+  itemsPath: (_userId, itemId) => (itemId ? `/Items/${encodeURIComponent(itemId)}` : '/Items'),
+});

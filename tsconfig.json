@@ -11,6 +11,7 @@
     "checkJs": false,
     "moduleResolution": "node",
     "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
     "sourceMap": true,
     "outDir": "./dist",
     "baseUrl": ".",
