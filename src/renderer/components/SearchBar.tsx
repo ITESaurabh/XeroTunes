@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import { useContext } from 'react';
 import Paper from '@mui/material/Paper';
 import Box from '@mui/material/Box';
 import InputBase from '@mui/material/InputBase';
@@ -14,7 +14,9 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({ open, tempDrawer, toggleDrawer }: SearchBarProps) {
-  const { dispatch } = useContext(store);
+  const { state, dispatch } = useContext(store);
+  // A scan rewrites the library underneath the results as they render.
+  const libraryBusy = state.isScanningLibrary || state.isSyncing;
 
   return (
     <Box
@@ -40,17 +42,16 @@ export default function SearchBar({ open, tempDrawer, toggleDrawer }: SearchBarP
       )}
       <InputBase
         sx={{ ml: 1, flex: 1 }}
-        onClick={(e: React.MouseEvent) => {
-          e.preventDefault();
-          dispatch({ type: 'SET_SEARCH_ENABLED', payload: true });
-        }}
-        placeholder="Search"
-        inputProps={{ 'aria-label': 'search' }}
+        disabled={libraryBusy}
+        onClick={() => dispatch({ type: 'SET_SEARCH_ENABLED', payload: true })}
+        placeholder={libraryBusy ? 'Library is busy…' : 'Search'}
+        inputProps={{ 'aria-label': 'search', readOnly: true }}
       />
       <IconButton
         type="button"
         sx={{ p: '10px' }}
         aria-label="search"
+        disabled={libraryBusy}
         onClick={() => dispatch({ type: 'SET_SEARCH_ENABLED', payload: true })}
       >
         <SearchIcon />

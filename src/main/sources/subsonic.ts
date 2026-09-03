@@ -342,8 +342,8 @@ export const subsonicProvider = providerFor({
   // likelier to be http than https.
   endpoint: server => withScheme(server, 'http').replace(/\/rest$/, ''),
   auth: 'token',
-  // Navidrome and Airsonic transcode to the user's preferred format unless told
-  // not to, which would quietly hand the library a re-encoded copy of every FLAC.
+  // Subsonic servers transcode to the user's preferred format unless told not
+  // to, which would quietly hand the library a re-encoded copy of every FLAC.
   stream: { format: 'raw' },
 });
 

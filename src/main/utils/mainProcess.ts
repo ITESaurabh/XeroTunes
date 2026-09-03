@@ -66,7 +66,7 @@ import {
 import { registerArtistIpc } from '../ipc/artists';
 import { registerSourceIpc } from '../ipc/sources';
 import { schemeRoot } from '../sources/registry';
-import { installSourceAuth, syncAllSources } from '../sources/sync';
+import { cancelSync, installSourceAuth, isSyncing, syncAllSources } from '../sources/sync';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
 import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
@@ -456,7 +456,44 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // Pre-create so it’s warm by the time the first track plays
   overlayWin = createOverlayWin();
 
-  mainWin.on('close', () => {
+  // Set while the close prompt is up, so hammering the X can't stack dialogs.
+  let askingAboutSync = false;
+
+  // A sync writes rows as it goes, so closing mid-way leaves a server half
+  // imported. The prompt is a system dialog because it has to outlive the window
+  // the user is closing.
+  mainWin.on('close', event => {
+    if (isSyncing()) {
+      event.preventDefault();
+      if (askingAboutSync) return;
+      askingAboutSync = true;
+      void dialog
+        .showMessageBox(mainWin, {
+          type: 'warning',
+          buttons: ['Keep Syncing', 'Cancel Sync and Close'],
+          defaultId: 0,
+          cancelId: 0,
+          title: 'Sync in progress',
+          message: 'A library sync is still running.',
+          detail:
+            'Closing now would leave the server half imported. Tracks already imported are kept either way.',
+        })
+        .then(({ response }) => {
+          askingAboutSync = false;
+          if (response !== 1) return;
+          cancelSync();
+          // The sync stops at its next track, not instantly; wait it out.
+          const closeWhenIdle = setInterval(() => {
+            if (isSyncing()) return;
+            clearInterval(closeWhenIdle);
+            if (!mainWin.isDestroyed()) mainWin.close();
+          }, 200);
+        })
+        .catch(() => {
+          askingAboutSync = false;
+        });
+      return;
+    }
     destroyPresence();
     destroyCast();
     if (overlayWin && !overlayWin.isDestroyed()) overlayWin.destroy();

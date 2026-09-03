@@ -1,6 +1,6 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import * as sources from '../sources/sync';
-import { listProviders } from '../sources/registry';
+import { getProvider, listProviders } from '../sources/registry';
 
 export function registerSourceIpc(
   mainWin: BrowserWindow,
@@ -11,6 +11,19 @@ export function registerSourceIpc(
   ipcMain.handle('get-sources', () => sources.listSources());
   ipcMain.handle('get-source-providers', () => listProviders());
   ipcMain.handle('check-sources', () => sources.checkSources());
+  ipcMain.handle('cancel-sync', () => sources.cancelSync());
+  // For a renderer that reloaded mid-sync and so missed 'sync-state'.
+  ipcMain.handle('is-syncing', () => sources.isSyncing());
+
+  // Whatever answers within the protocol's own wait.
+  ipcMain.handle('discover-servers', async (_e, { type }) => {
+    try {
+      return (await getProvider(type)?.discover?.()) ?? [];
+    } catch {
+      // A network that drops multicast is an empty list, not a failed dialog.
+      return [];
+    }
+  });
 
   ipcMain.handle('add-source', async (_e, { type, baseUrl, username, password, metadata }) => {
     if (!baseUrl || typeof baseUrl !== 'string') {

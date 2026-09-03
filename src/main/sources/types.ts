@@ -102,6 +102,13 @@ export interface ConnectResult {
   credentials: SourceCredentials;
 }
 
+/** A server found on the network, offered as something to click rather than type. */
+export interface DiscoveredServer {
+  name: string;
+  /** Goes straight into the address field, so connect() has to accept it as-is. */
+  address: string;
+}
+
 export interface SourceProvider {
   /** Stored in Source.Type; also the key in the registry. */
   readonly type: string;
@@ -165,6 +172,12 @@ export interface SourceProvider {
    * only a provider that reads files needs it.
    */
   readTrack?(_credentials: SourceCredentials, _remoteId: string): Promise<RemoteTrack | null>;
+
+  /**
+   * Servers of this kind that answer on the local network. A provider whose
+   * protocol has no way to ask omits it, and the picker offers no scan.
+   */
+  discover?(): Promise<DiscoveredServer[]>;
 
   /**
    * Whether the server answers, and whether the stored credentials still work.

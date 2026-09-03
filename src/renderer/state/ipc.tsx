@@ -133,6 +133,9 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     ) => {
       dispatch({ type: 'SET_SCAN_PROGRESS', payload: arg });
     };
+    const handleSyncState = (_event: Electron.IpcRendererEvent, running: boolean) => {
+      dispatch({ type: 'SET_SYNCING', payload: Boolean(running) });
+    };
     const refreshStats = () => {
       ipcRenderer
         .invoke('get-library-stats')
@@ -167,11 +170,19 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
         .catch(() => undefined);
     };
 
+    // Asked once as well as listened for: a renderer that reloaded mid-sync has
+    // missed the event and would otherwise leave everything enabled.
+    ipcRenderer
+      .invoke('is-syncing')
+      .then(running => dispatch({ type: 'SET_SYNCING', payload: Boolean(running) }))
+      .catch(() => undefined);
+    ipcRenderer.on('sync-state', handleSyncState);
     ipcRenderer.on('scan-start', handleScanStart);
     ipcRenderer.on('scan-progress', handleScanProgress);
     ipcRenderer.on('scan-end', handleScanEnd);
     ipcRenderer.on('library-updated', handleLibraryUpdated);
     return () => {
+      ipcRenderer.removeListener('sync-state', handleSyncState);
       ipcRenderer.removeListener('scan-start', handleScanStart);
       ipcRenderer.removeListener('scan-progress', handleScanProgress);
       ipcRenderer.removeListener('scan-end', handleScanEnd);

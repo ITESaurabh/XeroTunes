@@ -2,15 +2,14 @@
  * Self-check: run with `node src/main/sources/webdav.check.ts`.
  *
  * Set WEBDAV_URL (plus WEBDAV_USER / WEBDAV_PASS) to also run the whole
- * provider against a real share: `rclone serve webdav D:\TEMP\XeroTestMusic
- * --addr :8081 --user test --pass test`, per docs/test-servers.md.
+ * provider against a real share, per docs/test-servers.md.
  */
 import assert from 'node:assert';
 import http from 'node:http';
 import { parsePropfind, pathMetadata, stampOf, webdavProvider } from './webdav.ts';
 
-// Trimmed from what `rclone serve webdav` actually answers, with the prefixes
-// swapped around: a server is free to name the DAV namespace whatever it likes,
+// Trimmed from a real PROPFIND response, with the prefixes swapped around: a
+// server is free to name the DAV namespace whatever it likes,
 // and the parser has to survive that.
 const XML = `<?xml version="1.0" encoding="UTF-8"?>
 <D:multistatus xmlns:D="DAV:">

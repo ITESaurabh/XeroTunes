@@ -8,7 +8,7 @@ export const ORG_NAME = 'ITE-Dojo';
 export const ORG_SITE = 'https://github.com/ITE-Dojo';
 export const REPO_URL = 'https://github.com/ITESaurabh/XeroTunes';
 export const SESSION_TIME = 30; // In Days
-export type ScanMode = 'basic' | 'full' | 'artists' | 'files';
+export type ScanMode = 'basic' | 'full' | 'artists' | 'files' | 'sync';
 
 // Containers the tag editor can write back to. node-taglib-sharp has no
 // Matroska writer, so .webm from the scanner's list is deliberately absent and
@@ -16,6 +16,8 @@ export type ScanMode = 'basic' | 'full' | 'artists' | 'files';
 export const TAGGABLE_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.opus', '.aac', '.flac', '.m4a'];
 
 export function isTaggable(filePath: string): boolean {
+  // Remote sources (WebDAV, Subsonic, UPnP) stream over http(s) and aren't writable in place, regardless of container.
+  if (/^https?:\/\//i.test(filePath)) return false;
   const dot = filePath.lastIndexOf('.');
   return dot >= 0 && TAGGABLE_EXTENSIONS.includes(filePath.slice(dot).toLowerCase());
 }

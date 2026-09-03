@@ -178,10 +178,25 @@ const menuItems: MenuItem[] = [
 
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, scanMode, scanProgress, libraryStats, isMenuExpanded } = state;
+  const { isScanningLibrary, isSyncing, scanMode, scanProgress, libraryStats, isMenuExpanded } =
+    state;
   // A full rescan tears the library down and rebuilds it, so navigating into a
   // list mid-scan shows half-built data. Other modes leave rows in place.
-  const isFullScan = scanMode === 'full';
+  // A sync runs on the main process, not the worker, so it lags navigation too.
+  const isFullScan = scanMode === 'full' || isSyncing;
+
+  // The counts restart at each server, so the label says which one this is.
+  const scanLabel = (() => {
+    if (!isSyncing) return 'Scanning…';
+    const at = scanProgress?.source;
+    return at && at.count > 1 ? `Syncing ${at.index}/${at.count}` : 'Syncing…';
+  })();
+
+  // No room to name the server, so the colour is what says the run moved on.
+  const accent = scanProgress?.source?.accent ?? null;
+  const accentSx = accent
+    ? { color: accent, '& .MuiLinearProgress-bar': { bgcolor: accent } }
+    : undefined;
 
   const toggleDrawer = () => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });
@@ -255,8 +270,6 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                   mb: 1,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  alignContent: 'center',
                   gap: 1.5,
                   borderRadius: 2,
                   bgcolor: 'action.hover',
@@ -269,7 +282,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                 }}
               >
                 {state.isMenuExpanded ? (
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <LinearProgress
                       variant={
                         scanProgress && scanProgress.total > 0 ? 'determinate' : 'indeterminate'
@@ -279,7 +292,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                           ? Math.round((scanProgress.processed / scanProgress.total) * 100)
                           : undefined
                       }
-                      sx={{ borderRadius: 2, height: 4 }}
+                      sx={{ borderRadius: 2, height: 4, ...accentSx }}
                     />
                   </Box>
                 ) : (
@@ -301,21 +314,24 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                           : undefined
                       }
                       size={20}
-                      // sx={{ borderRadius: 2, height: 4 }}
+                      sx={accentSx}
                     />
                   </Box>
                 )}
                 <Typography
                   variant="caption"
+                  title={scanLabel}
                   sx={{
+                    flexShrink: 1,
+                    minWidth: 0,
                     whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                     opacity: 0.7,
                     display: state.isMenuExpanded ? 'block' : 'none',
                   }}
                 >
-                  {scanProgress && scanProgress.total > 0
-                    ? `Scanning library… ${scanProgress.processed} / ${scanProgress.total}`
-                    : 'Scanning library…'}
+                  {scanLabel}
                 </Typography>
               </Box>
             </motion.div>

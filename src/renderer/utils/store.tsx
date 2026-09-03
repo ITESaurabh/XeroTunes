@@ -74,6 +74,17 @@ export interface ScanProgress {
   scanned: number;
   total: number;
   processed: number;
+  /**
+   * Which server the counts belong to, when a sync is walking several. Without
+   * it the bar restarting at every source looks like the first one was lost.
+   */
+  source?: {
+    index: number;
+    count: number;
+    name: string | null;
+    type: string;
+    accent: string | null;
+  };
 }
 
 export interface LibraryStats {
@@ -108,6 +119,8 @@ export interface AppState {
   isPlayerBarVisible: boolean;
   isLyricsExpanded: boolean;
   isScanningLibrary: boolean;
+  /** A remote sync specifically, which unlike a local scan runs on the main process. */
+  isSyncing: boolean;
   scanMode: ScanMode | null;
   scanProgress: ScanProgress | null;
   libraryStats: LibraryStats | null;
@@ -140,6 +153,7 @@ export type AppAction =
   | { type: 'SET_LYRICS_EXPANDED'; payload: boolean }
   | { type: 'SET_SHUFFLE'; payload: boolean }
   | { type: 'SET_SCANNING'; payload: { isScanning: boolean; scanMode?: ScanMode | null } }
+  | { type: 'SET_SYNCING'; payload: boolean }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
   | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats }
   | { type: 'SET_CASTING'; payload: { isCasting: boolean; deviceName: string | null } }
@@ -186,6 +200,7 @@ const initialState: AppState = (() => {
     isPlayerBarVisible: true,
     isLyricsExpanded: false,
     isScanningLibrary: false,
+    isSyncing: false,
     scanMode: null,
     scanProgress: null,
     libraryStats: null,
@@ -343,6 +358,9 @@ function reducer(state: AppState, action: AppAction): AppState {
     }
     case 'SET_SCAN_PROGRESS': {
       return { ...state, scanProgress: action.payload };
+    }
+    case 'SET_SYNCING': {
+      return { ...state, isSyncing: action.payload };
     }
     case 'SET_LIBRARY_STATS': {
       return { ...state, libraryStats: action.payload };

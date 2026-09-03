@@ -1,6 +1,7 @@
 import type { SourceProvider } from './types';
 import { jellyfinProvider } from './jellyfin';
 import { nextcloudProvider, subsonicProvider } from './subsonic';
+import { upnpProvider } from './upnp';
 import { webdavProvider } from './webdav';
 
 /**
@@ -11,6 +12,7 @@ const PROVIDERS: SourceProvider[] = [
   jellyfinProvider,
   nextcloudProvider,
   subsonicProvider,
+  upnpProvider,
   webdavProvider,
 ];
 
@@ -29,6 +31,8 @@ export interface ProviderInfo {
   accent: string;
   /** False renders the card as "Coming soon". Derived, never hand-maintained. */
   available: boolean;
+  /** It has discover(), so its form offers a network scan. */
+  discoverable: boolean;
   /** Its metadata comes from the files, so it offers a MetadataMode. */
   fileTags: boolean;
 }
@@ -38,12 +42,12 @@ export interface ProviderInfo {
  * yet; this is what the "Add external" picker renders.
  *
  * Availability is derived from PROVIDERS above, so implementing one and
- * registering it flips its card on with no edit here. Deliberately excludes
- * Spotify, Apple Music and the like: their APIs don't permit a third-party
+ * registering it flips its card on with no edit here. Deliberately excludes the
+ * big commercial streaming services: their APIs don't permit a third-party
  * client to stream or download the audio, so they aren't "coming soon", they
  * are not possible.
  */
-const CATALOGUE: Omit<ProviderInfo, 'available' | 'fileTags'>[] = [
+const CATALOGUE: Omit<ProviderInfo, 'available' | 'discoverable' | 'fileTags'>[] = [
   {
     type: 'jellyfin',
     label: 'Jellyfin',
@@ -88,11 +92,16 @@ const CATALOGUE: Omit<ProviderInfo, 'available' | 'fileTags'>[] = [
   },
 ];
 
+export function accentFor(type: string): string | null {
+  return CATALOGUE.find(entry => entry.type === type)?.accent ?? null;
+}
+
 /** Feeds the "Add external" picker, so a new provider shows up there for free. */
 export function listProviders(): ProviderInfo[] {
   return CATALOGUE.map(entry => ({
     ...entry,
     available: BY_TYPE.has(entry.type),
+    discoverable: !!BY_TYPE.get(entry.type)?.discover,
     fileTags: !!BY_TYPE.get(entry.type)?.readsFileTags,
   }));
 }

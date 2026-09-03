@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useState } from 'react';
 import {
   Accordion,
   AccordionDetails,
@@ -11,7 +11,9 @@ import {
   Chip,
   Divider,
   Grid,
+  List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   MenuItem,
@@ -31,6 +33,7 @@ import addIcon from '@iconify/icons-fluent/add-24-regular';
 import downloadIcon from '@iconify/icons-fluent/arrow-download-24-regular';
 import AppDialog from './AppDialog';
 import { useIpc } from '../state/ipc';
+import { store } from '../utils/store';
 import { useConfirm } from '../utils/useConfirm';
 
 const { ipcRenderer } = window.require('electron');
@@ -47,9 +50,19 @@ interface Provider {
   blurb: string;
   accent: string;
   available: boolean;
+  /** It has discover(), so the form offers a network scan. */
+  discoverable: boolean;
   /** Its metadata comes from the files, so it offers the choice below. */
   fileTags: boolean;
 }
+
+interface Discovered {
+  name: string;
+  address: string;
+}
+
+const sameAddress = (a: string | null, b: string) =>
+  (a ?? '').replace(/\/+$/, '').toLowerCase() === b.replace(/\/+$/, '').toLowerCase();
 
 /**
  * How much of a file share to open during a sync. Reading tens of thousands of
@@ -133,6 +146,11 @@ export default function MusicSourcesSection() {
   const { invokeEventToMainProcess } = useIpc();
   const confirm = useConfirm();
 
+  const { state } = useContext(store);
+  // Adding, removing or repointing a source races whatever is writing its rows,
+  // so every control that does so is locked for the duration.
+  const libraryBusy = state.isScanningLibrary || state.isSyncing;
+
   const [expanded, setExpanded] = useState(false);
   const [folders, setFolders] = useState<MusicFolder[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
@@ -152,6 +170,9 @@ export default function MusicSourcesSection() {
   const [metadata, setMetadata] = useState<string>('eager');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null before the first scan, so "nothing found" isn't shown until one has run.
+  const [discovered, setDiscovered] = useState<Discovered[] | null>(null);
+  const [scanning, setScanning] = useState(false);
 
   const refresh = useCallback(() => {
     invokeEventToMainProcess('get-music-folders', undefined)
@@ -193,8 +214,29 @@ export default function MusicSourcesSection() {
     setUsername('');
     setPassword('');
     setMetadata('eager');
+    setDiscovered(null);
     setAddOpen(true);
   };
+
+  // Name as well as address: a scan reports the machine's LAN address, while
+  // someone typing it in may have used localhost or whatever the server printed.
+  const addedAlready = (server: Discovered) =>
+    sources.some(
+      source =>
+        source.Type === addingType &&
+        (sameAddress(source.BaseUrl, server.address) || (source.Name ?? '') === server.name)
+    );
+
+  const scan = useCallback(
+    (type: string) => {
+      setScanning(true);
+      invokeEventToMainProcess('discover-servers', { type })
+        .then(d => setDiscovered((d ?? []) as Discovered[]))
+        .catch(() => setDiscovered([]))
+        .finally(() => setScanning(false));
+    },
+    [invokeEventToMainProcess]
+  );
 
   const closeDialog = () => setAddOpen(false);
 
@@ -366,6 +408,7 @@ export default function MusicSourcesSection() {
                   variant="contained"
                   disableElevation
                   size="small"
+                  disabled={libraryBusy}
                   onClick={e => {
                     e.stopPropagation();
                     void handleAddFolder();
@@ -377,6 +420,7 @@ export default function MusicSourcesSection() {
                   startIcon={<Icon icon={addIcon} height="1.2rem" />}
                   variant="outlined"
                   size="small"
+                  disabled={libraryBusy}
                   onClick={e => {
                     e.stopPropagation();
                     openDialog();
@@ -406,6 +450,7 @@ export default function MusicSourcesSection() {
                   variant="contained"
                   size="small"
                   disableElevation
+                  disabled={libraryBusy}
                   onClick={() => handleRemoveFolder(folder)}
                 >
                   Remove
@@ -466,6 +511,7 @@ export default function MusicSourcesSection() {
                       size="small"
                       label="Track details"
                       value={source.Metadata ?? 'eager'}
+                      disabled={libraryBusy}
                       onChange={e => handleMetadataMode(source, e.target.value)}
                       // Grows to push REMOVE to the right edge, but only so
                       // far: six words don't need half a desktop window.
@@ -483,6 +529,7 @@ export default function MusicSourcesSection() {
                     variant="contained"
                     size="small"
                     disableElevation
+                    disabled={libraryBusy}
                     onClick={() => handleRemoveSource(source)}
                   >
                     Remove
@@ -503,6 +550,7 @@ export default function MusicSourcesSection() {
           <Button
             variant="outlined"
             size="small"
+            disabled={libraryBusy}
             onClick={async () => {
               await invokeEventToMainProcess('choose-download-folder', undefined).catch(
                 () => undefined
@@ -514,6 +562,7 @@ export default function MusicSourcesSection() {
           </Button>
           <Button
             size="small"
+            disabled={libraryBusy}
             onClick={async () => {
               await invokeEventToMainProcess('reset-download-folder', undefined).catch(
                 () => undefined
@@ -562,6 +611,7 @@ export default function MusicSourcesSection() {
                     onClick={() => {
                       setAddingType(provider.type);
                       setError(null);
+                      if (provider.discoverable) scan(provider.type);
                     }}
                     sx={{ p: 1.5, height: '100%' }}
                   >
@@ -594,6 +644,48 @@ export default function MusicSourcesSection() {
               fullWidth
               autoFocus
             />
+            {chosen?.discoverable && (
+              <Box>
+                <Stack direction="row" alignItems="center" justifyContent="space-between">
+                  <Typography variant="subtitle2">On your network</Typography>
+                  <Button size="small" onClick={() => scan(chosen.type)} disabled={scanning}>
+                    {scanning ? 'Scanning…' : 'Scan again'}
+                  </Button>
+                </Stack>
+                {scanning && discovered === null ? (
+                  <Typography variant="caption" color="text.secondary">
+                    Looking for servers…
+                  </Typography>
+                ) : discovered?.length ? (
+                  <List dense disablePadding>
+                    {discovered.map(server => {
+                      const added = addedAlready(server);
+                      return (
+                        <ListItemButton
+                          key={server.address}
+                          disabled={added}
+                          selected={baseUrl === server.address}
+                          onClick={() => setBaseUrl(server.address)}
+                          sx={{ borderRadius: 1 }}
+                        >
+                          <ListItemText
+                            primary={server.name}
+                            secondary={server.address}
+                            secondaryTypographyProps={{ noWrap: true }}
+                          />
+                          {added && <Chip label="Added" size="small" sx={{ height: 20 }} />}
+                        </ListItemButton>
+                      );
+                    })}
+                  </List>
+                ) : (
+                  <Typography variant="caption" color="text.secondary">
+                    Nothing answered. Servers that don’t announce themselves can still be added by
+                    address.
+                  </Typography>
+                )}
+              </Box>
+            )}
             <TextField
               label="Username"
               value={username}

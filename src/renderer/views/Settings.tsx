@@ -33,6 +33,7 @@ import { Icon } from '@iconify/react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PageToolbar from '../components/PageToolbar';
 import MusicSourcesSection from '../components/MusicSourcesSection';
+import SyncProgressPanel from '../components/SyncProgressPanel';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
 import headphonesIcon from '@iconify/icons-fluent/headphones-20-regular';
 import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
@@ -1054,6 +1055,7 @@ const Settings: React.FC = () => {
                 {fullScanning ? 'Scanning…' : 'Full Rescan'}
               </Button>
             </ListItem>
+            <SyncProgressPanel />
             <MusicSourcesSection />
             <ListItem>
               <ListItemIcon>

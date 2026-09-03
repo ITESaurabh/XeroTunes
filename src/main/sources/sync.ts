@@ -14,7 +14,14 @@ import path from 'path';
 import fs from 'fs';
 import dbModule from '../db';
 import { ALBUM_ART_DIR } from '../../config/core_config';
-import { getProvider, qualifyPath, displayPath, parentPath, stripNamespace } from './registry';
+import {
+  accentFor,
+  getProvider,
+  qualifyPath,
+  displayPath,
+  parentPath,
+  stripNamespace,
+} from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
 import type {
   MetadataMode,
@@ -82,6 +89,34 @@ export interface SourceStatus {
 }
 
 /**
+ * Sources with a sync running. A sync can keep a server busy for a minute or
+ * more, and a ping that loses the race says offline about a server that is
+ * plainly working, so those are left out of the check instead.
+ */
+const syncing = new Set<number>();
+
+/** Sources the user has asked to stop, cleared when their sync unwinds. */
+const cancelRequested = new Set<number>();
+
+/**
+ * Thrown out of the progress callback to stop a sync. Providers report progress
+ * often and from inside whatever loop they are in, so throwing from there is the
+ * one place that can interrupt a listTracks already several thousand requests
+ * deep without every provider having to learn about cancellation.
+ */
+class SyncCancelled extends Error {}
+
+export function isSyncing(): boolean {
+  return syncing.size > 0;
+}
+
+/** Stops whatever is syncing. Tracks already imported stay; nothing is pruned. */
+export function cancelSync(): { success: boolean } {
+  for (const id of syncing) cancelRequested.add(id);
+  return { success: true };
+}
+
+/**
  * Every server asked at once, keyed by source id. A provider with no ping is
  * left out rather than guessed at, so the UI shows nothing for it.
  */
@@ -89,7 +124,7 @@ export async function checkSources(): Promise<Record<number, SourceStatus>> {
   const rows = db.prepare('SELECT * FROM Source').all() as SourceRow[];
   const checks = rows.map(async row => {
     const provider = getProvider(row.Type);
-    if (!provider?.ping) return null;
+    if (!provider?.ping || syncing.has(row.Id)) return null;
     try {
       return [row.Id, await provider.ping(toCredentials(row))] as const;
     } catch {
@@ -430,12 +465,14 @@ export interface SyncOptions {
   emitLifecycle?: boolean;
   /** The separators that decide how a credit splits into artists. */
   librarySettings?: { multiArtistSeparators?: string[]; multiArtistExceptions?: string[] };
+  /** Which server this is out of how many, so a bar restarting reads as progress. */
+  position?: { index: number; count: number };
 }
 
 export async function syncSource(
   id: number,
   mainWin: BrowserWindow,
-  { emitLifecycle = true, librarySettings }: SyncOptions = {}
+  { emitLifecycle = true, librarySettings, position }: SyncOptions = {}
 ): Promise<{ success: true; imported: number } | { success: false; error: string }> {
   const row = getSourceRow(id);
   if (!row) return { success: false, error: 'Source not found' };
@@ -449,16 +486,38 @@ export async function syncSource(
     if (!mainWin.isDestroyed()) mainWin.webContents.send(event, payload);
   };
 
+  const source = {
+    index: position?.index ?? 1,
+    count: position?.count ?? 1,
+    name: row.Name ?? row.BaseUrl,
+    type: row.Type,
+    // The drawer has no room to name the server, so its bar takes this colour.
+    accent: accentFor(row.Type),
+  };
+  const progress = (scanned: number, total: number, processed: number) =>
+    send('scan-progress', { scanned, total, processed, source });
+
   if (emitLifecycle) send('scan-start', 'sync');
+  // Sent whether or not this sync owns the scan lifecycle: a full rescan brackets
+  // itself as a local scan and would otherwise hide that it is syncing too.
+  syncing.add(id);
+  send('sync-state', true);
+  const stopIfCancelled = () => {
+    if (cancelRequested.has(id)) throw new SyncCancelled('Sync cancelled');
+  };
   try {
     let tracks: RemoteTrack[];
     try {
       tracks = await ctx.provider.listTracks(
         ctx.credentials,
-        (loaded, total) => send('scan-progress', { scanned: 0, total, processed: loaded }),
+        (loaded, total) => {
+          stopIfCancelled();
+          progress(0, total, loaded);
+        },
         knownStamps(id)
       );
     } catch (err) {
+      if (err instanceof SyncCancelled) throw err;
       return { success: false, error: (err as Error).message };
     }
 
@@ -466,10 +525,11 @@ export async function syncSource(
     let imported = 0;
     const importTrack = createImporter(ctx);
     for (const track of tracks) {
+      stopIfCancelled();
       importTrack(track);
       imported++;
       if (imported % 50 === 0 || imported === total) {
-        send('scan-progress', { scanned: imported, total, processed: imported });
+        progress(imported, total, imported);
       }
     }
 
@@ -478,7 +538,7 @@ export async function syncSource(
 
     // Network I/O outside the transaction.
     await downloadAlbumArt(ctx, (done, artTotal) =>
-      send('scan-progress', { scanned: total, total: total + artTotal, processed: total + done })
+      progress(total, total + artTotal, total + done)
     );
 
     pruneEmptyAlbums(id);
@@ -491,7 +551,16 @@ export async function syncSource(
     db.prepare('UPDATE Source SET LastSyncedAt = ? WHERE Id = ?').run(Date.now(), id);
     send('library-updated', { scanned: imported });
     return { success: true, imported };
+  } catch (err) {
+    if (!(err instanceof SyncCancelled)) throw err;
+    // Deliberately short of pruneMissingTracks: the listing is partial, and
+    // everything it didn't reach would look like a track the server had dropped.
+    send('library-updated', {});
+    return { success: false, error: 'Sync cancelled' };
   } finally {
+    cancelRequested.delete(id);
+    syncing.delete(id);
+    if (!syncing.size) send('sync-state', false);
     if (emitLifecycle) send('scan-end', null);
   }
 }
@@ -505,8 +574,12 @@ export async function syncAllSources(
   let synced = 0;
   let imported = 0;
   let error: string | undefined;
-  for (const id of ids) {
-    const result = await syncSource(id, mainWin, { emitLifecycle: false, librarySettings });
+  for (const [index, id] of ids.entries()) {
+    const result = await syncSource(id, mainWin, {
+      emitLifecycle: false,
+      librarySettings,
+      position: { index: index + 1, count: ids.length },
+    });
     // `in`, not `result.success`: the project builds with strict off, where a
     // boolean discriminant doesn't narrow the union.
     if ('error' in result) {
@@ -595,7 +668,11 @@ async function downloadTo(
   try {
     const res = await fetch(url, { headers });
     if (!res.ok) return false;
-    fs.writeFileSync(destPath, Buffer.from(await res.arrayBuffer()));
+    // The art loop skips any album whose file already exists, so a truncated
+    // write here would never be retried.
+    const tmp = `${destPath}.part`;
+    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+    fs.renameSync(tmp, destPath);
     return true;
   } catch {
     return false;
