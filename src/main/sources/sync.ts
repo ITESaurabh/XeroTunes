@@ -24,6 +24,7 @@ import {
 } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
 import type {
+  ConnectInput,
   MetadataMode,
   RemoteTrack,
   RemoteTrackDetails,
@@ -683,7 +684,7 @@ async function downloadTo(
 
 export async function addSource(
   type: string,
-  input: { baseUrl: string; username?: string; password?: string; config?: Record<string, unknown> }
+  input: ConnectInput
 ): Promise<{ success: true; sourceId: number } | { success: false; error: string }> {
   const provider = getProvider(type);
   if (!provider) return { success: false, error: `Unknown source type "${type}"` };

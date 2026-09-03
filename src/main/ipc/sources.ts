@@ -25,7 +25,7 @@ export function registerSourceIpc(
     }
   });
 
-  ipcMain.handle('add-source', async (_e, { type, baseUrl, username, password, metadata }) => {
+  ipcMain.handle('add-source', async (_e, { type, baseUrl, username, password, token, metadata }) => {
     if (!baseUrl || typeof baseUrl !== 'string') {
       return { success: false, error: 'Server address is required' };
     }
@@ -34,6 +34,7 @@ export function registerSourceIpc(
       baseUrl: url,
       username,
       password,
+      token,
       // Chosen before the first sync, which is the one that would otherwise
       // read every file on the share.
       config: metadata ? { metadata } : undefined,

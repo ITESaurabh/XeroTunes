@@ -77,6 +77,8 @@ export interface ConnectInput {
   baseUrl: string;
   username?: string;
   password?: string;
+  /** For a server whose credential is a token rather than an account. */
+  token?: string;
   /** Merged into the stored credentials' config; carries the metadata mode. */
   config?: Record<string, unknown>;
 }
@@ -163,6 +165,19 @@ export interface SourceProvider {
    * library on the server; only those offer the user a MetadataMode.
    */
   readonly readsFileTags?: boolean;
+
+  /**
+   * True where the server takes a token rather than an account of its own, so
+   * the add dialog offers a token field alongside the username and password.
+   */
+  readonly tokenAuth?: boolean;
+
+  /**
+   * True where connect() cannot succeed without a username and password. False
+   * for a server with no auth at all (UPnP) or where anonymous is normal
+   * (WebDAV).
+   */
+  readonly needsAccount?: boolean;
 
   /** How this source's config answers the question; only a readsFileTags provider has one. */
   metadataMode?(_credentials: SourceCredentials): MetadataMode;

@@ -31,6 +31,7 @@ import networkIcon from '@iconify/icons-fluent/globe-24-regular';
 import addFolderIcon from '@iconify/icons-fluent/folder-add-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
 import downloadIcon from '@iconify/icons-fluent/arrow-download-24-regular';
+import helpIcon from '@iconify/icons-fluent/question-circle-24-regular';
 import AppDialog from './AppDialog';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
@@ -54,6 +55,12 @@ interface Provider {
   discoverable: boolean;
   /** Its metadata comes from the files, so it offers the choice below. */
   fileTags: boolean;
+  /** It takes a token, so the form offers one alongside the sign-in fields. */
+  tokenAuth: boolean;
+  /** The server's own docs for what to type here. Absent hides the Guide button. */
+  guide?: string;
+  /** It cannot connect without a username and password, so the form marks them. */
+  needsAccount: boolean;
 }
 
 interface Discovered {
@@ -91,7 +98,14 @@ const METADATA_MODES = [
  * What to type in the address field, where a server type wants something other
  * than a plain `host:port`.
  */
-const ADDRESS_HINT: Record<string, { placeholder: string; helper?: string }> = {
+const ADDRESS_HINT: Record<
+  string,
+  {
+    placeholder: string;
+    helper?: string;
+    /** Sits under Password, where the choice is made. */ signIn?: string;
+  }
+> = {
   nextcloud: {
     placeholder: 'https://cloud.example.com',
     helper:
@@ -100,6 +114,11 @@ const ADDRESS_HINT: Record<string, { placeholder: string; helper?: string }> = {
   subsonic: {
     placeholder: 'http://localhost:4533',
     helper: 'Navidrome, Airsonic, Gonic and friends. The same sign-in as the server’s own web app.',
+  },
+  plex: {
+    placeholder: 'http://localhost:32400',
+    helper: 'The address of your own server.',
+    signIn: 'These go to plex.tv, not to the address above.',
   },
   webdav: { placeholder: 'http://192.168.1.10:8081/music' },
 };
@@ -143,7 +162,7 @@ function lastSyncLabel(at: number | null): string {
 }
 
 export default function MusicSourcesSection() {
-  const { invokeEventToMainProcess } = useIpc();
+  const { invokeEventToMainProcess, sendEventToMainProcess } = useIpc();
   const confirm = useConfirm();
 
   const { state } = useContext(store);
@@ -167,6 +186,7 @@ export default function MusicSourcesSection() {
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
   const [metadata, setMetadata] = useState<string>('eager');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,6 +233,7 @@ export default function MusicSourcesSection() {
     setBaseUrl('');
     setUsername('');
     setPassword('');
+    setToken('');
     setMetadata('eager');
     setDiscovered(null);
     setAddOpen(true);
@@ -267,6 +288,7 @@ export default function MusicSourcesSection() {
       baseUrl,
       username,
       password,
+      token,
       metadata,
     })) as { success: boolean; error?: string };
     setBusy(false);
@@ -585,11 +607,21 @@ export default function MusicSourcesSection() {
             <Button onClick={closeDialog}>Cancel</Button>
           ) : (
             <>
+              {chosen?.guide && (
+                <Button
+                  sx={{ mr: 'auto', px: 1 }}
+                  size="small"
+                  startIcon={<Icon icon={helpIcon} width="1.2rem" />}
+                  onClick={() => sendEventToMainProcess('open-external', { url: chosen.guide })}
+                >
+                  Guide
+                </Button>
+              )}
               <Button onClick={() => setAddingType('')}>Back</Button>
               <Button
                 variant="contained"
                 disableElevation
-                disabled={!baseUrl || busy}
+                disabled={!baseUrl || busy || (chosen?.needsAccount && (!username || !password))}
                 onClick={handleConnect}
               >
                 {busy ? 'Connecting…' : 'Connect'}
@@ -636,6 +668,7 @@ export default function MusicSourcesSection() {
           <Stack spacing={2}>
             {error && <Alert severity="error">{error}</Alert>}
             <TextField
+              required
               label="Server address"
               placeholder={ADDRESS_HINT[addingType]?.placeholder ?? 'http://192.168.1.10:8096'}
               helperText={ADDRESS_HINT[addingType]?.helper}
@@ -686,17 +719,39 @@ export default function MusicSourcesSection() {
                 )}
               </Box>
             )}
+            {chosen?.tokenAuth && (
+              <>
+                <TextField
+                  label="Token"
+                  value={token}
+                  onChange={e => setToken(e.target.value)}
+                  helperText={"Plex shows it in the URL of any item's Get Info, View XML."}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && baseUrl && !busy) void handleConnect();
+                  }}
+                  fullWidth
+                />
+                <Divider sx={{ '&::before, &::after': { borderColor: 'divider' } }}>
+                  <Typography variant="caption" color="text.secondary">
+                    or sign in
+                  </Typography>
+                </Divider>
+              </>
+            )}
             <TextField
-              label="Username"
+              required={chosen?.needsAccount}
+              label="Email / Username"
               value={username}
               onChange={e => setUsername(e.target.value)}
               fullWidth
             />
             <TextField
+              required={chosen?.needsAccount}
               label="Password"
               type="password"
               value={password}
               onChange={e => setPassword(e.target.value)}
+              helperText={ADDRESS_HINT[addingType]?.signIn}
               onKeyDown={e => {
                 if (e.key === 'Enter' && baseUrl && !busy) void handleConnect();
               }}

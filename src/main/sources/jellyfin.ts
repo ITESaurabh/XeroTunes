@@ -574,6 +574,7 @@ export function providerFor(flavour: Flavour): SourceProvider {
     type: flavour.type,
     label: flavour.label,
     scheme: flavour.scheme,
+    needsAccount: true,
 
     async connect(input: ConnectInput): Promise<ConnectResult> {
       const baseUrl = await resolveBaseUrl(input.baseUrl);

@@ -1,6 +1,7 @@
 import type { SourceProvider } from './types';
 import { embyProvider } from './emby';
 import { jellyfinProvider } from './jellyfin';
+import { plexProvider } from './plex';
 import { nextcloudProvider, subsonicProvider } from './subsonic';
 import { upnpProvider } from './upnp';
 import { webdavProvider } from './webdav';
@@ -13,6 +14,7 @@ const PROVIDERS: SourceProvider[] = [
   embyProvider,
   jellyfinProvider,
   nextcloudProvider,
+  plexProvider,
   subsonicProvider,
   upnpProvider,
   webdavProvider,
@@ -37,6 +39,16 @@ export interface ProviderInfo {
   discoverable: boolean;
   /** Its metadata comes from the files, so it offers a MetadataMode. */
   fileTags: boolean;
+  /** It takes a token, so its form offers one alongside the sign-in fields. */
+  tokenAuth: boolean;
+  /** It cannot connect without a username and password, so the form marks them. */
+  needsAccount: boolean;
+  /**
+   * The server's own documentation for what to type in the form. Upstream
+   * rather than a page of ours, so it stays right unmaintained. Absent hides
+   * the Guide button.
+   */
+  guide?: string;
 }
 
 /**
@@ -49,7 +61,10 @@ export interface ProviderInfo {
  * client to stream or download the audio, so they aren't "coming soon", they
  * are not possible.
  */
-const CATALOGUE: Omit<ProviderInfo, 'available' | 'discoverable' | 'fileTags'>[] = [
+const CATALOGUE: Omit<
+  ProviderInfo,
+  'available' | 'discoverable' | 'fileTags' | 'tokenAuth' | 'needsAccount'
+>[] = [
   {
     type: 'jellyfin',
     label: 'Jellyfin',
@@ -67,6 +82,7 @@ const CATALOGUE: Omit<ProviderInfo, 'available' | 'discoverable' | 'fileTags'>[]
     label: 'Plex',
     blurb: 'A popular propritary Media server',
     accent: '#E5A00D',
+    guide: 'https://support.plex.tv/articles/204059436-finding-an-authentication-token-x-plex-token/',
   },
   {
     type: 'subsonic',
@@ -105,6 +121,8 @@ export function listProviders(): ProviderInfo[] {
     available: BY_TYPE.has(entry.type),
     discoverable: !!BY_TYPE.get(entry.type)?.discover,
     fileTags: !!BY_TYPE.get(entry.type)?.readsFileTags,
+    tokenAuth: !!BY_TYPE.get(entry.type)?.tokenAuth,
+    needsAccount: !!BY_TYPE.get(entry.type)?.needsAccount,
   }));
 }
 
