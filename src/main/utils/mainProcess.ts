@@ -792,6 +792,14 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       rejectPromise = rej;
     });
 
+    // Clears the slot only if this worker still owns it: a later scan may have taken it by the time a stale event lands.
+    const worker = activeScanWorker;
+    const clearWorker = () => {
+      if (activeScanWorker !== worker) return;
+      activeScanWorker = null;
+      activeScanMode = null;
+    };
+
     activeScanWorker.on('message', rawMsg => {
       const msg = rawMsg as {
         type?: string;
@@ -815,16 +823,22 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         if (scanned > 0 || removed > 0 || restored > 0) {
           sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
+        // Freed here rather than only on 'exit': the worker is done, and a
+        // missed exit would leave every later scan refused as still running.
+        clearWorker();
         resolvePromise({ success: true, scanned, removed });
       } else {
+        clearWorker();
         rejectPromise(msg.error);
       }
     });
-    activeScanWorker.on('error', err => rejectPromise(err));
+    activeScanWorker.on('error', err => {
+      clearWorker();
+      rejectPromise(err);
+    });
     activeScanWorker.on('exit', (code: number) => {
       console.log(`[${mode}-scan] Worker exited with code ${code}`);
-      activeScanWorker = null;
-      activeScanMode = null;
+      clearWorker();
       if (emitLifecycle) sendMessageToRendererProcess(mainWin, 'scan-end', null);
       if (code !== 0) rejectPromise('Worker exited with code ' + code);
     });
@@ -3163,6 +3177,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         if (scanned > 0 || removed > 0 || restored > 0) {
           sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
         }
+        activeScanWorker = null;
+        activeScanMode = null;
       }
     });
     activeScanWorker.on('exit', (code: number) => {
