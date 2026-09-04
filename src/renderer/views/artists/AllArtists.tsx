@@ -61,7 +61,6 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        cursor: 'pointer',
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',

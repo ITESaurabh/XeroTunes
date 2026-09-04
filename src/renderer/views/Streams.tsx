@@ -198,7 +198,6 @@ const Streams: React.FC = () => {
                     onClick={() => navigate(`/main_window/streams/${stream.Id}`)}
                     sx={{
                       ...gridCardSx,
-                      cursor: 'pointer',
                       borderRadius: 1,
                       overflow: 'hidden',
                       ...(isCurrent && { borderColor: 'primary.main' }),

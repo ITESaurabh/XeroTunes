@@ -317,7 +317,7 @@ const PlaylistDetail: React.FC = () => {
                       <DragIndicatorIcon fontSize="small" />
                     </Box>
                     <Box
-                      sx={{ flex: 1, minWidth: 0, py: 0.5, cursor: 'pointer' }}
+                      sx={{ flex: 1, minWidth: 0, py: 0.5 }}
                       onClick={e => {
                         if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
                         handlePlay(index);

@@ -112,7 +112,6 @@ const FolderCard: React.FC<FolderCardProps> = React.memo(
         gap: 1,
         p: 2,
         borderRadius: 2,
-        cursor: 'pointer',
         ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',

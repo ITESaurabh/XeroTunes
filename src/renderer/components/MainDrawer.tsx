@@ -180,10 +180,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
   const { isScanningLibrary, isSyncing, scanMode, scanProgress, libraryStats, isMenuExpanded } =
     state;
-  // A full rescan tears the library down and rebuilds it, so navigating into a
-  // list mid-scan shows half-built data. Other modes leave rows in place.
-  // A sync runs on the main process, not the worker, so it lags navigation too.
-  const isFullScan = scanMode === 'full' || isSyncing;
+  const libraryBusy = (isScanningLibrary && scanMode !== 'quick') || isSyncing;
 
   // The counts restart at each server, so the label says which one this is.
   const scanLabel = (() => {
@@ -248,7 +245,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             stat={item.statKey && libraryStats ? libraryStats[item.statKey] : undefined}
             showStat={isMenuExpanded}
             menuExpanded={isMenuExpanded}
-            disabled={isFullScan}
+            disabled={libraryBusy}
           />
         ))}
       </List>
@@ -345,7 +342,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             iconActive: settingsActiveIcon,
           }}
           menuExpanded={isMenuExpanded}
-          disabled={isFullScan}
+          disabled={libraryBusy}
         />
       </List>
     </Box>

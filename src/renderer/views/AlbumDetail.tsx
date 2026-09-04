@@ -413,7 +413,6 @@ const AlbumDetail: React.FC = () => {
                       navigate(`/main_window/years/${encodeURIComponent(String(releaseYear))}`)
                     }
                     sx={{
-                      cursor: 'pointer',
                       '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                     }}
                   >

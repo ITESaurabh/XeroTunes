@@ -8,7 +8,7 @@ export const ORG_NAME = 'ITE-Dojo';
 export const ORG_SITE = 'https://github.com/ITE-Dojo';
 export const REPO_URL = 'https://github.com/ITESaurabh/XeroTunes';
 export const SESSION_TIME = 30; // In Days
-export type ScanMode = 'basic' | 'full' | 'artists' | 'files' | 'sync';
+export type ScanMode = 'basic' | 'full' | 'artists' | 'files' | 'sync' | 'quick';
 
 // Containers the tag editor can write back to. node-taglib-sharp has no
 // Matroska writer, so .webm from the scanner's list is deliberately absent and

@@ -55,7 +55,6 @@ const ColorField = React.memo<ColorFieldProps>(({ label, ariaLabel, value, onCom
           flexShrink: 0,
           border: 'none',
           bgcolor: 'transparent',
-          cursor: 'pointer',
         }}
       />
       <Typography variant="body2" sx={{ flex: 1 }}>

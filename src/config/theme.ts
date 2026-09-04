@@ -325,6 +325,36 @@ export const getBaseTheme = (mode: PaletteMode, theme: AppTheme = AMETHYST) => {
       borderRadius: radius,
     },
     components: {
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            cursor: 'default',
+          },
+        },
+      },
+      MuiChip: {
+        styleOverrides: {
+          root: {
+            '&.MuiChip-clickable': {
+              cursor: 'default',
+            },
+          },
+        },
+      },
+      MuiSlider: {
+        styleOverrides: {
+          root: {
+            cursor: 'default',
+          },
+        },
+      },
+      MuiLink: {
+        styleOverrides: {
+          root: {
+            cursor: 'default',
+          },
+        },
+      },
       MuiButton: {
         defaultProps: {
           disableElevation: true,
@@ -343,6 +373,12 @@ export const getBaseTheme = (mode: PaletteMode, theme: AppTheme = AMETHYST) => {
           },
           body: {
             height: '100%',
+            userSelect: 'none',
+            cursor: 'default',
+          },
+          'input, textarea, [contenteditable="true"]': {
+            userSelect: 'text',
+            cursor: 'text',
           },
           '#app': {
             height: '100%',

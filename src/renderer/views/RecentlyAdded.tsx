@@ -271,7 +271,6 @@ const RecentlyAdded: React.FC = () => {
                       navigate(navPath);
                     }}
                     sx={{
-                      cursor: 'pointer',
                       '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                     }}
                   >

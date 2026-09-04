@@ -149,7 +149,6 @@ export default function SelectionBar({
           onClick={onClear}
           sx={{
             color: 'primary.main',
-            cursor: 'pointer',
             '&:hover': { textDecoration: 'underline' },
           }}
         >

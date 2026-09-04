@@ -457,40 +457,50 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   overlayWin = createOverlayWin();
 
   // Set while the close prompt is up, so hammering the X can't stack dialogs.
-  let askingAboutSync = false;
+  let askingBeforeClose = false;
 
-  // A sync writes rows as it goes, so closing mid-way leaves a server half
-  // imported. The prompt is a system dialog because it has to outlive the window
-  // the user is closing.
+  // A sync or a scan writes rows as it goes, so closing mid-way leaves the
+  // library half built. The prompt is a system dialog because it has to outlive
+  // the window the user is closing.
   mainWin.on('close', event => {
-    if (isSyncing()) {
+    const busy = isSyncing() ? 'sync' : activeScanWorker ? 'scan' : null;
+    if (busy) {
       event.preventDefault();
-      if (askingAboutSync) return;
-      askingAboutSync = true;
+      if (askingBeforeClose) return;
+      askingBeforeClose = true;
       void dialog
         .showMessageBox(mainWin, {
           type: 'warning',
-          buttons: ['Keep Syncing', 'Cancel Sync and Close'],
+          buttons:
+            busy === 'sync'
+              ? ['Keep Syncing', 'Cancel Sync and Close']
+              : ['Keep Scanning', 'Stop Scan and Close'],
           defaultId: 0,
           cancelId: 0,
-          title: 'Sync in progress',
-          message: 'A library sync is still running.',
+          title: busy === 'sync' ? 'Sync in progress' : 'Scan in progress',
+          message:
+            busy === 'sync'
+              ? 'A library sync is still running.'
+              : 'A library scan is still running.',
           detail:
-            'Closing now would leave the server half imported. Tracks already imported are kept either way.',
+            busy === 'sync'
+              ? 'Closing now would leave the server half imported. Tracks already imported are kept either way.'
+              : 'Closing now would leave the library half scanned. Tracks already added are kept either way.',
         })
         .then(({ response }) => {
-          askingAboutSync = false;
+          askingBeforeClose = false;
           if (response !== 1) return;
-          cancelSync();
-          // The sync stops at its next track, not instantly; wait it out.
+          if (busy === 'sync') cancelSync();
+          else activeScanWorker?.kill();
+          // Neither stops instantly; wait it out.
           const closeWhenIdle = setInterval(() => {
-            if (isSyncing()) return;
+            if (isSyncing() || activeScanWorker) return;
             clearInterval(closeWhenIdle);
             if (!mainWin.isDestroyed()) mainWin.close();
           }, 200);
         })
         .catch(() => {
-          askingAboutSync = false;
+          askingBeforeClose = false;
         });
       return;
     }
@@ -840,7 +850,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         : { success: false, error: 'Nothing to scan. Add a music folder or a server.' };
     }
 
-    sendMessageToRendererProcess(mainWin, 'scan-start', mode);
+    sendMessageToRendererProcess(mainWin, 'scan-start', localOnly ? 'quick' : mode);
     try {
       const local = hasFolders
         ? ((await spawnScanWorker(mode, undefined, false)) as {
@@ -2389,7 +2399,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       try {
         const fmt = ['m3u', 'm3u8', 'pls', 'xspf'].includes(format) ? format : 'm3u8';
         const playlist = db.prepare('SELECT Name FROM Playlist WHERE Id = ?').get(playlistId) as
-          { Name: string } | undefined;
+          | { Name: string }
+          | undefined;
         if (!playlist) return { success: false, error: 'Playlist not found' };
         const rows = db
           .prepare(
@@ -2498,7 +2509,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   /** Removes a cover this app owns; a path from anywhere else is left alone. */
   function discardStreamCover(streamId: number): void {
     const row = db.prepare('SELECT CoverUri FROM Stream WHERE Id = ?').get(streamId) as
-      { CoverUri: string | null } | undefined;
+      | { CoverUri: string | null }
+      | undefined;
     const current = row?.CoverUri;
     if (!current || path.dirname(current) !== STREAM_ART_DIR) return;
     try {

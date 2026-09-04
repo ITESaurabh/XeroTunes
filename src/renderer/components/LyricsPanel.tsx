@@ -46,7 +46,6 @@ const SyncedLineBox = styled(Box, {
   paddingBottom: 5,
   paddingLeft: theme.spacing(3),
   paddingRight: theme.spacing(3),
-  cursor: 'pointer',
   userSelect: 'none',
   fontSize: active ? '1.35rem' : '1rem',
   fontWeight: active ? 700 : 400,
@@ -95,7 +94,6 @@ const OffsetValue = styled(Typography)({
   opacity: 0.8,
   minWidth: 56,
   textAlign: 'center',
-  cursor: 'pointer',
   userSelect: 'none',
 });
 

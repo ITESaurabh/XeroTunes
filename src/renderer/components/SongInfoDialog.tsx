@@ -314,7 +314,6 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
                   variant="body2"
                   sx={{
                     textDecoration: isRemote ? 'none' : 'underline',
-                    cursor: isRemote ? 'default' : 'pointer',
                     wordBreak: 'break-all',
                     opacity: 0.85,
                   }}

@@ -240,7 +240,6 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style }) => {
     justifyContent: 'center',
     flexShrink: 0,
     transition: 'filter 0.1s',
-    cursor: 'default',
     '&:hover': { filter: hoverFilter },
   });
 
@@ -251,7 +250,6 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style }) => {
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
-    cursor: 'default',
     transition: 'background-color 0.1s ease-in-out',
     '&:hover': { bgcolor: hoverBg },
   });
@@ -352,7 +350,6 @@ const TitlebarPreview: React.FC<TitlebarPreviewProps> = ({ style }) => {
                   alignItems: 'center',
                   justifyContent: 'center',
                   flexShrink: 0,
-                  cursor: 'default',
                   transition: 'background-color 0.1s ease-in-out',
                   '&:hover':
                     i === 2
@@ -431,7 +428,7 @@ const TitlebarStyleCard: React.FC<TitlebarStyleCardProps> = ({
         border: '2px solid',
         borderColor: selected ? 'primary.main' : theme => alpha(theme.palette.text.primary, 0.08),
         overflow: 'hidden',
-        cursor: disabled ? 'not-allowed' : 'pointer',
+        cursor: disabled ? 'not-allowed' : 'default',
         opacity: disabled ? 0.38 : 1,
         transition: 'border-color 0.15s ease, box-shadow 0.15s ease',
         position: 'relative',

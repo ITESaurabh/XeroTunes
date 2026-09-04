@@ -66,7 +66,6 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        cursor: 'pointer',
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',

@@ -58,10 +58,10 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
       onClose={onClose}
       fullScreen={isPhone}
       maxWidth={false}
-      // fullWidth
       scroll="paper"
       sx={{ mt: 4, zIndex: (theme: Theme) => theme.zIndex.drawer + 1 }}
       PaperProps={{
+        onClick: onClose,
         sx: {
           flex: 1,
           m: 0,
@@ -91,6 +91,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           component="img"
           src={imageSrc}
           alt={imageAlt}
+          onClick={e => e.stopPropagation()}
           onContextMenu={handleContextMenu}
           onLoad={event => {
             const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -99,12 +100,11 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
             }
           }}
           sx={{
+            alignSelf: 'center',
             width: 'auto',
             height: 'auto',
             maxWidth: '100%',
-            aspectRatio: '1/1',
             maxHeight: { xs: '50vh', md: '78vh' },
-            objectFit: 'contain',
             display: 'block',
           }}
         />

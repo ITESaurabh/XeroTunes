@@ -177,7 +177,6 @@ const TitleText = styled(Typography, {
   whiteSpace: 'nowrap',
   fontSize: '1.25rem',
   lineHeight: 1.5,
-  cursor: navigable ? 'pointer' : 'default',
   '&:hover': navigable
     ? { textDecoration: 'underline', color: theme.palette.secondary.main }
     : undefined,
@@ -191,7 +190,6 @@ const ArtistsText = styled(Typography)({
 });
 
 const ArtistName = styled(Box)(({ theme }) => ({
-  cursor: 'pointer',
   '&:hover': {
     opacity: 0.8,
     textDecoration: 'underline',
@@ -201,7 +199,6 @@ const ArtistName = styled(Box)(({ theme }) => ({
 
 const AlbumText = styled(Typography)(({ theme }) => ({
   color: theme.palette.primary.main,
-  cursor: 'pointer',
   '&:hover': { textDecoration: 'underline' },
   whiteSpace: 'nowrap',
 }));

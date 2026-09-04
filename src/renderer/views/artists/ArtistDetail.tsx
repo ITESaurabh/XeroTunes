@@ -587,7 +587,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           height: 150,
                           borderRadius: 0.5,
                           objectFit: 'cover',
-                          cursor: 'pointer',
                           transition: 'filter 0.15s, transform 0.15s, box-shadow 0.15s',
                           '&:hover': {
                             filter: 'brightness(1.12)',
@@ -607,7 +606,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                           sx={{
                             fontWeight: 700,
                             color: 'text.primary',
-                            cursor: 'pointer',
                             '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                           }}
                         >
@@ -623,7 +621,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                                 )
                               }
                               sx={{
-                                cursor: 'pointer',
                                 '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                               }}
                             >

@@ -22,7 +22,6 @@ const TrackContainer = styled(Box, {
 })<{ isLive?: boolean }>(({ isLive }) => ({
   position: 'relative',
   height: 20,
-  cursor: isLive ? 'default' : 'pointer',
   display: 'flex',
   alignItems: 'center',
   touchAction: 'none',

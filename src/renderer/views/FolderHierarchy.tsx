@@ -136,7 +136,6 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         gap: 1,
         p: 2,
         borderRadius: 2,
-        cursor: 'pointer',
         ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',
@@ -444,7 +443,6 @@ const FolderHierarchy: React.FC = () => {
               component="span"
               onClick={() => navigateTo(null)}
               sx={{
-                cursor: 'pointer',
                 color: 'text.secondary',
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
@@ -467,7 +465,6 @@ const FolderHierarchy: React.FC = () => {
                     if (!isLast && seg.path) prefetchChildren(seg.path);
                   }}
                   sx={{
-                    cursor: isLast ? 'default' : 'pointer',
                     color: isLast ? 'text.primary' : 'text.secondary',
                     fontWeight: isLast ? 600 : 500,
                     whiteSpace: 'nowrap',
@@ -716,7 +713,6 @@ const FolderHierarchy: React.FC = () => {
                                     sx={{
                                       flexShrink: 0,
                                       color: 'text.secondary',
-                                      cursor: song.AlbumId != null ? 'pointer' : 'default',
                                       '&:hover':
                                         song.AlbumId != null
                                           ? { textDecoration: 'underline', color: 'primary.main' }
