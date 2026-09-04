@@ -340,6 +340,8 @@ export function setStreamHistoryDays(days: number): void {
   updateSettings({ streamHistoryDays: days });
 }
 
+export const WINDOW_SCALE_EVENT = 'xt-window-scale';
+
 export function getWindowScale(): number {
   return clampWindowScale(getSettings().windowScale);
 }
@@ -350,6 +352,9 @@ export function setWindowScale(scale: number): number {
   ipcRenderer
     .invoke('set-window-scale', { scale: safe })
     .catch((err: unknown) => console.warn('Failed to apply window scale:', err));
+  // The View menu changes the scale too, so views showing it cannot just read
+  // it once on mount.
+  window.dispatchEvent(new CustomEvent(WINDOW_SCALE_EVENT, { detail: safe }));
   return safe;
 }
 

@@ -63,6 +63,7 @@ import { motion } from 'motion/react';
 import {
   getOverlayEnabled,
   setOverlayEnabled,
+  WINDOW_SCALE_EVENT,
   getArtistImageFetchingEnabled,
   getStreamHistoryDays,
   setStreamHistoryDays,
@@ -99,7 +100,7 @@ import DuplicateTracksDialog from '../components/DuplicateTracksDialog';
 import XeroLogoMark from '../components/XeroLogoMark';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
-import { APP_DISPLAY_NAME, OS_MAC } from '../../config/constants';
+import { APP_DISPLAY_NAME, OS_MAC, SITE_URL } from '../../config/constants';
 import type {
   ScrobblerStatus,
   ScrobbleProvider,
@@ -950,6 +951,16 @@ const Settings: React.FC = () => {
       .catch((err: unknown) => setThemeMessage({ text: String(err), error: true }));
   };
 
+  // The View menu changes the scale too, so follow it instead of only reading
+  // the stored value on mount.
+  React.useEffect(() => {
+    const onScale = (event: Event): void => {
+      setWindowScaleState((event as CustomEvent).detail as number);
+    };
+    window.addEventListener(WINDOW_SCALE_EVENT, onScale);
+    return () => window.removeEventListener(WINDOW_SCALE_EVENT, onScale);
+  }, []);
+
   const handleSeparatorsChange = (next: string[]): void => {
     setArtistSeparatorsState(next);
     setMultiArtistSeparators(next);
@@ -1750,7 +1761,7 @@ const Settings: React.FC = () => {
                       variant="outlined"
                       onClick={() =>
                         appInfo?.repo &&
-                        sendEventToMainProcess('open-external', { url: 'https://xerotunes.com' })
+                        sendEventToMainProcess('open-external', { url: SITE_URL })
                       }
                     >
                       Website

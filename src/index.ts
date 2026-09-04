@@ -1,11 +1,12 @@
 import './config/appIdentity';
-import { app, BrowserWindow, ipcMain, screen, nativeTheme, Menu } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, nativeTheme } from 'electron';
 import minimist from 'minimist';
 import { IDENTITY } from './config/channel';
 import { execSync, execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import mainIpcs, { registerSettingsIpc } from './main/utils/mainProcess';
+import { installAppMenu } from './main/utils/appMenu';
 import { OS_WINDOWS } from './config/constants';
 import os from 'os';
 const currOS = os.type();
@@ -162,7 +163,6 @@ const isDarkMode = nativeTheme.shouldUseDarkColors;
 let mainWin: BrowserWindow | null = null;
 let miniWin: BrowserWindow | null = null;
 let loadingWin: BrowserWindow | null = null;
-Menu.setApplicationMenu(null);
 
 const parsedArgs = minimist(process.argv.slice(1), {
   boolean: ['help', 'version'],
@@ -358,7 +358,11 @@ function createWindow() {
   });
 }
 
-app.on('ready', createWindow);
+app.on('ready', () => {
+  // A getter, not a window: the menu is up before the first window exists.
+  installAppMenu(() => mainWin);
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

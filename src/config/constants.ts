@@ -7,6 +7,8 @@ export const APP_DISPLAY_NAME = IDENTITY.productName;
 export const ORG_NAME = 'ITE-Dojo';
 export const ORG_SITE = 'https://github.com/ITE-Dojo';
 export const REPO_URL = 'https://github.com/ITESaurabh/XeroTunes';
+export const SITE_URL = 'https://xerotunes.com';
+export const DISCORD_URL = 'https://discord.gg/DaKyJ3q9rF';
 export const SESSION_TIME = 30; // In Days
 export type ScanMode = 'basic' | 'full' | 'artists' | 'files' | 'sync' | 'quick';
 

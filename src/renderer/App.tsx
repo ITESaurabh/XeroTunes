@@ -15,6 +15,7 @@ import Titlebar from './components/Titlebar';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
+import { useMenuCommands } from './utils/useMenuCommands';
 import { APP_DISPLAY_NAME } from '../config/constants';
 
 const queryClient = new QueryClient({
@@ -138,6 +139,8 @@ const App = () => {
       ? `${state.queueIndex + 1}. ${title}${artist ? ` - ${artist}` : ''} - ${APP_DISPLAY_NAME}`
       : APP_DISPLAY_NAME;
   }, [state.track, state.queueIndex]);
+
+  useMenuCommands();
 
   // Register keyboard shortcuts
   useKeyboardShortcuts(
