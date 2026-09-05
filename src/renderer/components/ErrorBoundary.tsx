@@ -40,7 +40,7 @@ function CrashScreen({ details, onRetry }: { details: string; onRetry: () => voi
       <Button size="medium" variant="contained" onClick={onRetry}>
         Try again
       </Button>
-      <Accordion variant="outlined" sx={{ width: '100%', maxWidth: 720, mt: 2, textAlign: 'left' }}>
+      <Accordion variant="outlined" sx={{ width: '100%', maxWidth: 920, mt: 2, textAlign: 'left' }}>
         <AccordionSummary
           expandIcon={<ExpandMoreIcon />}
           sx={{ '& .MuiAccordionSummary-content': { alignItems: 'center', gap: 1, mr: 1 } }}
