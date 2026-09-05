@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track, LibraryStats } from '../utils/store';
@@ -297,6 +298,14 @@ const RecentlyAdded: React.FC = () => {
       </div>
     );
   if (error) return <div>Error fetching recently added songs</div>;
+
+  if (!songs.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title="Recently Added" />
+        <Empty page="Recently Added" hint="Songs show up here as your library grows." />
+      </Box>
+    );
 
   return (
     <Grid

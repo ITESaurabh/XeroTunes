@@ -8,6 +8,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
@@ -189,11 +190,7 @@ const Genres: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {genres.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>
-              No genres found. Tracks in your library don&apos;t have genre tags.
-            </Typography>
-          </Box>
+          <Empty page="Genres" hint="Tracks in your library don't have genre tags." />
         ) : (
           <>
             <HeaderRow />

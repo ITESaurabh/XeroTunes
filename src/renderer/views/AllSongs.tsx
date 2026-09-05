@@ -19,6 +19,7 @@ import filterIcon from '@iconify/icons-fluent/filter-24-filled';
 import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import { Icon } from '@iconify/react';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -280,6 +281,14 @@ const AllSongs: React.FC = () => {
       </div>
     );
   if (error) return <div>Error fetching songs</div>;
+
+  if (!songs.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title="All Songs" />
+        <Empty page="All Songs" hint="Add a music folder in Settings, then scan your library." />
+      </Box>
+    );
 
   return (
     <Grid

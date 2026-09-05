@@ -18,6 +18,7 @@ import { useParams, useLocation, useNavigate } from 'react-router';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
+import Empty from '../../components/Empty';
 import { useIpc } from '../../state/ipc';
 import { store, Track } from '../../utils/store';
 import { QUERY_KEYS } from '../../constants/queryKeys';
@@ -535,7 +536,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
             In your library
           </Typography>
           {!hasSongs ? (
-            <Typography color="text.secondary">No tracks found for this artist.</Typography>
+            <Empty page={artist?.Name || 'Artist'} />
           ) : (
             <Box
               id="artist-albums"

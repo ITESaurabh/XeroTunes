@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
@@ -325,9 +326,7 @@ const Folders: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {folders.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>No folders with songs yet. Add a Music Folder in Settings.</Typography>
-          </Box>
+          <Empty page="Folders" hint="Add a Music Folder in Settings to get started." />
         ) : viewMode === 'grid' ? (
           <Box onScroll={handleGridScroll} sx={{ flex: 1, minHeight: 0, overflowY: 'auto', py: 2 }}>
             <Box

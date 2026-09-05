@@ -22,6 +22,7 @@ import arrowImportIcon from '@iconify/icons-fluent/arrow-import-24-regular';
 import playlistIcon from '@iconify/icons-fluent/navigation-play-20-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import AppDialog from '../components/AppDialog';
 import CardHoverAction from '../components/CardHoverAction';
 import { useIpc } from '../state/ipc';
@@ -335,9 +336,7 @@ const Playlists: React.FC = () => {
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 2, pb: 2 }}
       >
         {playlists.length === 0 ? (
-          <Typography sx={{ p: 4, opacity: 0.6 }}>
-            No playlists yet — create one, or import an M3U/M3U8/PLS/XSPF file.
-          </Typography>
+          <Empty page="Playlists" hint="Create one, or import an M3U/M3U8/PLS/XSPF file." />
         ) : (
           <Grid container spacing={2}>
             {playlists.map(playlist => (

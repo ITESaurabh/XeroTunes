@@ -20,6 +20,7 @@ import addIcon from '@iconify/icons-fluent/add-24-regular';
 import { motion, Reorder } from 'motion/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import AppDialog from '../components/AppDialog';
 import AddTracksDialog from '../components/AddTracksDialog';
 import ArtistCell from '../components/ArtistCell';
@@ -281,9 +282,7 @@ const PlaylistDetail: React.FC = () => {
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: 1 }}
       >
         {localTracks.length === 0 ? (
-          <Typography sx={{ p: 4, opacity: 0.6 }}>
-            This playlist is empty — add songs from your library.
-          </Typography>
+          <Empty page={playlist?.Name || 'Playlist'} hint="Add songs from your library." />
         ) : (
           <Reorder.Group
             axis="y"

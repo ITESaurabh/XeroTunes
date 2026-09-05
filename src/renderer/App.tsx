@@ -12,6 +12,7 @@ import routes from './utils/routes';
 import { getBaseTheme } from '../config/theme';
 import { ipcRenderer } from 'electron';
 import Titlebar from './components/Titlebar';
+import ErrorBoundary from './components/ErrorBoundary';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
@@ -34,6 +35,7 @@ const App = () => {
   const { state, dispatch } = useContext(store);
   const [systemIsDark, setSystemIsDark] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete());
+  const [crashed, setCrashed] = useState(false);
   const themeSettings = getThemeSettings();
 
   // console.log('Re Render Core');
@@ -157,12 +159,14 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Titlebar minimal={!onboardingComplete} />
-        {onboardingComplete ? (
-          element
-        ) : (
-          <Onboarding onFinish={() => setOnboardingComplete(true)} />
-        )}
+        <Titlebar minimal={!onboardingComplete || crashed} />
+        <ErrorBoundary scope="app" onErrorChange={setCrashed}>
+          {onboardingComplete ? (
+            element
+          ) : (
+            <Onboarding onFinish={() => setOnboardingComplete(true)} />
+          )}
+        </ErrorBoundary>
       </ThemeProvider>
     </QueryClientProvider>
   );

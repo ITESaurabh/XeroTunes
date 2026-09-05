@@ -23,6 +23,7 @@ import homeIcon from '@iconify/icons-fluent/home-24-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
 import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import ArtistCell from '../components/ArtistCell';
@@ -504,11 +505,10 @@ const FolderHierarchy: React.FC = () => {
         {!isLoading && !error && (
           <>
             {isAtRoot && subfolders.length === 0 && (
-              <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                <Typography>
-                  No music folders configured. Add a Music Folder in Settings to get started.
-                </Typography>
-              </Box>
+              <Empty
+                page="Folder Hierarchy"
+                hint="Add a Music Folder in Settings to get started."
+              />
             )}
 
             {subfolders.length > 0 && (
@@ -739,11 +739,7 @@ const FolderHierarchy: React.FC = () => {
               </Box>
             )}
 
-            {!isAtRoot && subfolders.length === 0 && songs.length === 0 && (
-              <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                <Typography>This folder is empty.</Typography>
-              </Box>
-            )}
+            {!isAtRoot && subfolders.length === 0 && songs.length === 0 && <Empty page="folder" />}
           </>
         )}
       </Box>

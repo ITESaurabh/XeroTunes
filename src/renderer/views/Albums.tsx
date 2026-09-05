@@ -6,6 +6,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
@@ -244,6 +245,14 @@ const Albums: React.FC = () => {
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <PageToolbar title="Albums" />
         <Typography sx={{ p: 3, color: 'error.main' }}>Error loading albums</Typography>
+      </Box>
+    );
+
+  if (!albums.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title="Albums" />
+        <Empty page="Albums" hint="Add a music folder in Settings, then scan your library." />
       </Box>
     );
 

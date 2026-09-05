@@ -6,6 +6,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
+import Empty from '../../components/Empty';
 import { useIpc } from '../../state/ipc';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { store } from '../../utils/store';
@@ -245,6 +246,17 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
         <PageToolbar title={showAlbumsOnly ? 'Album Artists' : 'Artists'} />
         <Typography sx={{ p: 3, color: 'error.main' }}>Error loading artists</Typography>
+      </Box>
+    );
+
+  if (!filtered.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title={showAlbumsOnly ? 'Album Artists' : 'Artists'} />
+        <Empty
+          page={showAlbumsOnly ? 'Album Artists' : 'Artists'}
+          hint="Add a music folder in Settings, then scan your library."
+        />
       </Box>
     );
 

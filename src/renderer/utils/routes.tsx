@@ -1,6 +1,7 @@
 import React, { lazy } from 'react';
 import Layout from '../components/Layout';
-import { Navigate } from 'react-router';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { Navigate, useLocation } from 'react-router';
 import { Box, CircularProgress } from '@mui/material';
 
 const AllSongs = lazy(() => import('../views/AllSongs'));
@@ -37,6 +38,16 @@ const BigLoader = () => {
   );
 };
 
+// Keyed on pathname so a crashed page does not outlive the route it belongs to.
+const Page = ({ children }: { children: React.ReactNode }) => {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary key={pathname} scope="page">
+      <React.Suspense fallback={<BigLoader />}>{children}</React.Suspense>
+    </ErrorBoundary>
+  );
+};
+
 const routes = [
   {
     path: '/main_window',
@@ -45,161 +56,161 @@ const routes = [
       {
         index: true,
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllSongs />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'favourites',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Favourites />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'playlists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Playlists />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'playlists/:playlistId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <PlaylistDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'streams',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Streams />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'streams/:streamId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <StreamDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'albums',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Albums />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'albums/:albumId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AlbumDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'artists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllArtists />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'artists/:artistId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <ArtistDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'album-artists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllArtists showAlbumsOnly />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'album-artists/:artistId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <ArtistDetail showAlbumArtist />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'folders',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Folders />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'folder-hierarchy',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <FolderHierarchy />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'genres',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Genres />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'genres/:genreId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <GenreDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'years',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Years />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'years/:year',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <YearDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'recently-added',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <RecentlyAdded />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'settings',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Settings />
-          </React.Suspense>
+          </Page>
         ),
       },
     ],

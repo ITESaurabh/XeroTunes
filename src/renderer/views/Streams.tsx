@@ -18,6 +18,7 @@ import addIcon from '@iconify/icons-fluent/add-24-regular';
 import arrowImportIcon from '@iconify/icons-fluent/arrow-import-24-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import AppDialog from '../components/AppDialog';
 import StreamActionsMenu from '../components/StreamActionsMenu';
 import CardHoverAction from '../components/CardHoverAction';
@@ -184,9 +185,10 @@ const Streams: React.FC = () => {
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', px: 2, pb: 2 }}
       >
         {streams.length === 0 ? (
-          <Typography sx={{ p: 4, opacity: 0.6 }}>
-            No streams yet. Add a station URL, or import an M3U/PLS file that points at one.
-          </Typography>
+          <Empty
+            page="Streams"
+            hint="Add a station URL, or import an M3U/PLS file that points at one."
+          />
         ) : (
           <Grid container spacing={2}>
             {streams.map((stream, index) => {

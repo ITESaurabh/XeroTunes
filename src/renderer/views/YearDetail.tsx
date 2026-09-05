@@ -19,6 +19,7 @@ import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import ArtistCell from '../components/ArtistCell';
+import Empty from '../components/Empty';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -296,9 +297,7 @@ const YearDetail: React.FC = () => {
         ) : error ? (
           <Typography sx={{ p: 3, color: 'error.main' }}>Error loading year songs</Typography>
         ) : songs.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>No songs for this year.</Typography>
-          </Box>
+          <Empty page={year || 'Year'} />
         ) : (
           <>
             <HeaderRow isPhone={isPhone} />

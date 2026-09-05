@@ -11,6 +11,7 @@ import playIcon from '@iconify/icons-fluent/play-24-filled';
 import bookmarkIcon from '@iconify/icons-fluent/bookmark-24-regular';
 import bookmarkFilledIcon from '@iconify/icons-fluent/bookmark-24-filled';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import StreamActionsMenu from '../components/StreamActionsMenu';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
@@ -249,9 +250,7 @@ const StreamDetail: React.FC = () => {
         </Stack>
 
         {tracks.length === 0 ? (
-          <Typography sx={{ p: 3, opacity: 0.6 }}>
-            Nothing yet. Songs appear here while the station is playing.
-          </Typography>
+          <Empty page={stream.Name} hint="Songs appear here while the station is playing." />
         ) : (
           <Box sx={{ flex: 1, minHeight: 0 }}>
             <AutoSizer>

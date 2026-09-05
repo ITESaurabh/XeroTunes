@@ -54,6 +54,7 @@ import warningIcon from '@iconify/icons-fluent/warning-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
 import colorIcon from '@iconify/icons-fluent/color-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
+import peekUpSmile from '../../assets/mascot/rei-peek-up-smile.png';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
 import GnomeResizeIcon from 'svg-react-loader?name=GnomeResizeIcon!../../assets/icons/gnome-resize.svg';
@@ -1734,93 +1735,112 @@ const Settings: React.FC = () => {
               </ListSubheader>
             }
           >
-            <Card
-              variant="outlined"
-              sx={{
-                py: 1,
-                mb: 1,
-              }}
-            >
-              <ListItem sx={{ alignItems: 'flex-start', gap: 2 }}>
-                <XeroLogoMark width={56} height={56} style={{ flexShrink: 0, marginTop: 4 }} />
-                <Stack spacing={0.5} sx={{ minWidth: 0 }}>
-                  <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
-                    {appInfo?.name ?? APP_DISPLAY_NAME}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Version {appInfo?.version ?? '—'}
-                    {appInfo?.channel === 'beta' && ' · Beta channel'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    An open source cross-platform music player, licensed{' '}
-                    {appInfo?.license ?? 'GPL-3.0'}.
-                  </Typography>
-                  <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() =>
-                        appInfo?.repo &&
-                        sendEventToMainProcess('open-external', { url: SITE_URL })
-                      }
-                    >
-                      Website
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      color="inherit"
-                      onClick={() =>
-                        appInfo?.repo &&
-                        sendEventToMainProcess('open-external', { url: appInfo.repo })
-                      }
-                    >
-                      GitHub
-                    </Button>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      color="info"
-                      onClick={() =>
-                        invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
-                          () => undefined
-                        )
-                      }
-                    >
-                      Data folder
-                    </Button>
-                  </Stack>
-                </Stack>
-              </ListItem>
-              <ListItem sx={{ pt: 0, mt: 1 }}>
-                <Stack sx={{ width: '100%' }}>
-                  <Divider sx={{ mb: 1 }} />
-                  {[
-                    ['Electron', appInfo?.electron],
-                    ['Chromium', appInfo?.chrome],
-                    ['Node', appInfo?.node],
-                    ['System', appInfo?.platform],
-                    ['Library data', appInfo?.dataDir],
-                  ].map(([label, value]) => (
-                    <Stack key={label} direction="row" spacing={2} sx={{ py: 0.25 }}>
-                      <Typography
-                        variant="caption"
-                        color="text.secondary"
-                        sx={{ width: 110, flexShrink: 0 }}
+            <Box sx={{ position: 'relative', mb: 1 }}>
+              <Box
+                component="img"
+                src={peekUpSmile}
+                alt=""
+                sx={{
+                  position: 'absolute',
+                  right: 40,
+                  bottom: '100%',
+                  mb: '-20px',
+                  transform: 'rotate(-3deg)',
+                  height: 97,
+                  zIndex: 2,
+                  pointerEvents: 'none',
+                  userSelect: 'none',
+                }}
+              />
+              <Card
+                variant="outlined"
+                sx={{
+                  py: 1,
+                  position: 'relative',
+                  zIndex: 3,
+                }}
+              >
+                <ListItem sx={{ alignItems: 'flex-start', gap: 2 }}>
+                  <XeroLogoMark width={56} height={56} style={{ flexShrink: 0, marginTop: 4 }} />
+                  <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+                    <Typography variant="h6" sx={{ lineHeight: 1.2 }}>
+                      {appInfo?.name ?? APP_DISPLAY_NAME}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Version {appInfo?.version ?? '—'}
+                      {appInfo?.channel === 'beta' && ' · Beta channel'}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      An open source cross-platform music player, licensed{' '}
+                      {appInfo?.license ?? 'GPL-3.0'}.
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() =>
+                          appInfo?.repo &&
+                          sendEventToMainProcess('open-external', { url: SITE_URL })
+                        }
                       >
-                        {label}
-                      </Typography>
-                      <Typography
-                        variant="caption"
-                        sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        Website
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="inherit"
+                        onClick={() =>
+                          appInfo?.repo &&
+                          sendEventToMainProcess('open-external', { url: appInfo.repo })
+                        }
                       >
-                        {value ?? '—'}
-                      </Typography>
+                        GitHub
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        color="info"
+                        onClick={() =>
+                          invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
+                            () => undefined
+                          )
+                        }
+                      >
+                        Data folder
+                      </Button>
                     </Stack>
-                  ))}
-                </Stack>
-              </ListItem>
-            </Card>
+                  </Stack>
+                </ListItem>
+                <ListItem sx={{ pt: 0, mt: 1 }}>
+                  <Stack sx={{ width: '100%' }}>
+                    <Divider sx={{ mb: 1 }} />
+                    {[
+                      ['Electron', appInfo?.electron],
+                      ['Chromium', appInfo?.chrome],
+                      ['Node', appInfo?.node],
+                      ['System', appInfo?.platform],
+                      ['Library data', appInfo?.dataDir],
+                    ].map(([label, value]) => (
+                      <Stack key={label} direction="row" spacing={2} sx={{ py: 0.25 }}>
+                        <Typography
+                          variant="caption"
+                          color="text.secondary"
+                          sx={{ width: 110, flexShrink: 0 }}
+                        >
+                          {label}
+                        </Typography>
+                        <Typography
+                          variant="caption"
+                          sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                        >
+                          {value ?? '—'}
+                        </Typography>
+                      </Stack>
+                    ))}
+                  </Stack>
+                </ListItem>
+              </Card>
+            </Box>
           </List>
         </Container>
       </Box>

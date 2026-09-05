@@ -19,6 +19,7 @@ import heartOff24Regular from '@iconify/icons-fluent/heart-off-24-regular';
 import arrowExport24Regular from '@iconify/icons-fluent/arrow-export-up-24-regular';
 import arrowImport24Regular from '@iconify/icons-fluent/arrow-import-24-regular';
 import AppDialog from '../components/AppDialog';
+import Empty from '../components/Empty';
 import PageToolbar from '../components/PageToolbar';
 import ArtistCell from '../components/ArtistCell';
 import { useIpc } from '../state/ipc';
@@ -376,9 +377,7 @@ const Favourites: React.FC = () => {
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {songs.length === 0 ? (
-          <Typography sx={{ p: 4, opacity: 0.6 }}>
-            No favourites yet — tap the heart on the album art while a song is playing.
-          </Typography>
+          <Empty page="Favourites" hint="Tap the heart on the album art while a song is playing." />
         ) : (
           <>
             <HeaderRow isPhone={isPhone} />
