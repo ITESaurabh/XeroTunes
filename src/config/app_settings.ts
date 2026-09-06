@@ -62,6 +62,8 @@ export interface ViewSettings {
   folderHierarchy: FolderViewSettings;
 }
 
+export type FolderViewKey = 'folders' | 'folderHierarchy';
+
 export interface AppSettings {
   theme: ThemeSettings;
   playback: PlaybackSettings;

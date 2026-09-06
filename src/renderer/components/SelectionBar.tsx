@@ -52,12 +52,18 @@ export function useTrackSelection(tracks: Track[]) {
     );
   }, [tracks]);
 
+  /** Whole-set replacement, for callers that report a model rather than a row. */
+  const replace = useCallback((ids: Set<string | number>) => {
+    setSelectedIds(new Set(ids));
+    anchor.current = null;
+  }, []);
+
   const selected = useMemo(
     () => tracks.filter(t => t.Id != null && selectedIds.has(t.Id)),
     [tracks, selectedIds]
   );
 
-  return { selectedIds, selected, toggleAt, toggleAll, clear };
+  return { selectedIds, selected, toggleAt, toggleAll, clear, replace };
 }
 
 export function toEditableTracks(tracks: Track[]) {

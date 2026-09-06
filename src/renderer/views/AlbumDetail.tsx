@@ -2,6 +2,8 @@ import React, { useContext, useEffect, useCallback, useState } from 'react';
 import {
   alpha,
   Box,
+  Checkbox,
+  Collapse,
   Typography,
   LinearProgress,
   ListItemButton,
@@ -28,6 +30,7 @@ import { Icon } from '@iconify/react';
 import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
 import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
 import DownloadMenuItem from '../components/DownloadMenuItem';
 import ArtistCell from '../components/ArtistCell';
 import { detailBannerBg, listRowSx } from '../styles/listSx';
@@ -90,9 +93,22 @@ const AlbumDetail: React.FC = () => {
     enabled: !!albumId,
   });
 
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(songs);
+  const [selectionEditor, setSelectionEditor] = useState<EditableTrack[] | null>(null);
+
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
   }, [dispatch]);
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   const handlePlayAll = useCallback(
     (startIndex = 0) => {
@@ -196,11 +212,12 @@ const AlbumDetail: React.FC = () => {
     ({ index, style }: ListChildComponentProps) => {
       const song = songs[index] as AlbumSong;
       const isActive = song.Id === state.track?.Id;
+      const isSelected = song.Id != null && selectedIds.has(song.Id);
 
       return (
         <ListItemButton
           style={style}
-          selected={isActive}
+          selected={isActive || isSelected}
           onClick={e => {
             if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
             handlePlayAll(index);
@@ -209,8 +226,24 @@ const AlbumDetail: React.FC = () => {
             e.preventDefault();
             setRowMenu({ top: e.clientY, left: e.clientX, song });
           }}
-          sx={{ gap: 2, px: 2, ...listRowSx(index) }}
+          sx={{ gap: 2, px: 2, ...listRowSx(index), '&:hover .rowCheck': { opacity: 1 } }}
         >
+          <Box
+            className="rowCheck"
+            data-nav-cell="true"
+            onClick={e => {
+              e.stopPropagation();
+              toggleAt(index, e.shiftKey);
+            }}
+            sx={{
+              display: 'flex',
+              flexShrink: 0,
+              opacity: selectedIds.size > 0 ? 1 : 0,
+              transition: 'opacity 120ms',
+            }}
+          >
+            <Checkbox size="small" checked={isSelected} tabIndex={-1} sx={{ p: 0.25 }} />
+          </Box>
           {isActive ? (
             <Box
               sx={{
@@ -266,7 +299,7 @@ const AlbumDetail: React.FC = () => {
         </ListItemButton>
       );
     },
-    [songs, state.track?.Id, state.isPlaying, isPhone, handlePlayAll]
+    [songs, state.track?.Id, state.isPlaying, isPhone, handlePlayAll, selectedIds, toggleAt]
   );
 
   return (
@@ -482,6 +515,17 @@ const AlbumDetail: React.FC = () => {
         />
       )}
 
+      <Collapse in={selected.length > 0} sx={{ flexShrink: 0, px: 1 }}>
+        <SelectionBar
+          selected={selected}
+          total={songs.length}
+          onToggleAll={toggleAll}
+          onClear={clear}
+          onPlay={handlePlaySelected}
+          onEditTags={() => setSelectionEditor(toEditableTracks(selected))}
+        />
+      </Collapse>
+
       {/* Track list */}
       <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>
         {isLoading ? (
@@ -507,6 +551,15 @@ const AlbumDetail: React.FC = () => {
           </AutoSizer>
         )}
       </Box>
+
+      {selectionEditor && (
+        <TagEditorDialog
+          open
+          onClose={() => setSelectionEditor(null)}
+          mode="track"
+          tracks={selectionEditor}
+        />
+      )}
     </Box>
   );
 };

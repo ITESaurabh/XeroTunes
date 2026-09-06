@@ -2,6 +2,8 @@ import React, { useContext, useEffect, useState, useCallback } from 'react';
 import {
   Box,
   Button,
+  Checkbox,
+  Collapse,
   IconButton,
   LinearProgress,
   Menu,
@@ -24,6 +26,8 @@ import Empty from '../components/Empty';
 import AppDialog from '../components/AppDialog';
 import AddTracksDialog from '../components/AddTracksDialog';
 import ArtistCell from '../components/ArtistCell';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
@@ -98,6 +102,19 @@ const PlaylistDetail: React.FC = () => {
   // only fires once per drag, not on every reorder tick.
   const [localTracks, setLocalTracks] = useState<PlaylistTrackRow[]>([]);
   useEffect(() => setLocalTracks(tracks), [tracks]);
+
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(localTracks);
+  const [editTracks, setEditTracks] = useState<EditableTrack[] | null>(null);
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   const refresh = useCallback(
     () =>
@@ -281,6 +298,16 @@ const PlaylistDetail: React.FC = () => {
         onScroll={e => scrollHide({ scrollTop: e.currentTarget.scrollTop })}
         sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: 1 }}
       >
+        <Collapse in={selected.length > 0} sx={{ flexShrink: 0 }}>
+          <SelectionBar
+            selected={selected}
+            total={localTracks.length}
+            onToggleAll={toggleAll}
+            onClear={clear}
+            onPlay={handlePlaySelected}
+            onEditTags={() => setEditTracks(toEditableTracks(selected))}
+          />
+        </Collapse>
         {localTracks.length === 0 ? (
           <Empty page={playlist?.Name || 'Playlist'} hint="Add songs from your library." />
         ) : (
@@ -293,6 +320,7 @@ const PlaylistDetail: React.FC = () => {
           >
             {localTracks.map((track, index) => {
               const isActive = track.Id === state.track?.Id;
+              const isSelected = track.Id != null && selectedIds.has(track.Id);
               return (
                 <Reorder.Item
                   key={track.PlaylistTrackId}
@@ -309,11 +337,28 @@ const PlaylistDetail: React.FC = () => {
                       px: 1,
                       minHeight: 48,
                       ...listRowSx(index),
-                      ...(isActive ? { bgcolor: 'surfaces.selection' } : {}),
+                      ...(isActive || isSelected ? { bgcolor: 'surfaces.selection' } : {}),
+                      '&:hover .rowCheck': { opacity: 1 },
                     }}
                   >
                     <Box sx={{ color: 'text.disabled', cursor: 'grab', display: 'flex' }}>
                       <DragIndicatorIcon fontSize="small" />
+                    </Box>
+                    <Box
+                      className="rowCheck"
+                      data-nav-cell="true"
+                      onClick={e => {
+                        e.stopPropagation();
+                        toggleAt(index, e.shiftKey);
+                      }}
+                      sx={{
+                        display: 'flex',
+                        flexShrink: 0,
+                        opacity: selectedIds.size > 0 ? 1 : 0,
+                        transition: 'opacity 120ms',
+                      }}
+                    >
+                      <Checkbox size="small" checked={isSelected} tabIndex={-1} sx={{ p: 0.25 }} />
                     </Box>
                     <Box
                       sx={{ flex: 1, minWidth: 0, py: 0.5 }}
@@ -373,6 +418,10 @@ const PlaylistDetail: React.FC = () => {
           </Reorder.Group>
         )}
       </Box>
+
+      {editTracks && (
+        <TagEditorDialog open onClose={() => setEditTracks(null)} mode="track" tracks={editTracks} />
+      )}
 
       <AddTracksDialog open={addOpen} onClose={() => setAddOpen(false)} onAdd={handleAddTracks} />
 

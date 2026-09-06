@@ -4,29 +4,25 @@ import {
   Box,
   Grid,
   LinearProgress,
-  Theme,
   Typography,
-  ListItemButton,
-  useMediaQuery,
 } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
 import PageToolbar from '../components/PageToolbar';
 import Empty from '../components/Empty';
+import LibraryTable, { TableColumn, useLibraryTable } from '../components/LibraryTable';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
 import { store } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { FixedSizeList, ListChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { GridSize, ViewMode } from '../../config/app_settings';
 import { getFolderViewSettings, setFolderViewSettings } from '../utils/LocStoreUtil';
-import { gridCardSx, listHeaderSx, listRowSx } from '../styles/listSx';
+import { gridCardSx } from '../styles/listSx';
 
 interface FolderRow {
   Path: string;
@@ -34,61 +30,52 @@ interface FolderRow {
   SongCount: number;
 }
 
-const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
-  ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
-    />
-  )
-);
-ScrollContainer.displayName = 'ScrollContainer';
-
-const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => (
-  <Box sx={listHeaderSx}>
-    <div
-      style={{
-        flex: isPhone ? 1 : 3,
-        padding: '8px 16px',
-        textAlign: 'left',
-        minWidth: 0,
-        overflow: 'hidden',
-      }}
-    >
-      Folder
-    </div>
-    {!isPhone && (
-      <div
-        style={{
-          flex: 5,
-          padding: '8px 16px',
-          textAlign: 'left',
-          minWidth: 0,
-          overflow: 'hidden',
-        }}
+const columns: TableColumn<FolderRow>[] = [
+  {
+    label: 'Folder',
+    key: 'Name',
+    align: 'left',
+    flex: 3,
+    gridWidth: 180,
+    render: folder => (
+      <>
+        <Box
+          component="span"
+          sx={{
+            color: 'surfaces.folder',
+            flexShrink: 0,
+            display: 'inline-flex',
+            mr: 1.25,
+            verticalAlign: 'middle',
+          }}
+        >
+          <Icon icon={folderIcon} height="1.25rem" />
+        </Box>
+        <Typography variant="body2" noWrap fontWeight={500} component="span">
+          {folder.Name}
+        </Typography>
+      </>
+    ),
+  },
+  {
+    label: 'Path',
+    key: 'Path',
+    align: 'left',
+    flex: 5,
+    gridWidth: 220,
+    hideOnPhone: true,
+    render: folder => (
+      <Typography
+        variant="body2"
+        noWrap
+        sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: 12 }}
       >
-        Path
-      </div>
-    )}
-    <div
-      style={{
-        flex: 1,
-        padding: '8px 16px',
-        paddingRight: 28,
-        textAlign: 'right',
-        minWidth: 0,
-        overflow: 'hidden',
-      }}
-    >
-      Songs
-    </div>
-  </Box>
-);
+        {folder.Path}
+      </Typography>
+    ),
+  },
+  { label: 'Songs', key: 'SongCount', align: 'right', flex: 1, gridWidth: 90, hideOnPhone: false },
+];
 
 interface FolderCardProps {
   folder: FolderRow;
@@ -138,7 +125,6 @@ const FolderCard: React.FC<FolderCardProps> = React.memo(
 FolderCard.displayName = 'FolderCard';
 
 const Folders: React.FC = () => {
-  const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
   const queryClient = useQueryClient();
@@ -207,80 +193,13 @@ const Folders: React.FC = () => {
     [queryClient, invokeEventToMainProcess]
   );
 
+  const { rows: sortedFolders, view } = useLibraryTable(folders, columns);
+
   const handleFolderClick = useCallback(
     (folder: FolderRow) => {
       navigate(`/main_window/folder-hierarchy?path=${encodeURIComponent(folder.Path)}`);
     },
     [navigate]
-  );
-
-  const Row = useCallback(
-    ({ index, style }: ListChildComponentProps) => {
-      const folder = folders[index];
-      return (
-        <ListItemButton
-          style={style}
-          onClick={() => handleFolderClick(folder)}
-          onMouseEnter={() => prefetchFolderChildren(folder.Path)}
-          onFocus={() => prefetchFolderChildren(folder.Path)}
-          sx={listRowSx(index)}
-        >
-          <Box
-            sx={{
-              flex: isPhone ? 1 : 3,
-              pl: 2,
-              pr: 2,
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.25,
-              overflow: 'hidden',
-            }}
-          >
-            <Box component="span" sx={{ color: 'surfaces.folder', flexShrink: 0, display: 'flex' }}>
-              <Icon icon={folderIcon} height="1.25rem" />
-            </Box>
-            <Typography variant="body2" noWrap fontWeight={500}>
-              {folder.Name}
-            </Typography>
-          </Box>
-          {!isPhone && (
-            <Box
-              sx={{
-                flex: 5,
-                pl: 2,
-                pr: 2,
-                minWidth: 0,
-                overflow: 'hidden',
-              }}
-            >
-              <Typography
-                variant="body2"
-                noWrap
-                sx={{ color: 'text.secondary', fontFamily: 'monospace', fontSize: 12 }}
-              >
-                {folder.Path}
-              </Typography>
-            </Box>
-          )}
-          <Box
-            sx={{
-              flex: 1,
-              pl: 2,
-              pr: 3.5,
-              minWidth: 0,
-              textAlign: 'right',
-              overflow: 'hidden',
-            }}
-          >
-            <Typography variant="body2" noWrap>
-              {folder.SongCount}
-            </Typography>
-          </Box>
-        </ListItemButton>
-      );
-    },
-    [folders, isPhone, handleFolderClick, prefetchFolderChildren]
   );
 
   const viewToggle = useMemo(
@@ -336,7 +255,7 @@ const Folders: React.FC = () => {
                 gap: GRID_GAP[gridSize],
               }}
             >
-              {folders.map(folder => (
+              {sortedFolders.map(folder => (
                 <FolderCard
                   key={folder.Path}
                   folder={folder}
@@ -349,25 +268,17 @@ const Folders: React.FC = () => {
           </Box>
         ) : (
           <>
-            <HeaderRow isPhone={isPhone} />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
-              <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
-                  <FixedSizeList
-                    height={height}
-                    overscanCount={50}
-                    itemCount={folders.length}
-                    itemSize={48}
-                    width={width}
-                    initialScrollOffset={initialScrollOffset}
-                    onScroll={handleScroll}
-                    outerElementType={ScrollContainer}
-                  >
-                    {Row}
-                  </FixedSizeList>
-                )}
-              </AutoSizer>
-            </Box>
+            <LibraryTable
+              rows={sortedFolders}
+              columns={columns}
+              getRowId={folder => folder.Path}
+              view={view}
+              rowHeight={48}
+              onRowClick={handleFolderClick}
+              onRowHover={folder => prefetchFolderChildren(folder.Path)}
+              initialScrollOffset={initialScrollOffset}
+              onScroll={handleScroll}
+            />
           </>
         )}
       </Container>

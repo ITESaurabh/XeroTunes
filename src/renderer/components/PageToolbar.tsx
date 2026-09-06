@@ -1,5 +1,12 @@
 import React from 'react';
-import { Typography, AppBar, Toolbar } from '@mui/material';
+import { Box, Typography, AppBar, Toolbar } from '@mui/material';
+
+/**
+ * Portal target for a page's table controls. LibraryTable is a sibling of this
+ * component, not a child, so it reaches the title row through the DOM rather
+ * than by threading a toolbar prop through every view.
+ */
+export const TABLE_ACTIONS_SLOT_ID = 'xt-page-toolbar-actions';
 
 function PageToolbar({ title, action }: { title: string; action?: React.ReactNode }) {
   return (
@@ -28,7 +35,10 @@ function PageToolbar({ title, action }: { title: string; action?: React.ReactNod
         >
           {title}
         </Typography>
-        <>{action ? action : null}</>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box id={TABLE_ACTIONS_SLOT_ID} sx={{ display: 'flex', alignItems: 'center' }} />
+          {action}
+        </Box>
       </Toolbar>
     </AppBar>
   );

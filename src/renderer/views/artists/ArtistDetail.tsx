@@ -4,6 +4,8 @@ import {
   Box,
   Typography,
   LinearProgress,
+  Checkbox,
+  Collapse,
   ListItemButton,
   useMediaQuery,
   useTheme,
@@ -12,12 +14,13 @@ import {
   Button,
   Menu,
   MenuItem,
-  Collapse,
 } from '@mui/material';
 import { useParams, useLocation, useNavigate } from 'react-router';
 import { motion, useMotionValue, useSpring } from 'motion/react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../../components/SelectionBar';
+import TagEditorDialog, { EditableTrack } from '../../components/TagEditorDialog';
 import Empty from '../../components/Empty';
 import { useIpc } from '../../state/ipc';
 import { store, Track } from '../../utils/store';
@@ -295,6 +298,29 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
     [albums.length, sortedAlbums, albumTracksMap, orphanTracks, songs]
   );
 
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(orderedSongs);
+  const [editTracks, setEditTracks] = React.useState<EditableTrack[] | null>(null);
+
+  /** Every list on this page indexes into `orderedSongs`, selection included. */
+  const queueIndex = useCallback(
+    (song: Track) => orderedSongs.findIndex(s => s.Id === song.Id),
+    [orderedSongs]
+  );
+  const isSelected = useCallback(
+    (song: Track) => song.Id != null && selectedIds.has(song.Id),
+    [selectedIds]
+  );
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
+
   const handlePlayAll = useCallback(
     (startIndex = 0) => {
       if (!orderedSongs.length || startIndex < 0) return;
@@ -526,6 +552,17 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
         imageAlt={artist.Name}
       />
 
+      <Collapse in={selected.length > 0} sx={{ flexShrink: 0, px: 2 }}>
+        <SelectionBar
+          selected={selected}
+          total={orderedSongs.length}
+          onToggleAll={toggleAll}
+          onClear={clear}
+          onPlay={handlePlaySelected}
+          onEditTags={() => setEditTracks(toEditableTracks(selected))}
+        />
+      </Collapse>
+
       <Box
         ref={scrollRef}
         sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', minWidth: 0 }}
@@ -653,7 +690,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                         <ListItemButton
                           key={song.Id ?? trackIndex}
                           data-track-id={song.Id ?? ''}
-                          selected={song.Id === state.track?.Id}
+                          selected={song.Id === state.track?.Id || isSelected(song)}
                           onClick={() =>
                             handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))
                           }
@@ -661,6 +698,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                             width: '100%',
                             display: 'flex',
                             alignItems: 'center',
+                            '&:hover .rowCheck': { opacity: 1 },
                             py: 1,
                             px: 1.5,
                             borderRadius: 1,
@@ -673,6 +711,21 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                             minWidth: 0,
                           }}
                         >
+                          <Box
+                            className="rowCheck"
+                            onClick={e => {
+                              e.stopPropagation();
+                              toggleAt(queueIndex(song), e.shiftKey);
+                            }}
+                            sx={{
+                              display: 'flex',
+                              flexShrink: 0,
+                              opacity: selectedIds.size > 0 ? 1 : 0,
+                              transition: 'opacity 120ms',
+                            }}
+                          >
+                            <Checkbox size="small" checked={isSelected(song)} tabIndex={-1} sx={{ p: 0.25 }} />
+                          </Box>
                           <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
                             <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                               {formatTrackNumber(
@@ -721,12 +774,13 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                       <ListItemButton
                         key={song.Id ?? index}
                         data-track-id={song.Id ?? ''}
-                        selected={song.Id === state.track?.Id}
+                        selected={song.Id === state.track?.Id || isSelected(song)}
                         onClick={() => handlePlayAll(index)}
                         sx={{
                           width: '100%',
                           display: 'flex',
                           alignItems: 'center',
+                          '&:hover .rowCheck': { opacity: 1 },
                           py: 1,
                           px: 1.5,
                           borderRadius: 1,
@@ -739,6 +793,21 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                                 : alpha(theme.palette.text.primary, 0.04),
                         }}
                       >
+                        <Box
+                          className="rowCheck"
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleAt(queueIndex(song), e.shiftKey);
+                          }}
+                          sx={{
+                            display: 'flex',
+                            flexShrink: 0,
+                            opacity: selectedIds.size > 0 ? 1 : 0,
+                            transition: 'opacity 120ms',
+                          }}
+                        >
+                          <Checkbox size="small" checked={isSelected(song)} tabIndex={-1} sx={{ p: 0.25 }} />
+                        </Box>
                         <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
                           <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatTrackNumber(
@@ -787,12 +856,13 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                       <ListItemButton
                         key={song.Id ?? index}
                         data-track-id={song.Id ?? ''}
-                        selected={song.Id === state.track?.Id}
+                        selected={song.Id === state.track?.Id || isSelected(song)}
                         onClick={() => handlePlayAll(orderedSongs.findIndex(s => s.Id === song.Id))}
                         sx={{
                           width: '100%',
                           display: 'flex',
                           alignItems: 'center',
+                          '&:hover .rowCheck': { opacity: 1 },
                           py: 1,
                           px: 1.5,
                           borderRadius: 1,
@@ -805,6 +875,21 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                                 : alpha(theme.palette.text.primary, 0.04),
                         }}
                       >
+                        <Box
+                          className="rowCheck"
+                          onClick={e => {
+                            e.stopPropagation();
+                            toggleAt(queueIndex(song), e.shiftKey);
+                          }}
+                          sx={{
+                            display: 'flex',
+                            flexShrink: 0,
+                            opacity: selectedIds.size > 0 ? 1 : 0,
+                            transition: 'opacity 120ms',
+                          }}
+                        >
+                          <Checkbox size="small" checked={isSelected(song)} tabIndex={-1} sx={{ p: 0.25 }} />
+                        </Box>
                         <Box sx={{ minWidth: 40, pr: 2, textAlign: 'right' }}>
                           <Typography sx={{ color: 'text.secondary', fontSize: 12 }}>
                             {formatTrackNumber(
@@ -839,6 +924,10 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
           )}
         </Box>
       </Box>
+
+      {editTracks && (
+        <TagEditorDialog open onClose={() => setEditTracks(null)} mode="track" tracks={editTracks} />
+      )}
     </Box>
   );
 };

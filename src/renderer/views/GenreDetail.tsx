@@ -4,8 +4,8 @@ import {
   Button,
   Container,
   Grid,
+  Collapse,
   LinearProgress,
-  ListItemButton,
   Theme,
   Typography,
   useMediaQuery,
@@ -14,44 +14,41 @@ import { useNavigate, useLocation, useParams } from 'react-router';
 import { Icon } from '@iconify/react';
 import genresIcon from '@iconify/icons-fluent/guitar-24-filled';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
-import { FixedSizeList, ListChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import ArtistCell from '../components/ArtistCell';
 import Empty from '../components/Empty';
+import LibraryTable, {
+  TableColumn,
+  useLibraryTable,
+  type LibraryTableHandle,
+} from '../components/LibraryTable';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
-import { artPlaceholderSx, detailBannerBg, listHeaderSx, listRowSx } from '../styles/listSx';
+import { artPlaceholderSx, detailBannerBg } from '../styles/listSx';
+import { formatDuration } from '../utils/formatDuration';
 
-interface Column {
-  label: string;
-  key: string;
-  align: 'left' | 'center' | 'right';
-  flex: number;
-  getNavPath?: (_song: Track) => string | null;
-  format?: (_val: unknown) => string;
-}
-
-const formatDuration = (seconds: unknown): string => {
-  const secs = typeof seconds === 'number' && seconds > 0 ? seconds : null;
-  if (secs == null) return '';
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
-
-const columns: Column[] = [
-  { label: 'Title', key: 'Title', align: 'left', flex: 3 },
-  { label: 'Artist', key: 'ArtistName', align: 'left', flex: 2 },
+const columns: TableColumn<Track>[] = [
+  { label: 'Title', key: 'Title', align: 'left', flex: 3, gridWidth: 180 },
+  {
+    label: 'Artist',
+    key: 'ArtistName',
+    align: 'left',
+    flex: 2,
+    gridWidth: 140,
+    render: song => <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />,
+  },
   {
     label: 'Album',
     key: 'AlbumTitle',
     align: 'left',
     flex: 2,
+    gridWidth: 140,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
   {
@@ -59,53 +56,21 @@ const columns: Column[] = [
     key: 'Year',
     align: 'center',
     flex: 1,
+    gridWidth: 90,
     getNavPath: song =>
       song.Year != null && song.Year !== ''
         ? `/main_window/years/${encodeURIComponent(song.Year as string)}`
         : null,
   },
-  { label: 'Duration', key: 'Duration', align: 'right', flex: 1, format: formatDuration },
+  {
+    label: 'Duration',
+    key: 'Duration',
+    align: 'right',
+    flex: 1,
+    gridWidth: 90,
+    format: formatDuration,
+  },
 ];
-
-const getVisibleColumns = (isPhone: boolean): Column[] => (isPhone ? columns.slice(0, 2) : columns);
-
-const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
-  ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
-    />
-  )
-);
-ScrollContainer.displayName = 'ScrollContainer';
-
-const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => {
-  const visibleColumns = getVisibleColumns(isPhone);
-  return (
-    <Box sx={listHeaderSx}>
-      {visibleColumns.map((col, i) => (
-        <div
-          key={col.label}
-          style={{
-            flex: col.flex,
-            padding: '8px 16px',
-            paddingRight: i === visibleColumns.length - 1 ? 28 : 16,
-            textAlign: col.align,
-            minWidth: 0,
-            overflow: 'hidden',
-          }}
-        >
-          {col.label}
-        </div>
-      ))}
-    </Box>
-  );
-};
 
 const GenreDetail: React.FC = () => {
   const { genreId } = useParams<{ genreId: string }>();
@@ -126,7 +91,7 @@ const GenreDetail: React.FC = () => {
   );
 
   const {
-    data: songs = [] as Track[],
+    data: allSongs = [] as Track[],
     isLoading,
     error,
   } = useQuery({
@@ -135,6 +100,11 @@ const GenreDetail: React.FC = () => {
       invokeEventToMainProcess('get-genre-songs', { genreId: Number(genreId) }) as Promise<Track[]>,
     enabled: !!genreId,
   });
+
+  const listRef = React.useRef<LibraryTableHandle | null>(null);
+  const { rows: songs, view } = useLibraryTable(allSongs, columns);
+  const { selectedIds, selected, toggleAll, clear, replace } = useTrackSelection(songs);
+  const [editTracks, setEditTracks] = React.useState<EditableTrack[] | null>(null);
 
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
@@ -159,73 +129,15 @@ const GenreDetail: React.FC = () => {
     [songs, dispatch, location.pathname, location.search]
   );
 
-  const Row = useCallback(
-    ({ index, style }: ListChildComponentProps) => {
-      const song = songs[index];
-      const visibleColumns = getVisibleColumns(isPhone);
-      const isActive = song.Id === state.track?.Id;
-
-      return (
-        <ListItemButton
-          style={style}
-          selected={isActive}
-          sx={listRowSx(index)}
-          onClick={e => {
-            if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
-            handlePlayAll(index);
-          }}
-        >
-          {visibleColumns.map((col, i) => {
-            const navPath = col.getNavPath?.(song) ?? null;
-            const isLast = i === visibleColumns.length - 1;
-            const cellValue = col.format
-              ? col.format(song[col.key])
-              : (song[col.key] as string) || '';
-            return (
-              <Box
-                key={col.label}
-                sx={{
-                  flex: col.flex,
-                  pl: 2,
-                  pr: isLast ? 3.5 : 2,
-                  minWidth: 0,
-                  textAlign: col.align,
-                  overflow: 'hidden',
-                  whiteSpace: 'nowrap',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {col.key === 'ArtistName' ? (
-                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
-                ) : navPath ? (
-                  <Typography
-                    variant="body2"
-                    noWrap
-                    data-nav-cell="true"
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => {
-                      e.stopPropagation();
-                      navigate(navPath);
-                    }}
-                    sx={{
-                      '&:hover': { textDecoration: 'underline', color: 'primary.main' },
-                    }}
-                  >
-                    {cellValue}
-                  </Typography>
-                ) : (
-                  <Typography variant="body2" noWrap>
-                    {cellValue}
-                  </Typography>
-                )}
-              </Box>
-            );
-          })}
-        </ListItemButton>
-      );
-    },
-    [songs, isPhone, state.track?.Id, handlePlayAll, navigate]
-  );
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   return (
     <Grid
@@ -304,28 +216,41 @@ const GenreDetail: React.FC = () => {
           <Empty page={genreName} />
         ) : (
           <>
-            <HeaderRow isPhone={isPhone} />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
-              <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
-                  <FixedSizeList
-                    height={height}
-                    overscanCount={100}
-                    itemCount={songs.length}
-                    itemSize={43}
-                    width={width}
-                    initialScrollOffset={initialScrollOffset}
-                    onScroll={handleScroll}
-                    outerElementType={ScrollContainer}
-                  >
-                    {Row}
-                  </FixedSizeList>
-                )}
-              </AutoSizer>
-            </Box>
+            <Collapse in={selected.length > 0} sx={{ flexShrink: 0 }}>
+              <SelectionBar
+                selected={selected}
+                total={songs.length}
+                onToggleAll={toggleAll}
+                onClear={clear}
+                onPlay={handlePlaySelected}
+                onEditTags={() => setEditTracks(toEditableTracks(selected))}
+              />
+            </Collapse>
+            <LibraryTable
+              rows={songs}
+              columns={columns}
+              getRowId={song => song.Id as string | number}
+              view={view}
+              isRowActive={song => song.Id === state.track?.Id}
+              onRowClick={(_song, index) => handlePlayAll(index)}
+              selection={{ selectedIds, onReplace: replace }}
+              listRef={listRef}
+              initialScrollOffset={initialScrollOffset}
+              onScroll={handleScroll}
+              onNavigate={navigate}
+            />
           </>
         )}
       </Container>
+
+      {editTracks && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditTracks(null)}
+          mode="track"
+          tracks={editTracks}
+        />
+      )}
     </Grid>
   );
 };

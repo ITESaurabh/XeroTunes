@@ -2,16 +2,15 @@ import React, { useContext, useEffect } from 'react';
 import {
   Alert,
   Button,
+  Collapse,
   Container,
   Box,
   Grid,
   IconButton,
   LinearProgress,
   Stack,
-  Theme,
+  Tooltip,
   Typography,
-  ListItemButton,
-  useMediaQuery,
 } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
 import { Icon } from '@iconify/react';
@@ -22,60 +21,59 @@ import AppDialog from '../components/AppDialog';
 import Empty from '../components/Empty';
 import PageToolbar from '../components/PageToolbar';
 import ArtistCell from '../components/ArtistCell';
+import LibraryTable, {
+  TableColumn,
+  useLibraryTable,
+  type LibraryTableHandle,
+} from '../components/LibraryTable';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useQuery } from '@tanstack/react-query';
-import { FixedSizeList, ListChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { useConfirm } from '../utils/useConfirm';
 import type { FavouriteEntry } from '../../main/utils/mainProcess';
-import { listHeaderSx, listRowSx } from '../styles/listSx';
+import { formatDate, formatDuration } from '../utils/formatDuration';
 
-interface Column {
-  label: string;
-  key: string;
-  align: 'left' | 'center' | 'right';
-  flex?: number;
-  getNavPath?: (_song: Track) => string | null;
-  format?: (_val: unknown) => string;
-}
-
-const formatDate = (val: unknown): string => {
-  if (!val || typeof val !== 'number') return '';
-  return new Date(val).toLocaleDateString(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  });
-};
-
-const formatDuration = (seconds: unknown): string => {
-  const secs = typeof seconds === 'number' && seconds > 0 ? seconds : null;
-  if (secs == null) return '';
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
-
-const columns: Column[] = [
-  { label: 'Title', key: 'Title', align: 'left', flex: 3 },
-  { label: 'Artist', key: 'ArtistName', align: 'left', flex: 2 },
+const columns: TableColumn<Track>[] = [
+  { label: 'Title', key: 'Title', align: 'left', flex: 3, gridWidth: 180 },
+  {
+    label: 'Artist',
+    key: 'ArtistName',
+    align: 'left',
+    flex: 2,
+    gridWidth: 140,
+    render: song => <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />,
+  },
   {
     label: 'Album',
     key: 'AlbumTitle',
     align: 'left',
     flex: 2,
+    gridWidth: 140,
     getNavPath: song => (song.AlbumId != null ? `/main_window/albums/${song.AlbumId}` : null),
   },
-  { label: 'Favourited', key: 'FavouritedAt', align: 'center', flex: 1, format: formatDate },
-  { label: 'Duration', key: 'Duration', align: 'right', flex: 1, format: formatDuration },
+  {
+    label: 'Favourited',
+    key: 'FavouritedAt',
+    align: 'center',
+    flex: 1,
+    gridWidth: 120,
+    format: formatDate,
+  },
+  {
+    label: 'Duration',
+    key: 'Duration',
+    align: 'right',
+    flex: 1,
+    gridWidth: 90,
+    format: formatDuration,
+  },
 ];
-
-const getVisibleColumns = (isPhone: boolean): Column[] => (isPhone ? columns.slice(0, 2) : columns);
 
 interface ExportResult {
   success?: boolean;
@@ -104,51 +102,7 @@ interface TransferReport {
   failed?: FavouriteEntry[];
 }
 
-// Width of the trailing remove-button cell; the header reserves the same space.
-const ACTION_WIDTH = 48;
-
-const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
-  ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
-    />
-  )
-);
-ScrollContainer.displayName = 'ScrollContainer';
-
-const getFlex = (col: Column, isPhone: boolean): number => (isPhone ? 1 : (col.flex ?? 1));
-
-const HeaderRow: React.FC<{ isPhone: boolean }> = ({ isPhone }) => {
-  const visibleColumns = getVisibleColumns(isPhone);
-  return (
-    <Box sx={listHeaderSx}>
-      {visibleColumns.map(col => (
-        <div
-          key={col.label}
-          style={{
-            flex: getFlex(col, isPhone),
-            padding: '8px 16px',
-            textAlign: col.align,
-            minWidth: 0,
-            overflow: 'hidden',
-          }}
-        >
-          {col.label}
-        </div>
-      ))}
-      <div style={{ width: ACTION_WIDTH, flexShrink: 0 }} />
-    </Box>
-  );
-};
-
 const Favourites: React.FC = () => {
-  const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const scrollHide = useScrollHidePlayerBar();
@@ -156,7 +110,7 @@ const Favourites: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const confirm = useConfirm();
-  const listRef = React.useRef<FixedSizeList | null>(null);
+  const listRef = React.useRef<LibraryTableHandle | null>(null);
 
   const handleScroll = React.useCallback(
     (args: { scrollOffset: number }) => {
@@ -167,13 +121,17 @@ const Favourites: React.FC = () => {
   );
 
   const {
-    data: songs = [] as Track[],
+    data: favourites = [] as Track[],
     isLoading,
     error,
   } = useQuery({
     queryKey: [QUERY_KEYS.FAVOURITE_SONGS],
     queryFn: () => invokeEventToMainProcess('get-favourite-songs', undefined) as Promise<Track[]>,
   });
+
+  const { rows: songs, view } = useLibraryTable(favourites, columns);
+  const { selectedIds, selected, toggleAll, clear, replace } = useTrackSelection(songs);
+  const [editTracks, setEditTracks] = React.useState<EditableTrack[] | null>(null);
 
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
@@ -183,7 +141,7 @@ const Favourites: React.FC = () => {
   }, [dispatch]);
 
   const handleSongClick = React.useCallback(
-    (clickedIndex: number): void => {
+    (_song: Track, clickedIndex: number): void => {
       dispatch({
         type: 'SET_QUEUE',
         payload: {
@@ -197,6 +155,16 @@ const Favourites: React.FC = () => {
     },
     [songs, dispatch, location.pathname, location.search]
   );
+
+  const handlePlaySelected = React.useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   // The main process broadcasts library-updated, which refreshes this list.
   const handleRemove = React.useCallback(
@@ -247,89 +215,8 @@ const Favourites: React.FC = () => {
   useEffect(() => {
     if (focusTrackId == null || !songs.length || !listRef.current) return;
     const idx = songs.findIndex(s => s.Id === focusTrackId);
-    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+    if (idx >= 0) listRef.current.scrollToItem(idx);
   }, [focusTrackId, focusTs, songs]);
-
-  const Row = React.useCallback(
-    ({ index, style }: ListChildComponentProps) => {
-      const song = songs[index];
-      const visibleColumns = getVisibleColumns(isPhone);
-
-      return (
-        <ListItemButton
-          style={style}
-          selected={song.Id === state.track?.Id}
-          sx={listRowSx(index)}
-          onClick={e => {
-            if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
-            handleSongClick(index);
-          }}
-        >
-          {visibleColumns.map(col => {
-            const navPath = col.getNavPath?.(song) ?? null;
-            const cellValue = col.format
-              ? col.format(song[col.key])
-              : (song[col.key] as string) || '';
-
-            return (
-              <Box
-                key={col.label}
-                sx={{
-                  flex: getFlex(col, isPhone),
-                  px: 2,
-                  minWidth: 0,
-                  textAlign: col.align,
-                  overflow: 'hidden',
-                  whiteSpace: 'nowrap',
-                  textOverflow: 'ellipsis',
-                }}
-              >
-                {col.key === 'ArtistName' ? (
-                  <ArtistCell artistNameRaw={song.ArtistName as string | undefined} />
-                ) : navPath ? (
-                  <Typography
-                    variant="body2"
-                    noWrap
-                    data-nav-cell="true"
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => {
-                      e.stopPropagation();
-                      navigate(navPath);
-                    }}
-                    sx={{
-                      '&:hover': { textDecoration: 'underline', color: 'primary.main' },
-                    }}
-                  >
-                    {cellValue}
-                  </Typography>
-                ) : (
-                  <Typography variant="body2" noWrap>
-                    {cellValue}
-                  </Typography>
-                )}
-              </Box>
-            );
-          })}
-          <Box sx={{ width: ACTION_WIDTH, flexShrink: 0, textAlign: 'center' }}>
-            <IconButton
-              size="small"
-              aria-label="remove from favourites"
-              title="Remove from Favourites"
-              onMouseDown={e => e.stopPropagation()}
-              onClick={e => {
-                e.stopPropagation();
-                void handleRemove(song);
-              }}
-              sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
-            >
-              <Icon icon={heartOff24Regular} width={18} />
-            </IconButton>
-          </Box>
-        </ListItemButton>
-      );
-    },
-    [songs, isPhone, state.track?.Id, handleSongClick, handleRemove, navigate]
-  );
 
   if (isLoading)
     return (
@@ -352,23 +239,32 @@ const Favourites: React.FC = () => {
       <PageToolbar
         title="Favourites"
         action={
-          <Stack direction="row" spacing={1}>
-            <Button
-              variant="outlined"
-              disabled={busy || songs.length === 0}
-              startIcon={<Icon icon={arrowExport24Regular} />}
-              onClick={() => void handleExport()}
-            >
-              Export
-            </Button>
-            <Button
-              variant="contained"
-              disabled={busy}
-              startIcon={<Icon icon={arrowImport24Regular} />}
-              onClick={() => void handleImport()}
-            >
-              Import
-            </Button>
+          <Stack direction="row" spacing={0.5}>
+            {/* A disabled button fires no events, so Tooltip needs the span to
+                hang its listeners on — otherwise the hint vanishes exactly when
+                you want to know why the button is dead. */}
+            <Tooltip title="Export favourites">
+              <span>
+                <IconButton
+                  aria-label="Export favourites"
+                  disabled={busy || songs.length === 0}
+                  onClick={() => void handleExport()}
+                >
+                  <Icon icon={arrowExport24Regular} width={24} />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <Tooltip title="Import favourites">
+              <span>
+                <IconButton
+                  aria-label="Import favourites"
+                  disabled={busy}
+                  onClick={() => void handleImport()}
+                >
+                  <Icon icon={arrowImport24Regular} width={24} />
+                </IconButton>
+              </span>
+            </Tooltip>
           </Stack>
         }
       />
@@ -380,26 +276,44 @@ const Favourites: React.FC = () => {
           <Empty page="Favourites" hint="Tap the heart on the album art while a song is playing." />
         ) : (
           <>
-            <HeaderRow isPhone={isPhone} />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
-              <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
-                  <FixedSizeList
-                    ref={listRef}
-                    height={height}
-                    overscanCount={100}
-                    itemCount={songs.length}
-                    itemSize={43}
-                    width={width}
-                    initialScrollOffset={initialScrollOffset}
-                    onScroll={handleScroll}
-                    outerElementType={ScrollContainer}
-                  >
-                    {Row}
-                  </FixedSizeList>
-                )}
-              </AutoSizer>
-            </Box>
+            <Collapse in={selected.length > 0} sx={{ flexShrink: 0 }}>
+              <SelectionBar
+                selected={selected}
+                total={songs.length}
+                onToggleAll={toggleAll}
+                onClear={clear}
+                onPlay={handlePlaySelected}
+                onEditTags={() => setEditTracks(toEditableTracks(selected))}
+              />
+            </Collapse>
+            <LibraryTable
+              rows={songs}
+              columns={columns}
+              getRowId={song => song.Id as string | number}
+              view={view}
+              isRowActive={song => song.Id === state.track?.Id}
+              onRowClick={handleSongClick}
+              selection={{ selectedIds, onReplace: replace }}
+              listRef={listRef}
+              initialScrollOffset={initialScrollOffset}
+              onScroll={handleScroll}
+              onNavigate={navigate}
+              renderRowAction={song => (
+                <IconButton
+                  size="small"
+                  aria-label="remove from favourites"
+                  title="Remove from Favourites"
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => {
+                    e.stopPropagation();
+                    void handleRemove(song);
+                  }}
+                  sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
+                >
+                  <Icon icon={heartOff24Regular} width={18} />
+                </IconButton>
+              )}
+            />
           </>
         )}
       </Container>
@@ -457,6 +371,15 @@ const Favourites: React.FC = () => {
           </Stack>
         </Stack>
       </AppDialog>
+
+      {editTracks && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditTracks(null)}
+          mode="track"
+          tracks={editTracks}
+        />
+      )}
     </Grid>
   );
 };

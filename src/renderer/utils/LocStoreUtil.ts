@@ -9,6 +9,7 @@ import {
   LibrarySettings,
   ViewSettings,
   FolderViewSettings,
+  FolderViewKey,
   TitleBarStyle,
   clampWindowScale,
   DEFAULT_CAST_VOLUME,
@@ -419,12 +420,12 @@ export function getViewSettings(): ViewSettings {
   return getSettings().views;
 }
 
-export function getFolderViewSettings(key: keyof ViewSettings): FolderViewSettings {
+export function getFolderViewSettings(key: FolderViewKey): FolderViewSettings {
   return getViewSettings()[key];
 }
 
 export function setFolderViewSettings(
-  key: keyof ViewSettings,
+  key: FolderViewKey,
   update: Partial<FolderViewSettings>
 ): FolderViewSettings {
   const current = getViewSettings();
