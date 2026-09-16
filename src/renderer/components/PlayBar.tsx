@@ -18,6 +18,7 @@ import {
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
+import * as scratch from '../utils/scratchEngine';
 import {
   getVolumeLevel,
   setVolumeLevel,
@@ -31,6 +32,11 @@ import {
   AUDIO_OUTPUT_DEVICE_EVENT,
   CAST_STOP_EVENT,
   PLAYBACK_ERROR_EVENT,
+  PLAYBACK_TOGGLE_EVENT,
+  VOLUME_CHANGE_EVENT,
+  PLAYBACK_TICK_EVENT,
+  PLAYBACK_SCRATCH_EVENT,
+  type ScratchDetail,
 } from '../utils/LocStoreUtil';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
@@ -917,6 +923,9 @@ export default function PlayBar() {
       const audio = audioRef.current;
       if (!audio) return;
       const pos = audio.currentTime;
+      window.dispatchEvent(
+        new CustomEvent(PLAYBACK_TICK_EVENT, { detail: { position: pos, duration } })
+      );
 
       if ('mediaSession' in navigator) {
         try {
@@ -1127,6 +1136,61 @@ export default function PlayBar() {
     // Title is a dep because a stream keeps one track id across songs.
   }, [state.track?.Id, state.track?.Title, paused, discordEnabled]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
+
+  // Set while a hand or the needle is on the record: the element is silent and
+  // the scratch engine makes the sound. `paused` is left alone; the record is
+  // held, not stopped, so the tone switch and the tick keep reporting play.
+  const scratchRef = useRef<{ wasPlaying: boolean } | null>(null);
+  useEffect(() => {
+    const onToggle = () => setPaused(prev => !prev);
+    const onVolume = (e: Event) => handleVolumeChange(e, (e as CustomEvent<number>).detail);
+    const onScratch = (e: Event) => {
+      const d = (e as CustomEvent<ScratchDetail>).detail;
+      if (d.phase === 'prime') {
+        if (!castingRef.current) scratch.prime(d.uri ?? null);
+        return;
+      }
+      const audio = audioRef.current;
+      if (!audio || !duration || castingRef.current) return;
+      const held = scratchRef.current;
+      switch (d.phase) {
+        case 'hold':
+          scratchRef.current = { wasPlaying: !audio.paused };
+          audio.pause();
+          scratch.hold(audio.currentTime, muteVolumeRef.current ? 0 : volumeRef.current);
+          break;
+        case 'move':
+          if (held) scratch.move(d.seconds ?? 0, d.rate ?? 0, duration);
+          break;
+        case 'scrub': {
+          const t = (d.fraction ?? 0) * duration;
+          if (held?.wasPlaying) scratch.scrub(t);
+          else scratch.place(t);
+          break;
+        }
+        case 'release': {
+          if (d.fraction != null) scratch.place(d.fraction * duration);
+          const t = scratch.release();
+          if (!held) return;
+          audio.currentTime = t;
+          // Set down or lifted clear by hand flips the transport.
+          if (d.play != null) setPaused(!d.play);
+          else if (held.wasPlaying) audio.play().catch(() => undefined);
+          handleSeekCommit(t);
+          scratchRef.current = null;
+          break;
+        }
+      }
+    };
+    window.addEventListener(PLAYBACK_TOGGLE_EVENT, onToggle);
+    window.addEventListener(VOLUME_CHANGE_EVENT, onVolume);
+    window.addEventListener(PLAYBACK_SCRATCH_EVENT, onScratch);
+    return () => {
+      window.removeEventListener(PLAYBACK_TOGGLE_EVENT, onToggle);
+      window.removeEventListener(VOLUME_CHANGE_EVENT, onVolume);
+      window.removeEventListener(PLAYBACK_SCRATCH_EVENT, onScratch);
+    };
+  }, [handleVolumeChange, handleSeekCommit, duration]);
 
   // ── Thumbnail toolbar sync ──────────────────────────────────────────
   useEffect(() => {

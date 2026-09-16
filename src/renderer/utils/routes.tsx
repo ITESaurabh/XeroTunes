@@ -23,6 +23,7 @@ const GenreDetail = lazy(() => import('../views/GenreDetail'));
 const Years = lazy(() => import('../views/Years'));
 const YearDetail = lazy(() => import('../views/YearDetail'));
 const LyricStudio = lazy(() => import('../views/LyricStudio'));
+const VinylMode = lazy(() => import('../views/VinylMode'));
 
 const BigLoader = () => {
   return (
@@ -203,6 +204,14 @@ const routes = [
         element: (
           <Page>
             <RecentlyAdded />
+          </Page>
+        ),
+      },
+      {
+        path: 'vinyl',
+        element: (
+          <Page>
+            <VinylMode />
           </Page>
         ),
       },

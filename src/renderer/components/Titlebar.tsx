@@ -194,6 +194,19 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });
   };
 
+  // Vinyl mode draws its own strip; this one fades and is dropped once gone.
+  const inVinyl = location.pathname === '/main_window/vinyl';
+  const [gone, setGone] = useState(inVinyl);
+  useEffect(() => {
+    if (!inVinyl) {
+      setGone(false);
+      return;
+    }
+    const t = setTimeout(() => setGone(true), 300);
+    return () => clearTimeout(t);
+  }, [inVinyl]);
+  if (inVinyl && gone) return null;
+
   return (
     <>
       {isPhone && !minimal && !inTakeover && (
@@ -218,7 +231,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
         </Drawer>
       )}
       <Box
-        className={hasRightControls ? 'title-bar title-bar_windows' : 'title-bar title-bar_unix'}
+        className={`${hasRightControls ? 'title-bar title-bar_windows' : 'title-bar title-bar_unix'} ${inVinyl ? 'title-bar_leaving' : 'title-bar_arriving'}`}
         sx={{
           bgcolor: 'background.default',
           height: '32px',

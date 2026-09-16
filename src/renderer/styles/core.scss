@@ -66,10 +66,10 @@ main {
   transform-origin: 0.5em 50%;
 }
 
-.btn-toggle[aria-expanded="true"] {
+.btn-toggle[aria-expanded='true'] {
   color: rgba(0, 0, 0, 0.85);
 }
-.btn-toggle[aria-expanded="true"]::before {
+.btn-toggle[aria-expanded='true']::before {
   transform: rotate(90deg);
 }
 
@@ -125,7 +125,6 @@ main {
   align-items: center;
   // grid-template-columns: 1fr 1fr 1fr;
   -webkit-app-region: no-drag;
-
 }
 
 .mac_back {
@@ -188,7 +187,7 @@ nav .control-window {
 // Scrollbars live in the MUI theme (config/theme.ts) so they follow the active palette.
 
 .lib-art-cont {
-  flex: "1 0 calc(13%)";
+  flex: '1 0 calc(13%)';
 }
 
 .no-select {
@@ -208,4 +207,69 @@ nav .control-window {
 
 .icon-themed path {
   fill: currentColor !important;
+}
+
+// Into and out of vinyl mode the bar fades rather than blinks.
+@keyframes title-bar-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+.title-bar_arriving {
+  animation: title-bar-fade-in 0.3s ease both;
+}
+.title-bar_leaving {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+// Vinyl mode press states; the parts' finishes are inline, which can't express :active.
+.vm-key {
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
+  &:active:not(:disabled) {
+    transform: translateY(1px) scale(0.96);
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.45),
+      0 1px 0 rgba(255, 255, 255, 0.6) !important;
+  }
+}
+.vm-strip {
+  transition:
+    transform 0.1s ease,
+    box-shadow 0.1s ease;
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow:
+      0 2px 3px rgba(0, 0, 0, 0.35),
+      0 6px 12px rgba(0, 0, 0, 0.18) !important;
+  }
+  &:active {
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.3) !important;
+  }
+}
+// The strip tray's scrollbar: a recessed channel with a turned metal slider.
+.vm-tray::-webkit-scrollbar {
+  width: 12px;
+}
+.vm-tray::-webkit-scrollbar-track {
+  margin: 14px 0;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #6a6b72, #8e8f95);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+.vm-tray::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #8e8f95, #f2f2f5 45%, #a9aab0) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.vm-card:active {
+  transform: scale(0.96) !important;
+  transition: transform 0.08s ease !important;
 }

@@ -260,6 +260,33 @@ export const CAST_STOP_EVENT = 'xt-cast-stop';
 
 export const PLAYBACK_ERROR_EVENT = 'xt-playback-error';
 
+// Transport lives in PlayBar; controls rendered elsewhere (vinyl mode) reach it through these.
+export const PLAYBACK_TOGGLE_EVENT = 'xt-playback-toggle';
+
+/** detail: volume 0-100 */
+export const VOLUME_CHANGE_EVENT = 'xt-volume-change';
+
+/** detail: { position, duration } seconds, once a second while playing. */
+export const PLAYBACK_TICK_EVENT = 'xt-playback-tick';
+
+/**
+ * A hand on the deck. 'prime' decodes `uri` for scratching ahead of time;
+ * 'hold' lifts the sound off the element; 'move' drags the record by `seconds`
+ * of groove at `rate` × normal speed (negative = backwards); 'scrub' drops the
+ * needle at `fraction` of the track; 'release' lets go and playback resumes
+ * from wherever the groove ended up.
+ */
+export const PLAYBACK_SCRATCH_EVENT = 'xt-playback-scratch';
+export interface ScratchDetail {
+  phase: 'prime' | 'hold' | 'move' | 'scrub' | 'release';
+  uri?: string;
+  seconds?: number;
+  rate?: number;
+  fraction?: number;
+  /** On 'release': the arm was set down on the record (start) or lifted clear of it (stop). */
+  play?: boolean;
+}
+
 export function getAudioOutputDeviceId(): string {
   return getPlaybackSettings().audioOutputDeviceId;
 }
@@ -315,6 +342,14 @@ export function getOverlayEnabled(): boolean {
 
 export function setOverlayEnabled(enabled: boolean): void {
   updateSettings({ overlayEnabled: enabled });
+}
+
+export function getStartInVinylMode(): boolean {
+  return getSettings().startInVinylMode;
+}
+
+export function setStartInVinylMode(enabled: boolean): void {
+  updateSettings({ startInVinylMode: enabled });
 }
 
 export function getDiscordEnabled(): boolean {

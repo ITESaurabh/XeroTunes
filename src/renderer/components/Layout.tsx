@@ -4,7 +4,7 @@ import { alpha, Theme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import { Alert, IconButton, Paper, Snackbar, Stack, useMediaQuery } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
-import { Outlet } from 'react-router';
+import { useMatch, useOutlet } from 'react-router';
 import { AnimatePresence, motion } from 'motion/react';
 import KeyboardArrowUpRounded from '@mui/icons-material/KeyboardArrowUpRounded';
 
@@ -15,9 +15,24 @@ import { store } from '../utils/store';
 import { PLAYBACK_ERROR_EVENT } from '../utils/LocStoreUtil';
 import SearchDialog from './SearchDialog';
 
+// In: the library fades under the deck. Out: it is already there beneath the
+// deck lifting off, so nothing double-exposes.
+const fade = {
+  initial: { opacity: 1 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0 },
+  transition: { duration: 0.35 },
+};
+
 function Layout() {
   const isPhone = useMediaQuery(({ breakpoints }: Theme) => breakpoints.down('md'));
   const { state, dispatch } = useContext(store);
+  // PlayBar stays mounted (hidden) under the deck: it owns the audio element,
+  // and remounting it would stop playback.
+  const vinyl = !!useMatch('/main_window/vinyl');
+  // The element rather than <Outlet/>, so a page fading out keeps showing
+  // itself instead of re-rendering as the route it is leaving for.
+  const outlet = useOutlet();
 
   // PlayBar unmounts with the track it is reporting on, so the snackbar lives here.
   const [playbackError, setPlaybackError] = useState<string | null>(null);
@@ -35,30 +50,37 @@ function Layout() {
     }
   }, [isPhone]);
 
+  // Clipped so the deck's lift-off, scaled past the edges, never scrolls the window.
   return (
-    <Box height={'100%'}>
+    <Box height={'100%'} position="relative" overflow="hidden">
       <Titlebar />
       <Box display={'flex'} height={'100%'}>
-        <AppDrawer
-          variant={isPhone ? 'temporary' : 'permanent'}
-          sx={{
-            height: '100%',
-            '&::-webkit-scrollbar': { display: 'none' },
-            msOverflowStyle: 'none',
-          }}
-          PaperProps={{
-            style: {
-              paddingTop: '32px',
-              backgroundColor: 'transparent',
-              borderRight: 'none',
-            },
-          }}
-          ModalProps={{ keepMounted: false }}
-          onClose={() => dispatch({ type: 'SET_MENU_EXPANDED', payload: false })}
-          open={state.isMenuExpanded}
-        >
-          <MainDrawer />
-        </AppDrawer>
+        <AnimatePresence initial={false}>
+          {!vinyl && (
+            <motion.div key="drawer" style={{ height: '100%', flex: 'none' }} {...fade}>
+              <AppDrawer
+                variant={isPhone ? 'temporary' : 'permanent'}
+                sx={{
+                  height: '100%',
+                  '&::-webkit-scrollbar': { display: 'none' },
+                  msOverflowStyle: 'none',
+                }}
+                PaperProps={{
+                  style: {
+                    paddingTop: '32px',
+                    backgroundColor: 'transparent',
+                    borderRight: 'none',
+                  },
+                }}
+                ModalProps={{ keepMounted: false }}
+                onClose={() => dispatch({ type: 'SET_MENU_EXPANDED', payload: false })}
+                open={state.isMenuExpanded}
+              >
+                <MainDrawer />
+              </AppDrawer>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <Stack
           sx={{
             height: '100%',
@@ -69,43 +91,51 @@ function Layout() {
             overflow: 'hidden',
           }}
         >
-          <Box height="32px">&nbsp;</Box>
-          <Grid
-            component={Paper}
-            borderRadius={'0.5rem 0rem 0rem 0.5rem'}
-            sx={{
-              height: '100%',
-              flex: 1,
-              width: '100%',
-              maxWidth: '100%',
-              minWidth: 0,
-              p: 0,
-              m: 0,
-              borderTop: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
-              borderLeft: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
-              overflow: 'hidden',
-            }}
-            container
-          >
-            <AnimatePresence>
-              <Grid
-                xs={12}
-                sx={{
-                  height: '100%',
-                  maxHeight: 'calc(100vh - 32px)',
-                  borderTopLeftRadius: '0.5rem',
-                  flex: 1,
-                  width: '100%',
-                  maxWidth: '100%',
-                  minWidth: 0,
-                  p: 0,
-                  m: 0,
-                }}
+          <AnimatePresence initial={false}>
+            {!vinyl && (
+              <motion.div
+                key="library"
+                style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}
+                {...fade}
               >
-                <Outlet />
-              </Grid>
-            </AnimatePresence>
-          </Grid>
+                <Box height="32px">&nbsp;</Box>
+                <Grid
+                  component={Paper}
+                  borderRadius={'0.5rem 0rem 0rem 0.5rem'}
+                  sx={{
+                    height: '100%',
+                    flex: 1,
+                    width: '100%',
+                    maxWidth: '100%',
+                    minWidth: 0,
+                    p: 0,
+                    m: 0,
+                    borderTop: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+                    borderLeft: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+                    overflow: 'hidden',
+                  }}
+                  container
+                >
+                  <Grid
+                    xs={12}
+                    sx={{
+                      height: '100%',
+                      maxHeight: 'calc(100vh - 32px)',
+                      borderTopLeftRadius: '0.5rem',
+                      flex: 1,
+                      width: '100%',
+                      maxWidth: '100%',
+                      minWidth: 0,
+                      p: 0,
+                      m: 0,
+                    }}
+                  >
+                    {outlet}
+                  </Grid>
+                </Grid>
+              </motion.div>
+            )}
+          </AnimatePresence>
           <motion.div
             animate={{
               y: isPhone
@@ -124,7 +154,7 @@ function Layout() {
               bottom: isPhone ? -220 : -200,
               zIndex: 10,
               width: '100%',
-              display: 'flex',
+              display: vinyl ? 'none' : 'flex',
               justifyContent: 'center',
               pointerEvents: 'auto',
             }}
@@ -141,7 +171,7 @@ function Layout() {
             </Box>
           </motion.div>
           {/* Expand tab shown when track is loaded but playbar is hidden */}
-          {state.track && !state.isPlayerBarVisible && (
+          {state.track && !state.isPlayerBarVisible && !vinyl && (
             <Box
               sx={{
                 position: 'absolute',
@@ -175,6 +205,28 @@ function Layout() {
           )}
         </Stack>
       </Box>
+      {/* Above the drawer (1200) and under the fading title bar (1300). */}
+      <AnimatePresence initial={false}>
+        {vinyl && (
+          <motion.div
+            key="deck"
+            style={{ position: 'absolute', inset: 0, zIndex: 1250 }}
+            initial={{ opacity: 0, scale: 0.985 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              transition: { duration: 0.45, ease: [0.3, 0.7, 0.2, 1] },
+            }}
+            exit={{
+              opacity: 0,
+              scale: 1.015,
+              transition: { duration: 0.4, ease: [0.4, 0, 0.6, 1] },
+            }}
+          >
+            {outlet}
+          </motion.div>
+        )}
+      </AnimatePresence>
       <SearchDialog />
       <Snackbar
         open={!!playbackError}
