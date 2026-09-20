@@ -1,8 +1,8 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
-import { getThemeSettings, getOnboardingComplete } from './utils/LocStoreUtil';
+import { getThemeSettings, getOnboardingComplete, getStartInVinylMode } from './utils/LocStoreUtil';
 import Onboarding from './views/Onboarding';
-import { useRoutes } from 'react-router';
+import { useNavigate, useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
 // import '@fontsource/open-sans/300.css';
@@ -38,7 +38,6 @@ const App = () => {
   const [crashed, setCrashed] = useState(false);
   const themeSettings = getThemeSettings();
 
-  // console.log('Re Render Core');
   const themePref = useMemo(() => {
     if (themeSettings.mode === 1) return 'light';
     if (themeSettings.mode === 2) return 'dark';
@@ -47,6 +46,14 @@ const App = () => {
   const finalRoutes = useMemo(() => routes, []);
 
   const element = useRoutes(finalRoutes);
+
+  // The library is pushed first so the deck's back button still leads somewhere.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!onboardingComplete || !getStartInVinylMode()) return;
+    navigate('/main_window', { replace: true });
+    navigate('/main_window/vinyl');
+  }, []);
 
   const theme = useMemo(() => {
     const darkModeTheme = createTheme(getBaseTheme(themePref, state.appTheme));

@@ -35,6 +35,7 @@ import PageToolbar from '../components/PageToolbar';
 import MusicSourcesSection from '../components/MusicSourcesSection';
 import SyncProgressPanel from '../components/SyncProgressPanel';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
+import vinylIcon from '@iconify/icons-fluent/record-24-regular';
 import headphonesIcon from '@iconify/icons-fluent/headphones-20-regular';
 import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
 import syncIcon from '@iconify/icons-fluent/arrow-sync-24-regular';
@@ -66,6 +67,8 @@ import { motion } from 'motion/react';
 import {
   getOverlayEnabled,
   setOverlayEnabled,
+  getStartInVinylMode,
+  setStartInVinylMode,
   WINDOW_SCALE_EVENT,
   getArtistImageFetchingEnabled,
   getStreamHistoryDays,
@@ -741,6 +744,7 @@ const ScrobblerRow: React.FC<ScrobblerRowProps> = ({
 const Settings: React.FC = () => {
   const [resetExpanded, setResetExpanded] = React.useState<boolean>(false);
   const [overlayEnabled, setOverlayEnabledState] = React.useState<boolean>(getOverlayEnabled);
+  const [startInVinyl, setStartInVinyl] = React.useState<boolean>(getStartInVinylMode);
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
     getArtistImageFetchingEnabled()
   );
@@ -1362,6 +1366,26 @@ const Settings: React.FC = () => {
               </ListSubheader>
             }
           >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={vinylIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                id="switch-list-label-start-in-vinyl"
+                primary="Start in Vinyl Mode"
+                secondary="Open on the turntable instead of the library"
+              />
+              <IOSSwitch
+                checked={startInVinyl}
+                onChange={e => {
+                  setStartInVinyl(e.target.checked);
+                  setStartInVinylMode(e.target.checked);
+                }}
+                sx={{
+                  mr: 0.5,
+                }}
+              />
+            </ListItem>
             <ListItem>
               <ListItemIcon>
                 <Icon icon={zoomIcon} width={'2rem'} />
