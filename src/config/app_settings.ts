@@ -32,6 +32,31 @@ export interface ThemeSettings {
   alwaysShowScrollbar: boolean;
 }
 
+/** Virtual audioOutputDeviceId: play through the surround arrangement below. */
+export const SURROUND_OUTPUT_ID = 'surround';
+
+/** A single Bluetooth box sums L and R, so it must not get a stereo signal whose sides cancel. */
+export type SpeakerKind = 'stereo' | 'mono' | 'headphones';
+
+export interface SurroundDevice {
+  deviceId: string;
+  kind: SpeakerKind;
+  /** Where it sits around the listener, degrees clockwise from straight ahead. */
+  azimuthDeg: number;
+  /** 0-100. The front ignores this; its level is the player volume. */
+  volume: number;
+  muted: boolean;
+}
+
+/** offsetMs > 0 delays the front so a slow (Bluetooth) rear catches up; < 0 delays the rear. */
+export interface SurroundSettings {
+  front: SurroundDevice;
+  rear: SurroundDevice | null;
+  offsetMs: number;
+  /** Key into SURROUND_PRESETS. */
+  preset: string;
+}
+
 export interface PlaybackSettings {
   volumeLevel: number;
   shuffle: boolean;
@@ -43,6 +68,7 @@ export interface PlaybackSettings {
   deviceVolumeLevels: Record<string, number>;
   /** Per-cast-device volume (0-100), kept separate from local output volumes. */
   castVolumeLevels: Record<string, number>;
+  surround: SurroundSettings;
 }
 
 /** Cast receivers run loud, so a device seen for the first time starts low. */
@@ -125,6 +151,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     perDeviceVolume: true,
     deviceVolumeLevels: {},
     castVolumeLevels: {},
+    surround: {
+      front: { deviceId: 'default', kind: 'stereo', azimuthDeg: 0, volume: 100, muted: false },
+      rear: null,
+      offsetMs: 0,
+      preset: 'natural',
+    },
   },
   library: {
     multiArtistSeparators: [',', '&'],

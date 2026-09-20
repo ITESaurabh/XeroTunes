@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Menu, MenuItem, ListItemIcon, ListItemText, PopoverOrigin } from '@mui/material';
 import { Icon } from '@iconify/react';
 import checkmark16Regular from '@iconify/icons-fluent/checkmark-16-regular';
-import { getAudioOutputDeviceId, setAudioOutputDeviceId } from '../utils/LocStoreUtil';
+import {
+  getAudioOutputDeviceId,
+  getSurroundSettings,
+  setAudioOutputDeviceId,
+} from '../utils/LocStoreUtil';
+import { SURROUND_OUTPUT_ID } from '../../config/app_settings';
 
 interface AudioOutputMenuProps {
   anchorEl: HTMLElement | null;
@@ -52,8 +57,11 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
     };
   }, []);
 
+  const [surroundReady, setSurroundReady] = useState(false);
   useEffect(() => {
-    if (open) setCurrentSinkId(getAudioOutputDeviceId());
+    if (!open) return;
+    setCurrentSinkId(getAudioOutputDeviceId());
+    setSurroundReady(getSurroundSettings().rear !== null);
   }, [open]);
 
   const handleSelect = useCallback(
@@ -73,14 +81,26 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
       anchorOrigin={anchorOrigin}
       transformOrigin={transformOrigin}
     >
+      {surroundReady && (
+        <MenuItem
+          selected={currentSinkId === SURROUND_OUTPUT_ID}
+          onClick={() => handleSelect(SURROUND_OUTPUT_ID)}
+        >
+          <ListItemIcon>
+            {currentSinkId === SURROUND_OUTPUT_ID && <Icon icon={checkmark16Regular} width={18} />}
+          </ListItemIcon>
+          <ListItemText>Surround</ListItemText>
+        </MenuItem>
+      )}
       {devices.length === 0 ? (
         <MenuItem disabled>No output devices</MenuItem>
       ) : (
         devices.map(device => {
           // The saved sink may be gone (unplugged); fall back so a row stays selected.
-          const selectedId = devices.some(d => d.deviceId === currentSinkId)
-            ? currentSinkId
-            : 'default';
+          const selectedId =
+            currentSinkId === SURROUND_OUTPUT_ID || devices.some(d => d.deviceId === currentSinkId)
+              ? currentSinkId
+              : 'default';
           const selected = device.deviceId === selectedId;
           return (
             <MenuItem

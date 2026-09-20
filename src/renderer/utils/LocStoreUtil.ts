@@ -296,6 +296,21 @@ export function setAudioOutputDeviceId(deviceId: string): void {
   window.dispatchEvent(new CustomEvent(AUDIO_OUTPUT_DEVICE_EVENT, { detail: deviceId }));
 }
 
+export function getSurroundSettings(): PlaybackSettings['surround'] {
+  const surround = getPlaybackSettings().surround;
+  // Rejects settings written by earlier shapes of this object.
+  return typeof surround.front === 'object' && typeof surround.preset === 'string'
+    ? surround
+    : DEFAULT_APP_SETTINGS.playback.surround;
+}
+
+export const SURROUND_EVENT = 'xt-surround-change';
+
+export function setSurroundSettings(surround: PlaybackSettings['surround']): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), surround } });
+  window.dispatchEvent(new Event(SURROUND_EVENT));
+}
+
 export function getLibrarySettings(): LibrarySettings {
   return getSettings().library;
 }

@@ -18,6 +18,10 @@ import {
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
+import * as surround from '../utils/surroundEngine';
+import SurroundMixerDialog from './SurroundMixerDialog';
+import speakerSettings24Regular from '@iconify/icons-fluent/speaker-settings-24-regular';
+import { SURROUND_OUTPUT_ID } from '../../config/app_settings';
 import * as scratch from '../utils/scratchEngine';
 import {
   getVolumeLevel,
@@ -30,6 +34,8 @@ import {
   getCastVolumeLevel,
   setCastVolumeLevel,
   AUDIO_OUTPUT_DEVICE_EVENT,
+  SURROUND_EVENT,
+  getSurroundSettings,
   CAST_STOP_EVENT,
   PLAYBACK_ERROR_EVENT,
   PLAYBACK_TOGGLE_EVENT,
@@ -317,6 +323,9 @@ export default function PlayBar() {
   const pausedRef = useRef(true);
   // Mirrors isCasting for effects and handlers that must not re-subscribe.
   const castingRef = useRef(false);
+  // Surround routes the element through surroundEngine; like casting, the
+  // element then stays muted and only keeps the transport.
+  const surroundRef = useRef(false);
   // Discards stale artwork loads when the user skips past the track.
   const metadataReqRef = useRef(0);
   const [duration, setDuration] = useState(0);
@@ -507,6 +516,8 @@ export default function PlayBar() {
   // with the first track, so re-apply on each load and on the change event below.
   const applySinkId = useCallback(async (): Promise<void> => {
     const deviceId = getAudioOutputDeviceId();
+    // The element is muted under surround; where its sink points is moot.
+    if (deviceId === SURROUND_OUTPUT_ID) return;
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
         | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
@@ -526,7 +537,7 @@ export default function PlayBar() {
       const audio = audioRef.current;
       audio.src = toMediaSrc(songPath);
       audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
-      audio.muted = castingRef.current || audio.muted;
+      audio.muted = castingRef.current || surroundRef.current || audio.muted;
       void applySinkId();
       // Kick playback off immediately rather than waiting for loadedmetadata
       // so the new track starts at canplay instead of an extra round-trip later.
@@ -549,7 +560,7 @@ export default function PlayBar() {
     if (audioRef.current && !fadeIntervalRef.current) {
       const silent = muteVolume || castingRef.current;
       audioRef.current.volume = silent ? 0 : volume / 100;
-      audioRef.current.muted = silent;
+      audioRef.current.muted = silent || surroundRef.current;
     }
   }, [volume, muteVolume]);
 
@@ -795,6 +806,31 @@ export default function PlayBar() {
       setLastVolume(next);
     }
   }, []);
+
+  // Depends on songPath because the element mounts with the first track.
+  useEffect(() => {
+    const apply = (): void => {
+      const audio = audioRef.current;
+      const settings = getSurroundSettings();
+      const on =
+        !!audio &&
+        !!settings.rear &&
+        getAudioOutputDeviceId() === SURROUND_OUTPUT_ID &&
+        !castingRef.current;
+      surroundRef.current = on;
+      setSurroundOn(on);
+      if (on) surround.attach(audio, settings);
+      else surround.detach();
+      if (audio && !castingRef.current) audio.muted = on || muteVolumeRef.current;
+    };
+    apply();
+    window.addEventListener(SURROUND_EVENT, apply);
+    window.addEventListener(AUDIO_OUTPUT_DEVICE_EVENT, apply);
+    return () => {
+      window.removeEventListener(SURROUND_EVENT, apply);
+      window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, apply);
+    };
+  }, [songPath]);
 
   // Re-route live when the output device is changed in Settings.
   useEffect(() => {
@@ -1410,6 +1446,8 @@ export default function PlayBar() {
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuOpen = Boolean(menuAnchorEl) || Boolean(menuPosition);
   const [deviceMenuAnchorEl, setDeviceMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [mixerOpen, setMixerOpen] = useState(false);
+  const [surroundOn, setSurroundOn] = useState(false);
 
   const handleOpenMenuButton = useCallback((e: React.MouseEvent<HTMLElement>) => {
     setMenuPosition(null);
@@ -1515,7 +1553,7 @@ export default function PlayBar() {
     const audio = audioRef.current;
     if (audio) {
       const muted = localVol === 0;
-      audio.muted = muted;
+      audio.muted = muted || surroundRef.current;
       audio.volume = muted ? 0 : localVol / 100;
       // Resume locally from wherever the device left the shared clock.
       if (!pausedRef.current) audio.play().catch(() => undefined);
@@ -1844,6 +1882,11 @@ export default function PlayBar() {
                 onChange={handleVolumeChange}
               />
               <VolumeLabel className="no-select no-drag">{`${volume}%`}</VolumeLabel>
+              {surroundOn && (
+                <IconButton size="small" title="Surround mixer" onClick={() => setMixerOpen(true)}>
+                  <Icon icon={speakerSettings24Regular} width={20} />
+                </IconButton>
+              )}
             </VolumeStack>
           </ProgressColumn>
         </Grid>
@@ -2006,6 +2049,19 @@ export default function PlayBar() {
           </ListItemIcon>
           <ListItemText>Equalizer</ListItemText>
         </MenuItem>
+        {surroundOn && (
+          <MenuItem
+            onClick={() => {
+              setMixerOpen(true);
+              handleCloseMenu();
+            }}
+          >
+            <ListItemIcon>
+              <Icon icon={speakerSettings24Regular} width={20} />
+            </ListItemIcon>
+            <ListItemText>Surround mixer</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleCloseMenu} disabled>
           <ListItemIcon>
             <Icon icon={topSpeed24Regular} width={20} />
@@ -2034,6 +2090,7 @@ export default function PlayBar() {
         open={Boolean(deviceMenuAnchorEl)}
         onClose={handleCloseMenu}
       />
+      <SurroundMixerDialog open={mixerOpen} onClose={() => setMixerOpen(false)} />
       <CastDeviceMenu
         anchorEl={castMenuAnchorEl}
         open={Boolean(castMenuAnchorEl)}

@@ -83,6 +83,7 @@ import {
   setPerDeviceVolumeEnabled,
   getAudioOutputDeviceId,
   setAudioOutputDeviceId,
+  getSurroundSettings,
   getMultiArtistSeparators,
   setMultiArtistSeparators,
   getMultiArtistExceptions,
@@ -95,6 +96,7 @@ import {
 } from '../utils/LocStoreUtil';
 import {
   STREAM_HISTORY_DAY_OPTIONS,
+  SURROUND_OUTPUT_ID,
   WINDOW_SCALE_OPTIONS,
   TitleBarStyle,
   ThemeMode,
@@ -103,6 +105,7 @@ import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
 import ThemeEditorDialog from '../components/ThemeEditorDialog';
 import FactoryResetDialog from '../components/FactoryResetDialog';
 import DuplicateTracksDialog from '../components/DuplicateTracksDialog';
+import SurroundSyncDialog from '../components/SurroundSyncDialog';
 import XeroLogoMark from '../components/XeroLogoMark';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
@@ -779,6 +782,7 @@ const Settings: React.FC = () => {
   const [editorOpen, setEditorOpen] = React.useState(false);
   const [resetOpen, setResetOpen] = React.useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = React.useState(false);
+  const [surroundOpen, setSurroundOpen] = React.useState(false);
   const [appInfo, setAppInfo] = React.useState<AppInfo | null>(null);
   const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
     null
@@ -873,10 +877,13 @@ const Settings: React.FC = () => {
     setAudioOutputDeviceId(deviceId);
   };
 
+  const surroundReady = getSurroundSettings().rear !== null;
   // Fall back to default when the saved device is gone, so the Select value stays in range.
-  const outputDeviceValue = outputDevices.some(d => d.deviceId === outputDeviceId)
-    ? outputDeviceId
-    : 'default';
+  const outputDeviceValue =
+    (outputDeviceId === SURROUND_OUTPUT_ID && surroundReady) ||
+    outputDevices.some(d => d.deviceId === outputDeviceId)
+      ? outputDeviceId
+      : 'default';
 
   const handleThemeModeChange = (mode: ThemeMode): void => {
     setThemeModeState(mode);
@@ -1132,6 +1139,7 @@ const Settings: React.FC = () => {
                   width: { xs: '100%', sm: 'auto' },
                 }}
               >
+                {surroundReady && <MenuItem value={SURROUND_OUTPUT_ID}>Surround</MenuItem>}
                 {outputDevices.length === 0 ? (
                   <MenuItem value="default">System Default</MenuItem>
                 ) : (
@@ -1145,6 +1153,18 @@ const Settings: React.FC = () => {
                   ))
                 )}
               </Select>
+            </ListItem>
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={speakerIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Surround"
+                secondary="Play through a second device behind you and sync its delay"
+              />
+              <Button variant="outlined" size="small" onClick={() => setSurroundOpen(true)}>
+                Set up
+              </Button>
             </ListItem>
             <ListItem>
               <ListItemIcon>
@@ -1898,6 +1918,7 @@ const Settings: React.FC = () => {
       <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
 
       <DuplicateTracksDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
+      <SurroundSyncDialog open={surroundOpen} onClose={() => setSurroundOpen(false)} />
 
       <ThemeEditorDialog
         open={editorOpen}
