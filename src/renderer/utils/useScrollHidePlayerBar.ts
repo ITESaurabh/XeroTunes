@@ -22,13 +22,18 @@ export function useScrollHidePlayerBar<T extends Record<string, number>>(
 ): (_args: T) => void {
   const { threshold = 250, field = 'scrollOffset' as keyof T } = options;
   const { state, dispatch } = useContext(store);
-  const lastPos = useRef<number>(0);
+  const lastPos = useRef<number | null>(null);
 
   return useCallback(
     (args: T) => {
       // Don't hide the player bar while lyrics panel is open
       if (state.isLyricsExpanded) return;
       const pos = args[field] as number;
+      // The first event is the saved offset being restored, not a user scroll.
+      if (lastPos.current === null) {
+        lastPos.current = pos;
+        return;
+      }
       if (pos > threshold) {
         if (pos > lastPos.current) {
           dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false });

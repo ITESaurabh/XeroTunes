@@ -283,11 +283,17 @@ export default function LibraryTable<T>({
   // subscription survives a new handler identity instead of resubscribing.
   const onScrollRef = React.useRef(onScroll);
   onScrollRef.current = onScroll;
+  // The grid reports top 0 on mount; forwarding it makes the restore look like a scroll down.
+  const awaitingRestore = React.useRef(!!initialScrollOffset);
   useEffect(
     () =>
-      apiRef.current?.subscribeEvent('scrollPositionChange', ({ top }) =>
-        onScrollRef.current?.({ scrollOffset: top })
-      ),
+      apiRef.current?.subscribeEvent('scrollPositionChange', ({ top }) => {
+        if (awaitingRestore.current) {
+          if (top === 0) return;
+          awaitingRestore.current = false;
+        }
+        onScrollRef.current?.({ scrollOffset: top });
+      }),
     [apiRef]
   );
 
