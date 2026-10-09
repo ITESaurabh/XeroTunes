@@ -18,6 +18,11 @@ import {
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
+// Surround (beta)
+import { useSurround } from '../utils/useSurround';
+import SurroundMixerDialog from './SurroundMixerDialog';
+import speakerSettings24Regular from '@iconify/icons-fluent/speaker-settings-24-regular';
+import { SURROUND_OUTPUT_ID } from '../../config/surround';
 import * as scratch from '../utils/scratchEngine';
 import {
   getVolumeLevel,
@@ -317,6 +322,9 @@ export default function PlayBar() {
   const pausedRef = useRef(true);
   // Mirrors isCasting for effects and handlers that must not re-subscribe.
   const castingRef = useRef(false);
+  // Surround (beta): set by useSurround while surroundEngine plays the element.
+  // Like casting, the element then stays muted and only keeps the transport.
+  const surroundRef = useRef(false);
   // Discards stale artwork loads when the user skips past the track.
   const metadataReqRef = useRef(0);
   const [duration, setDuration] = useState(0);
@@ -507,6 +515,8 @@ export default function PlayBar() {
   // with the first track, so re-apply on each load and on the change event below.
   const applySinkId = useCallback(async (): Promise<void> => {
     const deviceId = getAudioOutputDeviceId();
+    // Surround (beta): the element is muted, so where its sink points is moot.
+    if (deviceId === SURROUND_OUTPUT_ID) return;
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
         | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
@@ -526,7 +536,7 @@ export default function PlayBar() {
       const audio = audioRef.current;
       audio.src = toMediaSrc(songPath);
       audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
-      audio.muted = castingRef.current || audio.muted;
+      audio.muted = castingRef.current || surroundRef.current || audio.muted;
       void applySinkId();
       // Kick playback off immediately rather than waiting for loadedmetadata
       // so the new track starts at canplay instead of an extra round-trip later.
@@ -549,7 +559,7 @@ export default function PlayBar() {
     if (audioRef.current && !fadeIntervalRef.current) {
       const silent = muteVolume || castingRef.current;
       audioRef.current.volume = silent ? 0 : volume / 100;
-      audioRef.current.muted = silent;
+      audioRef.current.muted = silent || surroundRef.current;
     }
   }, [volume, muteVolume]);
 
@@ -795,6 +805,11 @@ export default function PlayBar() {
       setLastVolume(next);
     }
   }, []);
+
+  // ── Surround (beta) ──────────────────────────────────────────────────────
+  // Effects and mixer state live in useSurround. Elsewhere PlayBar only ORs
+  // surroundRef into audio.muted and renders the mixer entry points.
+  const surround = useSurround(audioRef, songPath, castingRef, muteVolumeRef, surroundRef);
 
   // Re-route live when the output device is changed in Settings.
   useEffect(() => {
@@ -1515,7 +1530,7 @@ export default function PlayBar() {
     const audio = audioRef.current;
     if (audio) {
       const muted = localVol === 0;
-      audio.muted = muted;
+      audio.muted = muted || surroundRef.current;
       audio.volume = muted ? 0 : localVol / 100;
       // Resume locally from wherever the device left the shared clock.
       if (!pausedRef.current) audio.play().catch(() => undefined);
@@ -1844,6 +1859,16 @@ export default function PlayBar() {
                 onChange={handleVolumeChange}
               />
               <VolumeLabel className="no-select no-drag">{`${volume}%`}</VolumeLabel>
+              {/* Surround (beta) */}
+              {surround.on && (
+                <IconButton
+                  size="small"
+                  title="Ambion mixer"
+                  onClick={() => surround.setMixerOpen(true)}
+                >
+                  <Icon icon={speakerSettings24Regular} width={20} />
+                </IconButton>
+              )}
             </VolumeStack>
           </ProgressColumn>
         </Grid>
@@ -2006,6 +2031,20 @@ export default function PlayBar() {
           </ListItemIcon>
           <ListItemText>Equalizer</ListItemText>
         </MenuItem>
+        {/* Surround (beta) */}
+        {surround.on && (
+          <MenuItem
+            onClick={() => {
+              surround.setMixerOpen(true);
+              handleCloseMenu();
+            }}
+          >
+            <ListItemIcon>
+              <Icon icon={speakerSettings24Regular} width={20} />
+            </ListItemIcon>
+            <ListItemText>Ambion mixer</ListItemText>
+          </MenuItem>
+        )}
         <MenuItem onClick={handleCloseMenu} disabled>
           <ListItemIcon>
             <Icon icon={topSpeed24Regular} width={20} />
@@ -2033,6 +2072,11 @@ export default function PlayBar() {
         anchorEl={deviceMenuAnchorEl}
         open={Boolean(deviceMenuAnchorEl)}
         onClose={handleCloseMenu}
+      />
+      {/* Surround (beta) */}
+      <SurroundMixerDialog
+        open={surround.mixerOpen}
+        onClose={() => surround.setMixerOpen(false)}
       />
       <CastDeviceMenu
         anchorEl={castMenuAnchorEl}

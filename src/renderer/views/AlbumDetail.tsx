@@ -57,6 +57,18 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
   return Math.trunc(num);
 }
 
+const PLAYBAR_SPACE = 220;
+const ListInner = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ style, ...rest }, ref) => (
+    <div
+      ref={ref}
+      style={{ ...style, height: Number(style?.height ?? 0) + PLAYBAR_SPACE }}
+      {...rest}
+    />
+  )
+);
+ListInner.displayName = 'ListInner';
+
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
@@ -184,15 +196,22 @@ const AlbumDetail: React.FC = () => {
   ]);
 
   const ROW_HEIGHT = TRACK_ROW_H;
+  const headerShrink = (isPhone ? 180 : 260) - 130;
   const scrollHide = useScrollHidePlayerBar();
   const handleScroll = React.useCallback(
     (args: { scrollOffset: number }) => {
-      const condensed = args.scrollOffset > 0;
-      setIsHeaderCondensed(prev => (prev !== condensed ? condensed : prev));
+      setIsHeaderCondensed(prev => {
+        if (args.scrollOffset <= 0) return false;
+        if (prev) return true;
+        // Condensing grows the list by headerShrink. If that leaves nothing to
+        // scroll, the offset clamps to 0 and the header expands again, looping.
+        const el = scrollerRef.current;
+        return !!el && el.scrollHeight - el.clientHeight > headerShrink;
+      });
       saveScrollPosition(args.scrollOffset);
       scrollHide(args);
     },
-    [saveScrollPosition, scrollHide]
+    [saveScrollPosition, scrollHide, headerShrink]
   );
 
   const Row = useCallback(
@@ -443,6 +462,7 @@ const AlbumDetail: React.FC = () => {
                 itemSize={ROW_HEIGHT}
                 initialScrollOffset={initialScrollOffset}
                 overscanCount={20}
+                innerElementType={ListInner}
                 onScroll={handleScroll}
               >
                 {Row}

@@ -56,6 +56,10 @@ const config: ForgeConfig = {
     // Loose-shipped so the AUMID registration in src/index.ts can point
     // SMTC at a real file path (asar:// paths don't render).
     extraResource: ['./src/assets/logo/XeroTunesLogo.ico', './src/assets/logo/XeroTunesLogo.png'],
+    // macOS kills an app that opens the mic without this; surround's mic sync does.
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'XT Ambion surround sync listens to your speakers to line them up.',
+    },
   },
   rebuildConfig: {},
   makers: [

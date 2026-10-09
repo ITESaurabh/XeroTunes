@@ -170,6 +170,11 @@ const parsedArgs = minimist(process.argv.slice(1), {
   alias: { help: 'h', version: 'v', file: 'f' },
 });
 
+// Lets tooling drive the dev renderer over CDP (docs/spikes/*.js use it).
+if (process.env.NODE_ENV === 'development') {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222');
+}
+
 const isSingleInstance = app.requestSingleInstanceLock();
 if (!isSingleInstance) {
   app.quit();

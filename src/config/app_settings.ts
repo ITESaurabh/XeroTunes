@@ -1,4 +1,5 @@
 import { AMETHYST, AppTheme } from './theme';
+import { DEFAULT_SURROUND_SETTINGS, type SurroundSettings } from './surround';
 
 export type ThemeMode = 0 | 1 | 2;
 export type TitleBarStyle =
@@ -43,6 +44,9 @@ export interface PlaybackSettings {
   deviceVolumeLevels: Record<string, number>;
   /** Per-cast-device volume (0-100), kept separate from local output volumes. */
   castVolumeLevels: Record<string, number>;
+  /** Surround is a beta; off hides it and plays as if it were never set up. */
+  surroundBeta: boolean;
+  surround: SurroundSettings;
 }
 
 /** Cast receivers run loud, so a device seen for the first time starts low. */
@@ -125,6 +129,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
     perDeviceVolume: true,
     deviceVolumeLevels: {},
     castVolumeLevels: {},
+    surroundBeta: false,
+    surround: DEFAULT_SURROUND_SETTINGS,
   },
   library: {
     multiArtistSeparators: [',', '&'],
