@@ -15,6 +15,12 @@ import {
   DEFAULT_CAST_VOLUME,
 } from '../../config/app_settings';
 import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
+import {
+  DEFAULT_SURROUND_SETTINGS,
+  SURROUND_OUTPUT_ID,
+  SurroundDevice,
+  SurroundSettings,
+} from '../../config/surround';
 
 const QUEUE_STATE_KEY = 'queueState';
 const { ipcRenderer } = window.require('electron');
@@ -288,7 +294,8 @@ export interface ScratchDetail {
 }
 
 export function getAudioOutputDeviceId(): string {
-  return getPlaybackSettings().audioOutputDeviceId;
+  const id = getPlaybackSettings().audioOutputDeviceId;
+  return id === SURROUND_OUTPUT_ID && !isSurroundAvailable() ? 'default' : id;
 }
 
 export function setAudioOutputDeviceId(deviceId: string): void {
@@ -296,19 +303,54 @@ export function setAudioOutputDeviceId(deviceId: string): void {
   window.dispatchEvent(new CustomEvent(AUDIO_OUTPUT_DEVICE_EVENT, { detail: deviceId }));
 }
 
-export function getSurroundSettings(): PlaybackSettings['surround'] {
+export function getSurroundBeta(): boolean {
+  return getPlaybackSettings().surroundBeta;
+}
+
+export function setSurroundBeta(enabled: boolean): void {
+  const playback = getPlaybackSettings();
+  updateSettings({ playback: { ...playback, surroundBeta: enabled } });
+  // Sent even when unchanged: turning the beta on revives a saved surround output.
+  const id = playback.audioOutputDeviceId;
+  setAudioOutputDeviceId(!enabled && id === SURROUND_OUTPUT_ID ? 'default' : id);
+}
+
+export function isSurroundAvailable(): boolean {
+  return getSurroundBeta() && getSurroundSettings().rear !== null;
+}
+
+export function getSurroundSettings(): SurroundSettings {
   const surround = getPlaybackSettings().surround;
   // Rejects settings written by earlier shapes of this object.
   return typeof surround.front === 'object' && typeof surround.preset === 'string'
     ? surround
-    : DEFAULT_APP_SETTINGS.playback.surround;
+    : DEFAULT_SURROUND_SETTINGS;
 }
 
 export const SURROUND_EVENT = 'xt-surround-change';
 
-export function setSurroundSettings(surround: PlaybackSettings['surround']): void {
+export function setSurroundSettings(surround: SurroundSettings): void {
   updateSettings({ playback: { ...getPlaybackSettings(), surround } });
   window.dispatchEvent(new Event(SURROUND_EVENT));
+}
+
+/**
+ * Saved surround ids have stopped matching any output across a restart; the
+ * cause wasn't found (the dev origin is fixed and the profile keeps its
+ * device-id salt). A device whose id is gone but whose label matches exactly
+ * one output moves to that output's id.
+ */
+export function healSurroundDeviceIds(devices: MediaDeviceInfo[]): void {
+  const outputs = devices.filter(d => d.kind === 'audiooutput');
+  const heal = (d: SurroundDevice): SurroundDevice => {
+    if (!d.label || outputs.some(o => o.deviceId === d.deviceId)) return d;
+    const found = outputs.filter(o => o.label === d.label);
+    return found.length === 1 ? { ...d, deviceId: found[0].deviceId } : d;
+  };
+  const s = getSurroundSettings();
+  const front = heal(s.front);
+  const rear = s.rear && heal(s.rear);
+  if (front !== s.front || rear !== s.rear) setSurroundSettings({ ...s, front, rear });
 }
 
 export function getLibrarySettings(): LibrarySettings {

@@ -18,10 +18,11 @@ import {
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
-import * as surround from '../utils/surroundEngine';
+// Surround (beta)
+import { useSurround } from '../utils/useSurround';
 import SurroundMixerDialog from './SurroundMixerDialog';
 import speakerSettings24Regular from '@iconify/icons-fluent/speaker-settings-24-regular';
-import { SURROUND_OUTPUT_ID } from '../../config/app_settings';
+import { SURROUND_OUTPUT_ID } from '../../config/surround';
 import * as scratch from '../utils/scratchEngine';
 import {
   getVolumeLevel,
@@ -34,8 +35,6 @@ import {
   getCastVolumeLevel,
   setCastVolumeLevel,
   AUDIO_OUTPUT_DEVICE_EVENT,
-  SURROUND_EVENT,
-  getSurroundSettings,
   CAST_STOP_EVENT,
   PLAYBACK_ERROR_EVENT,
   PLAYBACK_TOGGLE_EVENT,
@@ -323,8 +322,8 @@ export default function PlayBar() {
   const pausedRef = useRef(true);
   // Mirrors isCasting for effects and handlers that must not re-subscribe.
   const castingRef = useRef(false);
-  // Surround routes the element through surroundEngine; like casting, the
-  // element then stays muted and only keeps the transport.
+  // Surround (beta): set by useSurround while surroundEngine plays the element.
+  // Like casting, the element then stays muted and only keeps the transport.
   const surroundRef = useRef(false);
   // Discards stale artwork loads when the user skips past the track.
   const metadataReqRef = useRef(0);
@@ -516,7 +515,7 @@ export default function PlayBar() {
   // with the first track, so re-apply on each load and on the change event below.
   const applySinkId = useCallback(async (): Promise<void> => {
     const deviceId = getAudioOutputDeviceId();
-    // The element is muted under surround; where its sink points is moot.
+    // Surround (beta): the element is muted, so where its sink points is moot.
     if (deviceId === SURROUND_OUTPUT_ID) return;
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
@@ -807,30 +806,10 @@ export default function PlayBar() {
     }
   }, []);
 
-  // Depends on songPath because the element mounts with the first track.
-  useEffect(() => {
-    const apply = (): void => {
-      const audio = audioRef.current;
-      const settings = getSurroundSettings();
-      const on =
-        !!audio &&
-        !!settings.rear &&
-        getAudioOutputDeviceId() === SURROUND_OUTPUT_ID &&
-        !castingRef.current;
-      surroundRef.current = on;
-      setSurroundOn(on);
-      if (on) surround.attach(audio, settings);
-      else surround.detach();
-      if (audio && !castingRef.current) audio.muted = on || muteVolumeRef.current;
-    };
-    apply();
-    window.addEventListener(SURROUND_EVENT, apply);
-    window.addEventListener(AUDIO_OUTPUT_DEVICE_EVENT, apply);
-    return () => {
-      window.removeEventListener(SURROUND_EVENT, apply);
-      window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, apply);
-    };
-  }, [songPath]);
+  // ── Surround (beta) ──────────────────────────────────────────────────────
+  // Effects and mixer state live in useSurround. Elsewhere PlayBar only ORs
+  // surroundRef into audio.muted and renders the mixer entry points.
+  const surround = useSurround(audioRef, songPath, castingRef, muteVolumeRef, surroundRef);
 
   // Re-route live when the output device is changed in Settings.
   useEffect(() => {
@@ -1446,8 +1425,6 @@ export default function PlayBar() {
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuOpen = Boolean(menuAnchorEl) || Boolean(menuPosition);
   const [deviceMenuAnchorEl, setDeviceMenuAnchorEl] = useState<HTMLElement | null>(null);
-  const [mixerOpen, setMixerOpen] = useState(false);
-  const [surroundOn, setSurroundOn] = useState(false);
 
   const handleOpenMenuButton = useCallback((e: React.MouseEvent<HTMLElement>) => {
     setMenuPosition(null);
@@ -1882,8 +1859,13 @@ export default function PlayBar() {
                 onChange={handleVolumeChange}
               />
               <VolumeLabel className="no-select no-drag">{`${volume}%`}</VolumeLabel>
-              {surroundOn && (
-                <IconButton size="small" title="Surround mixer" onClick={() => setMixerOpen(true)}>
+              {/* Surround (beta) */}
+              {surround.on && (
+                <IconButton
+                  size="small"
+                  title="Ambion mixer"
+                  onClick={() => surround.setMixerOpen(true)}
+                >
                   <Icon icon={speakerSettings24Regular} width={20} />
                 </IconButton>
               )}
@@ -2049,17 +2031,18 @@ export default function PlayBar() {
           </ListItemIcon>
           <ListItemText>Equalizer</ListItemText>
         </MenuItem>
-        {surroundOn && (
+        {/* Surround (beta) */}
+        {surround.on && (
           <MenuItem
             onClick={() => {
-              setMixerOpen(true);
+              surround.setMixerOpen(true);
               handleCloseMenu();
             }}
           >
             <ListItemIcon>
               <Icon icon={speakerSettings24Regular} width={20} />
             </ListItemIcon>
-            <ListItemText>Surround mixer</ListItemText>
+            <ListItemText>Ambion mixer</ListItemText>
           </MenuItem>
         )}
         <MenuItem onClick={handleCloseMenu} disabled>
@@ -2090,7 +2073,11 @@ export default function PlayBar() {
         open={Boolean(deviceMenuAnchorEl)}
         onClose={handleCloseMenu}
       />
-      <SurroundMixerDialog open={mixerOpen} onClose={() => setMixerOpen(false)} />
+      {/* Surround (beta) */}
+      <SurroundMixerDialog
+        open={surround.mixerOpen}
+        onClose={() => surround.setMixerOpen(false)}
+      />
       <CastDeviceMenu
         anchorEl={castMenuAnchorEl}
         open={Boolean(castMenuAnchorEl)}

@@ -10,6 +10,7 @@ import {
   Theme,
   SxProps,
 } from '@mui/material';
+import FloatingScrollbar from './FloatingScrollbar';
 
 interface AppDialogProps {
   open: boolean;
@@ -43,6 +44,9 @@ const AppDialog: React.FC<AppDialogProps> = ({
   onEntered,
 }) => {
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const contentRef = React.useRef<HTMLDivElement>(null);
+  // Grow's scale skews the rail's measurements and nothing re-measures after it.
+  const [entered, setEntered] = React.useState(false);
 
   return (
     <Dialog
@@ -70,7 +74,13 @@ const AppDialog: React.FC<AppDialogProps> = ({
         },
       }}
       TransitionComponent={Grow}
-      TransitionProps={{ onEntered }}
+      TransitionProps={{
+        onEntered: () => {
+          setEntered(true);
+          onEntered?.();
+        },
+        onExit: () => setEntered(false),
+      }}
     >
       {(title || headerAction) && (
         <Stack
@@ -90,13 +100,17 @@ const AppDialog: React.FC<AppDialogProps> = ({
         </Stack>
       )}
 
+      {entered && <FloatingScrollbar targetRef={contentRef} />}
       <DialogContent
+        ref={contentRef}
         dividers={dividers}
         sx={{
           backgroundColor: (theme: Theme) => theme.palette.background.paper,
           borderColor: (theme: Theme) => theme.palette.surfaces.glassBorder,
           borderTop: 'none',
           p: 2,
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': { display: 'none' },
           ...contentSx,
         }}
       >

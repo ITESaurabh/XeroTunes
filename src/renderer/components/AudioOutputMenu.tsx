@@ -4,10 +4,10 @@ import { Icon } from '@iconify/react';
 import checkmark16Regular from '@iconify/icons-fluent/checkmark-16-regular';
 import {
   getAudioOutputDeviceId,
-  getSurroundSettings,
+  isSurroundAvailable,
   setAudioOutputDeviceId,
 } from '../utils/LocStoreUtil';
-import { SURROUND_OUTPUT_ID } from '../../config/app_settings';
+import { AMBION_OUTPUT_LABEL, SURROUND_OUTPUT_ID } from '../../config/surround';
 
 interface AudioOutputMenuProps {
   anchorEl: HTMLElement | null;
@@ -61,7 +61,7 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
   useEffect(() => {
     if (!open) return;
     setCurrentSinkId(getAudioOutputDeviceId());
-    setSurroundReady(getSurroundSettings().rear !== null);
+    setSurroundReady(isSurroundAvailable());
   }, [open]);
 
   const handleSelect = useCallback(
@@ -89,7 +89,7 @@ const AudioOutputMenu: React.FC<AudioOutputMenuProps> = ({
           <ListItemIcon>
             {currentSinkId === SURROUND_OUTPUT_ID && <Icon icon={checkmark16Regular} width={18} />}
           </ListItemIcon>
-          <ListItemText>Surround</ListItemText>
+          <ListItemText>{AMBION_OUTPUT_LABEL}</ListItemText>
         </MenuItem>
       )}
       {devices.length === 0 ? (

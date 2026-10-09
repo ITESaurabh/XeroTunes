@@ -1,17 +1,33 @@
 /**
- * One AudioContext per output device (Chromium binds a context to a single
- * sink), each with its own delay so devices with different latencies can be
- * lined up. Music comes in through audio.captureStream(); the element itself
- * stays muted and only keeps the transport. See docs/surround-plan.md.
+ * One AudioContext does the processing, sunk to the front device; the rear
+ * plays from a second context on its own device, fed through an AudioWorklet
+ * ring. Both outputs read one capture on purpose: a fresh capture's FIFO
+ * settles at a random fill, and with a capture per device every track change
+ * re-rolled the front/rear offset. The ring replaced an <audio> element on a
+ * MediaStreamAudioDestinationNode, whose stream renderer kept re-timing the
+ * rear against Bluetooth's jittery clock reports and wandered over ~25 ms.
+ * The music element stays muted and only keeps the transport. See
+ * docs/surround-plan.md.
  */
-import type { SurroundDevice, SurroundSettings } from '../../config/app_settings';
+import type { SurroundDevice, SurroundSettings } from '../../config/surround';
 import { SURROUND_PRESETS, SurroundPreset } from '../../config/surroundPresets';
+import { FRONT_HZ, REAR_HZ, gapMs } from './micSync';
+
+type Role = 'front' | 'rear';
 
 interface Chain {
   ctx: AudioContext;
   delay: DelayNode;
   gain: GainNode;
-  level: number;
+  deviceId: string;
+  /** Rear only: fills the ring from `gain`. */
+  writer: Promise<AudioWorkletNode> | null;
+  /** Rear only: the context on the rear device that plays the ring. */
+  out: AudioContext | null;
+  /** Rear only: the ring has been re-centred since it last (re)started. */
+  settled: boolean;
+  /** Rear only: the device left the device list and `out` is waiting to be rebuilt. */
+  lost: boolean;
 }
 
 // Steering: every STEER_MS the L/R correlation is read off analysers and the
@@ -26,12 +42,18 @@ const REAR_FLOOR = 0.3;
 // ponytail: fixed comb offset for mono rears; an allpass diffuser if the hollowness shows.
 const MONO_DECORRELATE_MS = 12;
 
+// A capture that binds before the pipeline delivers stays silent for good;
+// recapture once the clock has moved this long with nothing reaching the graph.
+const WATCH_MS = 250;
+const SILENT_MS = 1000;
+
 // captureStream() only hands over the stereo downmix, so multichannel files
 // are decoded whole and their channels played from a buffer.
 // ponytail: whole-file decode, ~1.2 MB/s of 5.1 float; WebCodecs streaming if long 5.1 albums matter.
 const MAX_DISCRETE_S = 360;
 
-const chains = new Map<string, Chain>();
+let ctx: AudioContext | null = null;
+const chains = new Map<Role, Chain>();
 
 interface Discrete {
   front: AudioBuffer;
@@ -48,9 +70,10 @@ let attached: {
   inputs: AudioNode[];
   poll: number | null;
   steer: number | null;
+  watch: number | null;
   discrete: Discrete | null;
-  /** Bumped on every release so a decode that lands late is thrown away. */
-  generation: number;
+  /** Src already found to have no surround channels; not decoded again. */
+  stereoSrc: string | null;
   arm: () => void;
   release: () => void;
   onVolume: () => void;
@@ -60,59 +83,366 @@ if (process.env.NODE_ENV === 'development') {
   Object.assign(window, { surroundChains: chains, surroundState: () => attached });
 }
 
-export function open(deviceId: string): Chain {
-  let chain = chains.get(deviceId);
-  if (chain) return chain;
-  // '' is Chromium's spelling of the system default sink. The lib.dom types
-  // predate the sinkId option.
-  const ctx = new AudioContext({
-    sinkId: deviceId === 'default' ? '' : deviceId,
+// '' is Chromium's spelling of the system default sink; lib.dom predates the method.
+const sinkContext = (c: AudioContext, deviceId: string): void => {
+  const sinkable = c as AudioContext & { setSinkId: (_id: string) => Promise<void> };
+  void sinkable.setSinkId(deviceId === 'default' ? '' : deviceId).catch(() => undefined);
+};
+
+// The ring carries frames, so the rear context runs at the main one's rate.
+// The writer posts 256-frame blocks from the processing context; the reader
+// plays them on the rear device and holds the ring's fill at TARGET (32 ms at
+// 48 kHz). Bluetooth pulls in bursts: the fill swings ~25 ms within a second
+// and wanders ±7 ms over a few more, while the speaker's own buffer keeps
+// playback steady. Chasing that jitter is what made the <audio> rear wander,
+// so only 10 s means are acted on: one jump 5 s after (re)priming, then single
+// samples skipped or repeated against clock drift. A starved or overrun ring
+// re-primes rather than keeping the error as delay. `mic-tap` feeds micSync.
+const WORKLETS = `
+const RING = 1 << 15;
+const TARGET = 1536;
+registerProcessor('ring-writer', class extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.out = null;
+    this.n = 0;
+    this.l = new Float32Array(256);
+    this.r = new Float32Array(256);
+    this.port.onmessage = e => { this.out = e.data; };
+  }
+  process([input]) {
+    if (!this.out) return true;
+    if (input[0]) {
+      this.l.set(input[0], this.n);
+      this.r.set(input[1] || input[0], this.n);
+    }
+    this.n += 128;
+    if (this.n === 256) {
+      this.out.postMessage([this.l, this.r], [this.l.buffer, this.r.buffer]);
+      this.l = new Float32Array(256);
+      this.r = new Float32Array(256);
+      this.n = 0;
+    }
+    return true;
+  }
+});
+registerProcessor('ring-reader', class extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.l = new Float32Array(RING);
+    this.r = new Float32Array(RING);
+    this.w = 0;
+    this.rd = 0;
+    this.run = false;
+    this.port.onmessage = e => {
+      e.data.onmessage = ({ data: [l, r] }) => {
+        for (let i = 0; i < l.length; i++) {
+          const k = (this.w + i) & (RING - 1);
+          this.l[k] = l[i];
+          this.r[k] = r[i];
+        }
+        this.w += l.length;
+      };
+    };
+  }
+  process(_, [[L, R]]) {
+    const fill = this.w - this.rd;
+    if (!this.run || fill < L.length || fill > RING) {
+      if (this.run) this.port.postMessage(false);
+      this.run = false;
+      if (fill < TARGET) return true;
+      this.rd = this.w - TARGET;
+      this.run = true;
+      this.centred = false;
+      this.block = 1875;
+      this.sum = this.count = this.pending = 0;
+      this.spacing = 1;
+      return true;
+    }
+    this.sum += fill;
+    this.count++;
+    for (let i = 0; i < L.length; i++) {
+      const k = this.rd++ & (RING - 1);
+      L[i] = this.l[k];
+      R[i] = this.r[k];
+    }
+    if (this.pending && this.count % this.spacing === 0) {
+      const s = Math.sign(this.pending);
+      this.rd += s;
+      this.pending -= s;
+    }
+    if (this.count === this.block) {
+      const err = this.sum / this.count - TARGET;
+      if (!this.centred || Math.abs(err) > 960) {
+        this.rd += Math.round(err);
+        this.pending = 0;
+        if (!this.centred) this.port.postMessage(true);
+        this.centred = true;
+      } else if (Math.abs(err) > 24) {
+        this.pending = Math.round(err * 0.8);
+        this.spacing = Math.max(1, Math.floor(3750 / Math.abs(this.pending)));
+      }
+      this.block = 3750;
+      this.sum = this.count = 0;
+    }
+    return true;
+  }
+});
+registerProcessor('mic-tap', class extends AudioWorkletProcessor {
+  process([input]) {
+    this.port.postMessage(input[0] ? input[0].slice() : new Float32Array(128));
+    return true;
+  }
+});
+`;
+
+let workletUrl: string | null = null;
+const worklets = new WeakMap<BaseAudioContext, Promise<void>>();
+const loadWorklets = (c: BaseAudioContext): Promise<void> => {
+  workletUrl ??= URL.createObjectURL(new Blob([WORKLETS], { type: 'text/javascript' }));
+  let loaded = worklets.get(c);
+  if (!loaded) {
+    loaded = c.audioWorklet.addModule(workletUrl);
+    worklets.set(c, loaded);
+  }
+  return loaded;
+};
+
+// An analyser with nothing downstream is an automatic pull node, and a context
+// that has one is never moved to Chromium's fake sink after 30 s of silence.
+// Coming back from it drains a few stored buffers first, which adds a random
+// delay to that output until it is reopened.
+const keepAwake = (node: AudioNode): void => {
+  node.connect(node.context.createAnalyser());
+};
+
+/** A context on the rear device playing the ring that `chain.writer` fills. */
+function rearOutput(chain: Chain): AudioContext {
+  const out = new AudioContext({
+    latencyHint: 'interactive',
+    sampleRate: chain.ctx.sampleRate,
+    sinkId: chain.deviceId === 'default' ? '' : chain.deviceId,
   } as AudioContextOptions);
-  const delay = ctx.createDelay(1);
-  const gain = ctx.createGain();
-  delay.connect(gain).connect(ctx.destination);
-  chain = { ctx, delay, gain, level: 1 };
-  // When a sink dies (Bluetooth drop) Chromium quietly renders to the system
-  // default instead; better silence on that chain than music on a random device.
-  ctx.addEventListener('error', () => {
-    gain.gain.value = 0;
+  chain.settled = false;
+  // Chromium renders a context whose sink died to the system default instead;
+  // better silence than music on a random device. The next devicechange that
+  // lists the rear again rebuilds it.
+  out.addEventListener('error', () => {
+    chain.lost = true;
+    void out.close();
   });
-  chains.set(deviceId, chain);
+  void Promise.all([chain.writer, loadWorklets(out)])
+    .then(([writer]) => {
+      if (chain.out !== out || !writer) return;
+      const reader = new AudioWorkletNode(out, 'ring-reader', {
+        numberOfInputs: 0,
+        outputChannelCount: [2],
+      });
+      reader.port.onmessage = e => {
+        if (chain.out === out) chain.settled = e.data;
+      };
+      const { port1, port2 } = new MessageChannel();
+      writer.port.postMessage(port1, [port1]);
+      reader.port.postMessage(port2, [port2]);
+      reader.connect(out.destination);
+      keepAwake(reader);
+    })
+    .catch(() => undefined);
+  return out;
+}
+
+const reopenRear = (chain: Chain): void => {
+  // Already closed if its sink died.
+  chain.out?.close().catch(() => undefined);
+  chain.lost = false;
+  chain.out = rearOutput(chain);
+};
+
+// A Bluetooth rear keeps its id across a drop, and setSinkId to the current id
+// is a no-op, so the context that lost the device never reopens it. It gets a
+// fresh one when the device is listed again. Not muted meanwhile: a Bluetooth
+// headset went missing from one enumeration with no devicechange after it came
+// back, and the mute stuck.
+let deviceScan = 0;
+const onDeviceChange = async (): Promise<void> => {
+  const scan = ++deviceScan;
+  const list = await navigator.mediaDevices.enumerateDevices().catch(() => null);
+  const rear = chains.get('rear');
+  if (scan !== deviceScan || !list || !rear?.out) return;
+  if (!list.some(d => d.kind === 'audiooutput' && d.deviceId === rear.deviceId)) rear.lost = true;
+  else if (rear.lost) reopenRear(rear);
+};
+
+export function open(role: Role, deviceId: string): Chain {
+  let chain = chains.get(role);
+  if (chain) {
+    if (chain.deviceId !== deviceId) {
+      chain.deviceId = deviceId;
+      if (chain.out) reopenRear(chain);
+      else sinkContext(chain.ctx, deviceId);
+    }
+    return chain;
+  }
+  if (!ctx) {
+    ctx = new AudioContext();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
+  }
+  const c = ctx;
+  const delay = c.createDelay(1);
+  const gain = c.createGain();
+  delay.connect(gain);
+  keepAwake(gain);
+  let writer: Promise<AudioWorkletNode> | null = null;
+  if (role === 'front') {
+    gain.connect(c.destination);
+    sinkContext(c, deviceId);
+    // When a sink dies (Bluetooth drop) Chromium quietly renders to the system
+    // default instead; better silence on that chain than music on a random device.
+    c.addEventListener('error', () => {
+      gain.gain.value = 0;
+    });
+  } else {
+    writer = loadWorklets(c).then(() => {
+      const node = new AudioWorkletNode(c, 'ring-writer', {
+        outputChannelCount: [1],
+        channelCount: 2,
+        channelCountMode: 'explicit',
+      });
+      gain.connect(node);
+      // Its output is silent; the connection only gets the node rendered.
+      node.connect(c.destination);
+      return node;
+    });
+  }
+  chain = { ctx: c, delay, gain, deviceId, writer, out: null, settled: false, lost: false };
+  if (writer) chain.out = rearOutput(chain);
+  chains.set(role, chain);
   return chain;
 }
 
-export function setDelay(deviceId: string, ms: number): void {
-  open(deviceId).delay.delayTime.value = Math.max(0, ms) / 1000;
+/** Offset > 0 delays the front (rear is slow), < 0 delays the rear. */
+export function setOffset(frontId: string, rearId: string | undefined, ms: number): void {
+  open('front', frontId).delay.delayTime.value = Math.max(0, ms) / 1000;
+  if (rearId) open('rear', rearId).delay.delayTime.value = Math.max(0, -ms) / 1000;
 }
 
 export function setLevel(device: SurroundDevice): void {
-  const chain = open(device.deviceId);
-  chain.level = device.muted ? 0 : device.volume / 100;
-  chain.gain.gain.value = chain.level;
+  open('rear', device.deviceId).gain.gain.value = device.muted ? 0 : device.volume / 100;
 }
 
 /** The player volume drives the front alone; the rear keeps its mixer level. */
 export function setVolume(v: number): void {
-  const front = attached && chains.get(attached.settings.front.deviceId);
+  const front = attached && chains.get('front');
   if (front) front.gain.gain.value = v;
 }
 
+// -6 dBFS. A page can't read a device's hardware ceiling, so this is the
+// loudest fixed level that stays clear of the full-scale click that made a
+// Bluetooth rear crackle and drop off the link.
+const CLICK_PEAK = 0.5;
+
 /**
- * 10 ms 1 kHz blip through each device's delay, all fired together, scaled
- * against the chain gain so they land at the same level whatever the mixer says.
+ * A tone burst into the chain's delay, scaled against its gain so it lands at
+ * CLICK_PEAK. The 2 ms fades keep a hard edge from splattering into the other
+ * output's pitch, which micSync would read as that output's burst.
  */
-export function click(deviceIds: string[]): void {
-  for (const id of deviceIds) {
-    const { ctx, delay, gain } = open(id);
-    const level = gain.gain.value;
-    if (level < 0.01) continue;
-    const osc = ctx.createOscillator();
-    const env = ctx.createGain();
-    env.gain.value = 0.5 / level;
-    osc.frequency.value = 1000;
-    osc.connect(env).connect(delay);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.01);
+const tone = ({ ctx: c, delay, gain }: Chain, hz: number, at: number, seconds: number): void => {
+  const level = gain.gain.value;
+  if (level < 0.01) return;
+  const osc = c.createOscillator();
+  const env = c.createGain();
+  const peak = CLICK_PEAK / level;
+  env.gain.setValueAtTime(0, at);
+  env.gain.linearRampToValueAtTime(peak, at + 0.002);
+  env.gain.setValueAtTime(peak, at + seconds - 0.002);
+  env.gain.linearRampToValueAtTime(0, at + seconds);
+  osc.frequency.value = hz;
+  osc.connect(env).connect(delay);
+  osc.start(at);
+  osc.stop(at + seconds);
+};
+
+/** 10 ms 1 kHz blip through each output's delay, both fired together. */
+export function click(frontId: string, rearId: string): void {
+  const front = open('front', frontId);
+  tone(front, 1000, front.ctx.currentTime, 0.01);
+  tone(open('rear', rearId), 1000, front.ctx.currentTime, 0.01);
+}
+
+const PROBE_PAIRS = 8;
+const PROBE_EVERY_S = 1.2;
+
+const sleep = (ms: number): Promise<void> => new Promise(r => window.setTimeout(r, ms));
+
+/**
+ * The offset that lines the outputs up, measured through the microphone:
+ * tone pairs at FRONT_HZ / REAR_HZ with both delays zeroed, so the recording
+ * holds the raw gap. Null when the mic did not hear both clearly; rejects when
+ * mic access is refused. Expects testBed() to be running.
+ */
+export async function micSync(frontId: string, rearId: string): Promise<number | null> {
+  const front = open('front', frontId);
+  const rear = open('rear', rearId);
+  const mic = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  const rec = new AudioContext({ sampleRate: front.ctx.sampleRate });
+  const saved = [front.delay.delayTime.value, rear.delay.delayTime.value];
+  try {
+    // A ring that re-centres mid-measurement moves the rear by up to ~10 ms.
+    for (const end = performance.now() + 8000; !rear.settled && performance.now() < end; ) {
+      await sleep(100);
+    }
+    await loadWorklets(rec);
+    const chunks: Float32Array[] = [];
+    const tap = new AudioWorkletNode(rec, 'mic-tap');
+    tap.port.onmessage = e => chunks.push(e.data);
+    rec.createMediaStreamSource(mic).connect(tap).connect(rec.destination);
+    front.delay.delayTime.value = rear.delay.delayTime.value = 0;
+    await sleep(300);
+    const t0 = front.ctx.currentTime + 0.1;
+    for (let i = 0; i < PROBE_PAIRS; i++) {
+      tone(front, FRONT_HZ, t0 + i * PROBE_EVERY_S, 0.02);
+      tone(rear, REAR_HZ, t0 + i * PROBE_EVERY_S, 0.02);
+    }
+    // The last rear burst can land up to a second after its front one.
+    await sleep((0.1 + PROBE_PAIRS * PROBE_EVERY_S + 1.2) * 1000);
+    const x = new Float32Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      x.set(c, at);
+      at += c.length;
+    }
+    const gap = gapMs(x, rec.sampleRate, PROBE_PAIRS, PROBE_EVERY_S * 1000);
+    return gap === null ? null : Math.round(gap);
+  } finally {
+    [front.delay.delayTime.value, rear.delay.delayTime.value] = saved;
+    mic.getTracks().forEach(t => t.stop());
+    void rec.close();
+  }
+}
+
+// A Bluetooth amp that has been silent takes a moment to wake and would clip
+// the clicks, so the sync test lays a -80 dBFS bed on both chains and leaves
+// the outputs in their playing state throughout.
+const BED_LEVEL = 1e-4;
+let bed: AudioBufferSourceNode[] = [];
+
+/** Called with no ids to stop. */
+export function testBed(frontId?: string, rearId?: string): void {
+  for (const src of bed) src.stop();
+  bed = [];
+  if (!frontId || !rearId) return;
+  for (const { ctx: c, delay } of [open('front', frontId), open('rear', rearId)]) {
+    const buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * BED_LEVEL;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(delay);
+    src.start();
+    bed.push(src);
   }
 }
 
@@ -162,21 +492,18 @@ async function readLocalFile(src: string): Promise<ArrayBuffer | null> {
   return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
 }
 
-/** Apply delays and levels without touching the capture. */
+/** Apply devices, delays and levels without touching the capture. */
 export function configure({ front, rear, offsetMs }: SurroundSettings): void {
-  setDelay(front.deviceId, offsetMs);
-  if (rear) {
-    setLevel(rear);
-    setDelay(rear.deviceId, -offsetMs);
-  }
+  setOffset(front.deviceId, rear?.deviceId, offsetMs);
+  if (rear) setLevel(rear);
 }
 
 const preset = (key: string): SurroundPreset => SURROUND_PRESETS[key] ?? SURROUND_PRESETS.natural;
 
 /** Exponentially decaying stereo noise: a room without measuring one. */
-function impulse(ctx: AudioContext, seconds: number): AudioBuffer {
-  const n = Math.ceil(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+function impulse(c: AudioContext, seconds: number): AudioBuffer {
+  const n = Math.ceil(c.sampleRate * seconds);
+  const buf = c.createBuffer(2, n, c.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n) ** 3;
@@ -184,18 +511,12 @@ function impulse(ctx: AudioContext, seconds: number): AudioBuffer {
   return buf;
 }
 
-/** Whether these settings need the audio graph rebuilt rather than re-levelled. */
-const graphKey = (s: SurroundSettings): string =>
-  [s.front.deviceId, s.rear?.deviceId, s.rear?.kind, s.preset].join('|');
+/** Whether these settings need the audio graph rebuilt rather than re-levelled. Devices re-sink in place. */
+const graphKey = (s: SurroundSettings): string => [s.rear?.kind, s.preset].join('|');
 
 /** Route the element's audio to front (as is) and rear (the preset's ambience feed). */
 export function attach(audio: HTMLAudioElement, settings: SurroundSettings): void {
-  const rearId = settings.rear?.deviceId ?? '';
-  const sameDevices =
-    attached?.audio === audio &&
-    attached.settings.front.deviceId === settings.front.deviceId &&
-    attached.settings.rear?.deviceId === rearId;
-  if (!sameDevices) detach();
+  if (attached && attached.audio !== audio) detach();
   configure(settings);
   if (attached) {
     const rebuild = graphKey(attached.settings) !== graphKey(settings);
@@ -203,7 +524,7 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     if (rebuild) attached.arm();
     return;
   }
-  if (!rearId) return;
+  if (!settings.rear) return;
 
   // Chromium feeds only the newest captureStream() of an element, and a
   // source node whose track merely stopped delivering keeps replaying its
@@ -211,10 +532,8 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
   // empties, and nothing else in the app may capture this element.
   const release = (): void => {
     if (!attached) return;
-    attached.generation++;
-    if (attached.poll) window.clearInterval(attached.poll);
-    if (attached.steer) window.clearInterval(attached.steer);
-    attached.poll = attached.steer = null;
+    for (const id of [attached.poll, attached.steer, attached.watch]) if (id) window.clearInterval(id);
+    attached.poll = attached.steer = attached.watch = null;
     for (const n of attached.inputs) n.disconnect();
     attached.inputs = [];
     attached.stream?.getTracks().forEach(t => t.stop());
@@ -232,21 +551,27 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
   // A file with surround channels replaces the matrix path; the muted element stays the clock.
   const loadDiscrete = async (): Promise<void> => {
     if (!attached || !attached.settings.rear || audio.duration > MAX_DISCRETE_S) return;
-    const generation = attached.generation;
-    const frontId = attached.settings.front.deviceId;
-    const rearId = attached.settings.rear.deviceId;
+    const src = audio.src;
+    if (src === attached.stereoSrc) return;
+    const decoder = open('front', attached.settings.front.deviceId).ctx;
     let folded: ReturnType<typeof foldChannels> = null;
     try {
-      const bytes = await readLocalFile(audio.src);
+      const bytes = await readLocalFile(src);
       if (!bytes) return;
-      folded = foldChannels(await open(frontId).ctx.decodeAudioData(bytes));
+      folded = foldChannels(await decoder.decodeAudioData(bytes));
     } catch {
+      // Undecodable (AC-3, DTS) is treated like stereo: the matrix path stays.
+    }
+    // A recapture meanwhile is fine; a new file or an earlier decode that landed is not.
+    if (!attached || audio.src !== src) return;
+    if (!folded) {
+      attached.stereoSrc = src;
       return;
     }
-    if (!folded || !attached || attached.generation !== generation) return;
-    // Real channels replace the matrix feed and its steering; delay and levels stay.
-    if (attached.steer) window.clearInterval(attached.steer);
-    attached.steer = null;
+    if (attached.discrete) return;
+    // Real channels replace the matrix feed, its steering and the silence watch; delay and levels stay.
+    for (const id of [attached.steer, attached.watch]) if (id) window.clearInterval(id);
+    attached.steer = attached.watch = null;
     for (const n of attached.inputs) n.disconnect();
     attached.inputs = [];
     attached.stream?.getTracks().forEach(t => t.stop());
@@ -261,18 +586,19 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
       },
       onPlaying: () => {
         d.onPause();
+        const s = attached?.settings;
+        if (!s?.rear) return;
         const at = audio.currentTime;
-        const feeds: Array<[string, AudioBuffer]> = [
-          [frontId, d.front],
-          [rearId, d.rear],
+        const feeds: Array<[Chain, AudioBuffer]> = [
+          [open('front', s.front.deviceId), d.front],
+          [open('rear', s.rear.deviceId), d.rear],
         ];
-        for (const [id, buffer] of feeds) {
-          const { ctx, delay } = open(id);
-          const s = ctx.createBufferSource();
-          s.buffer = buffer;
-          s.connect(delay);
-          s.start(0, at);
-          d.sources.push(s);
+        for (const [{ ctx: c, delay }, buffer] of feeds) {
+          const source = c.createBufferSource();
+          source.buffer = buffer;
+          source.connect(delay);
+          source.start(0, at);
+          d.sources.push(source);
         }
       },
     };
@@ -295,28 +621,41 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     if (stream.getAudioTracks().length === 0) return;
     attached.stream = stream;
 
-    const front = open(frontDev.deviceId);
-    const frontSrc = front.ctx.createMediaStreamSource(stream);
-    const frontSteer = front.ctx.createGain();
-    frontSrc.connect(frontSteer).connect(front.delay);
-    attached.inputs.push(frontSrc);
+    const front = open('front', frontDev.deviceId);
+    const { ctx: c, delay } = open('rear', rear.deviceId);
+    const src = c.createMediaStreamSource(stream);
+    attached.inputs.push(src);
+    const frontSteer = c.createGain();
+    src.connect(frontSteer).connect(front.delay);
 
-    const { ctx, delay } = open(rear.deviceId);
-    const rearSrc = ctx.createMediaStreamSource(stream);
-    attached.inputs.push(rearSrc);
+    const meter = c.createAnalyser();
+    meter.fftSize = 2048;
+    src.connect(meter);
+    const samples = new Float32Array(meter.fftSize);
+    let heard = performance.now();
+    let lastTime = audio.currentTime;
+    attached.watch = window.setInterval(() => {
+      meter.getFloatTimeDomainData(samples);
+      const now = performance.now();
+      if (samples.some(v => Math.abs(v) > 1e-4)) heard = now;
+      const moved = audio.currentTime !== lastTime;
+      lastTime = audio.currentTime;
+      if (moved && now - heard > SILENT_MS) capture();
+    }, WATCH_MS);
+    void loadDiscrete();
+
     if (p.bypass) {
-      rearSrc.connect(delay);
-      void loadDiscrete();
+      src.connect(delay);
       return;
     }
-    const split = ctx.createChannelSplitter(2);
-    rearSrc.connect(split);
+    const split = c.createChannelSplitter(2);
+    src.connect(split);
 
     const sum = (weights: [number, number], scale: number): GainNode => {
-      const out = ctx.createGain();
+      const out = c.createGain();
       out.gain.value = scale;
       weights.forEach((w, channel) => {
-        const g = ctx.createGain();
+        const g = c.createGain();
         g.gain.value = w;
         split.connect(g, channel);
         g.connect(out);
@@ -327,45 +666,46 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     const side = sum([0.5, -0.5], p.side);
     // Stereo rear: L = mid + side, R = mid − side. A mono box sums its two
     // channels, so it gets mid + side on both instead of a pair that cancels;
-    // side is pushed back a few ms first so a right-panned source (negative
-    // side) adds to mid in energy rather than cancelling it.
-    const merge = ctx.createChannelMerger(2);
+    // the two are pulled a few ms apart so a right-panned source (negative
+    // side) adds to mid in energy rather than cancelling it. Mid is the one
+    // held back: side is at least as loud in every preset, and the sync clicks
+    // can only line up the part that isn't delayed.
+    const merge = c.createChannelMerger(2);
     const mono = rear.kind === 'mono';
-    const sideRight = ctx.createGain();
+    const sideRight = c.createGain();
     sideRight.gain.value = mono ? 1 : -1;
-    let sideOut: AudioNode = side;
+    let midOut: AudioNode = mid;
     if (mono) {
-      const decorrelate = ctx.createDelay(0.05);
+      const decorrelate = c.createDelay(0.05);
       decorrelate.delayTime.value = MONO_DECORRELATE_MS / 1000;
-      sideOut = side.connect(decorrelate);
+      midOut = mid.connect(decorrelate);
     }
-    mid.connect(merge, 0, 0);
-    mid.connect(merge, 0, 1);
-    sideOut.connect(merge, 0, 0);
-    sideOut.connect(sideRight).connect(merge, 0, 1);
+    midOut.connect(merge, 0, 0);
+    midOut.connect(merge, 0, 1);
+    side.connect(merge, 0, 0);
+    side.connect(sideRight).connect(merge, 0, 1);
 
-    const highpass = ctx.createBiquadFilter();
+    const highpass = c.createBiquadFilter();
     highpass.type = 'highpass';
     highpass.frequency.value = p.highpassHz;
-    const lowpass = ctx.createBiquadFilter();
+    const lowpass = c.createBiquadFilter();
     lowpass.type = 'lowpass';
     lowpass.frequency.value = p.lowpassHz;
-    const haas = ctx.createDelay(0.1);
-    haas.delayTime.value = p.delayMs / 1000;
-    const trim = ctx.createGain();
+    const trim = c.createGain();
     trim.gain.value = 10 ** (p.trimDb / 20);
-    const rearSteer = ctx.createGain();
-    merge.connect(highpass).connect(lowpass).connect(haas);
-    haas.connect(trim);
+    const rearSteer = c.createGain();
+    // No Haas delay on the rear feed: the sync clicks enter at the chain's
+    // delay line and cannot carry one, so anything this path adds is time the
+    // user cannot tune out. Alignment beats the extra depth it bought.
+    merge.connect(highpass).connect(lowpass).connect(trim);
     if (p.reverbS > 0) {
-      const reverb = ctx.createConvolver();
-      reverb.buffer = impulse(ctx, p.reverbS);
-      const wet = ctx.createGain();
+      const reverb = c.createConvolver();
+      reverb.buffer = impulse(c, p.reverbS);
+      const wet = c.createGain();
       wet.gain.value = p.reverbMix;
-      haas.connect(reverb).connect(wet).connect(trim);
+      lowpass.connect(reverb).connect(wet).connect(trim);
     }
     trim.connect(rearSteer).connect(delay);
-    void loadDiscrete();
 
     if (p.steer <= 0) return;
     const frontFloor = 1 - p.steer * (1 - FRONT_FLOOR);
@@ -373,10 +713,10 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     // Energy taps: L, R, L+R and L-R. In-phase content dominates the sum,
     // anti-phase (matrix-encoded rear) dominates the difference.
     const tap = (...inputs: Array<[number, number]>): (() => number) => {
-      const an = ctx.createAnalyser();
+      const an = c.createAnalyser();
       an.fftSize = 1024;
       for (const [channel, sign] of inputs) {
-        const g = ctx.createGain();
+        const g = c.createGain();
         g.gain.value = sign;
         split.connect(g, channel);
         g.connect(an);
@@ -437,8 +777,9 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     inputs: [],
     poll: null,
     steer: null,
+    watch: null,
     discrete: null,
-    generation: 0,
+    stereoSrc: null,
     arm,
     release,
     onVolume,
@@ -462,6 +803,10 @@ export function detach(): void {
 }
 
 export function close(): void {
-  for (const { ctx } of chains.values()) void ctx.close();
+  navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
+  bed = [];
+  for (const { out } of chains.values()) out?.close().catch(() => undefined);
   chains.clear();
+  void ctx?.close();
+  ctx = null;
 }

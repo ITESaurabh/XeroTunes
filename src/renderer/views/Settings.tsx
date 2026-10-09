@@ -83,7 +83,9 @@ import {
   setPerDeviceVolumeEnabled,
   getAudioOutputDeviceId,
   setAudioOutputDeviceId,
-  getSurroundSettings,
+  getSurroundBeta,
+  setSurroundBeta,
+  isSurroundAvailable,
   getMultiArtistSeparators,
   setMultiArtistSeparators,
   getMultiArtistExceptions,
@@ -96,16 +98,17 @@ import {
 } from '../utils/LocStoreUtil';
 import {
   STREAM_HISTORY_DAY_OPTIONS,
-  SURROUND_OUTPUT_ID,
   WINDOW_SCALE_OPTIONS,
   TitleBarStyle,
   ThemeMode,
 } from '../../config/app_settings';
 import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
+import { AMBION_OUTPUT_LABEL, SURROUND_OUTPUT_ID } from '../../config/surround';
 import ThemeEditorDialog from '../components/ThemeEditorDialog';
 import FactoryResetDialog from '../components/FactoryResetDialog';
 import DuplicateTracksDialog from '../components/DuplicateTracksDialog';
 import SurroundSyncDialog from '../components/SurroundSyncDialog';
+import AmbionHelp from '../components/AmbionHelp';
 import XeroLogoMark from '../components/XeroLogoMark';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
@@ -783,6 +786,7 @@ const Settings: React.FC = () => {
   const [resetOpen, setResetOpen] = React.useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = React.useState(false);
   const [surroundOpen, setSurroundOpen] = React.useState(false);
+  const [surroundBeta, setSurroundBetaState] = React.useState(getSurroundBeta);
   const [appInfo, setAppInfo] = React.useState<AppInfo | null>(null);
   const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
     null
@@ -877,7 +881,7 @@ const Settings: React.FC = () => {
     setAudioOutputDeviceId(deviceId);
   };
 
-  const surroundReady = getSurroundSettings().rear !== null;
+  const surroundReady = isSurroundAvailable();
   // Fall back to default when the saved device is gone, so the Select value stays in range.
   const outputDeviceValue =
     (outputDeviceId === SURROUND_OUTPUT_ID && surroundReady) ||
@@ -1139,7 +1143,9 @@ const Settings: React.FC = () => {
                   width: { xs: '100%', sm: 'auto' },
                 }}
               >
-                {surroundReady && <MenuItem value={SURROUND_OUTPUT_ID}>Surround</MenuItem>}
+                {surroundReady && (
+                  <MenuItem value={SURROUND_OUTPUT_ID}>{AMBION_OUTPUT_LABEL}</MenuItem>
+                )}
                 {outputDevices.length === 0 ? (
                   <MenuItem value="default">System Default</MenuItem>
                 ) : (
@@ -1159,12 +1165,43 @@ const Settings: React.FC = () => {
                 <Icon icon={speakerIcon} width={'2rem'} />
               </ListItemIcon>
               <ListItemText
-                primary="Surround"
-                secondary="Play through a second device behind you and sync its delay"
+                primary={
+                  <>
+                    Ambion
+                    <Chip
+                      component="span"
+                      label="Beta"
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      sx={{ height: 20, ml: 1 }}
+                    />
+                    <AmbionHelp />
+                  </>
+                }
+                secondary="Surround from speakers you already own: add a second device behind you and sync its delay"
               />
-              <Button variant="outlined" size="small" onClick={() => setSurroundOpen(true)}>
-                Set up
-              </Button>
+              {surroundBeta && (
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => setSurroundOpen(true)}
+                  sx={{ mr: 1 }}
+                >
+                  Set up
+                </Button>
+              )}
+              <IOSSwitch
+                checked={surroundBeta}
+                onChange={e => {
+                  setSurroundBetaState(e.target.checked);
+                  setSurroundBeta(e.target.checked);
+                  setOutputDeviceIdState(getAudioOutputDeviceId());
+                }}
+                sx={{
+                  mr: 0.5,
+                }}
+              />
             </ListItem>
             <ListItem>
               <ListItemIcon>
@@ -1918,7 +1955,14 @@ const Settings: React.FC = () => {
       <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
 
       <DuplicateTracksDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
-      <SurroundSyncDialog open={surroundOpen} onClose={() => setSurroundOpen(false)} />
+      <SurroundSyncDialog
+        open={surroundOpen}
+        onClose={() => {
+          setSurroundOpen(false);
+          // Finishing setup switches the output to surround.
+          setOutputDeviceIdState(getAudioOutputDeviceId());
+        }}
+      />
 
       <ThemeEditorDialog
         open={editorOpen}

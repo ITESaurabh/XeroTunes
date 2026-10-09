@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Box,
   Button,
+  Chip,
   IconButton,
   MenuItem,
   Select,
@@ -15,6 +16,7 @@ import speakerIcon from '@iconify/icons-fluent/speaker-2-24-regular';
 import speakerMuteIcon from '@iconify/icons-fluent/speaker-mute-24-regular';
 import AppDialog from './AppDialog';
 import SurroundSyncDialog from './SurroundSyncDialog';
+import AmbionHelp from './AmbionHelp';
 import {
   getSurroundSettings,
   getVolumeLevel,
@@ -22,7 +24,7 @@ import {
   VOLUME_CHANGE_EVENT,
 } from '../utils/LocStoreUtil';
 import * as surround from '../utils/surroundEngine';
-import type { SpeakerKind, SurroundDevice, SurroundSettings } from '../../config/app_settings';
+import type { SpeakerKind, SurroundDevice, SurroundSettings } from '../../config/surround';
 import { SURROUND_PRESETS } from '../../config/surroundPresets';
 
 interface SurroundMixerDialogProps {
@@ -49,6 +51,9 @@ const asNumber = (v: number | number[]): number => (Array.isArray(v) ? v[0] : v)
 const SIZE = 300;
 const RING = 100;
 const CENTER = SIZE / 2;
+// Keeps the head clear of the LEFT/RIGHT labels.
+const HEAD_W = 64;
+const HEAD_H = (HEAD_W * 186.19) / 306.61;
 
 const polar = (deg: number, r: number): [number, number] => {
   const a = ((deg - 90) * Math.PI) / 180;
@@ -89,7 +94,7 @@ const Room: React.FC<RoomProps> = ({ dots, selected, labels, onSelect }) => {
         [
           ['FRONT', 0],
           ['RIGHT', 90],
-          ['BACK', 180],
+          ['REAR', 180],
           ['LEFT', 270],
         ] as Array<[string, number]>
       ).map(([text, deg]) => {
@@ -109,13 +114,38 @@ const Room: React.FC<RoomProps> = ({ dots, selected, labels, onSelect }) => {
           </text>
         );
       })}
-      {/* head, nose towards the front */}
-      <circle cx={CENTER} cy={CENTER} r={16} fill={dim} fillOpacity={0.35} />
-      <path
-        d={`M ${CENTER - 6} ${CENTER - 13} L ${CENTER} ${CENTER - 24} L ${CENTER + 6} ${CENTER - 13} Z`}
-        fill={dim}
-        fillOpacity={0.5}
-      />
+      <svg
+        x={CENTER - HEAD_W / 2}
+        y={CENTER - HEAD_H / 2}
+        width={HEAD_W}
+        height={HEAD_H}
+        viewBox="0 0 306.61 186.19"
+        color={theme.palette.text.primary}
+        fillRule="evenodd"
+      >
+        <path
+          fill="currentColor"
+          fillOpacity={0.2}
+          d="M153.3 33.8c84.67,0 153.31,27.05 153.31,60.42 0,33.38 -68.64,60.43 -153.31,60.43 -84.66,0 -153.3,-27.05 -153.3,-60.43 0,-33.37 68.64,-60.42 153.3,-60.42z"
+        />
+        <path
+          fill="currentColor"
+          d="M153.3 33.8c84.67,0 153.31,27.05 153.31,60.42 0,33.38 -68.64,60.43 -153.31,60.43 -84.66,0 -153.3,-27.05 -153.3,-60.43 0,-33.37 68.64,-60.42 153.3,-60.42zm107.39 20.31c-27.44,-10.81 -65.4,-17.5 -107.39,-17.5 -41.98,0 -79.94,6.69 -107.38,17.5 -26.63,10.5 -43.11,24.7 -43.11,40.11 0,15.42 16.48,29.62 43.11,40.12 27.44,10.81 65.4,17.5 107.38,17.5 41.99,0 79.95,-6.69 107.39,-17.5 26.63,-10.5 43.11,-24.7 43.11,-40.12 0,-15.41 -16.48,-29.61 -43.11,-40.11z"
+        />
+        <path
+          fill="#929294"
+          stroke="currentColor"
+          strokeWidth={2.81}
+          strokeLinecap="square"
+          d="M77.34 99.34c-0.23,-38.64 25.41,-68.53 60.49,-77.85 12.21,-3.31 7.6,-19.78 20.75,-20.08 13.16,-0.31 8.34,14.16 22.74,20.85 32.91,10.02 57.12,38.24 57.86,75.27 12.13,0.22 11.79,25.48 -1.74,22.09 -7.78,36.64 -39.27,64.4 -77.48,65.17 -38.57,0.77 -71.39,-26.21 -80.28,-63.04 -13.34,1.25 -13.87,-20.43 -2.34,-22.41z"
+        />
+        <g stroke="currentColor" strokeWidth={0.7}>
+          <ellipse fill="#FEFEFE" cx={121.82} cy={24.84} rx={29.25} ry={20.08} />
+          <ellipse fill="#2B2A29" cx={116.94} cy={28.42} rx={17.32} ry={9.68} />
+          <ellipse fill="#FEFEFE" cx={192.15} cy={28.28} rx={29.25} ry={20.08} />
+          <ellipse fill="#2B2A29" cx={192.13} cy={19.43} rx={17.32} ry={9.68} />
+        </g>
+      </svg>
       {dots.map((d, i) => {
         const [x, y] = polar(d.deg, RING);
         const r = 7 + 9 * d.level;
@@ -136,9 +166,11 @@ const Room: React.FC<RoomProps> = ({ dots, selected, labels, onSelect }) => {
         );
       })}
       {(['front', 'rear'] as Role[]).map(role => {
-        const d = dots.find(x => x.role === role);
-        if (!d) return null;
-        const [x, y] = polar(d.deg, RING + 30);
+        const mine = dots.filter(x => x.role === role);
+        if (!mine.length) return null;
+        // A stereo pair's dots straddle its azimuth; label the azimuth, not one dot.
+        const deg = mine.reduce((s, x) => s + x.deg, 0) / mine.length;
+        const [x, y] = polar(deg, RING + 30);
         return (
           <text
             key={role}
@@ -217,7 +249,20 @@ const SurroundMixerDialog: React.FC<SurroundMixerDialogProps> = ({ open, onClose
     <AppDialog
       open={open}
       onClose={onClose}
-      title="Surround mixer"
+      title={
+        <>
+          Ambion mixer
+          <Chip
+            component="span"
+            label="Beta"
+            size="small"
+            color="primary"
+            variant="outlined"
+            sx={{ height: 20, ml: 1 }}
+          />
+          <AmbionHelp />
+        </>
+      }
       maxWidth="xs"
       fullWidth
       contentSx={{ overflowX: 'hidden' }}
@@ -261,9 +306,17 @@ const SurroundMixerDialog: React.FC<SurroundMixerDialogProps> = ({ open, onClose
             <Select
               size="small"
               fullWidth
-              value={devices.some(d => d.deviceId === device.deviceId) ? device.deviceId : ''}
-              onChange={e => setDevice({ deviceId: String(e.target.value) }, true)}
+              value={devices.length ? device.deviceId : ''}
+              onChange={e => {
+                const id = String(e.target.value);
+                setDevice({ deviceId: id, label: devices.find(d => d.deviceId === id)?.label }, true);
+              }}
             >
+              {devices.length > 0 && !devices.some(d => d.deviceId === device.deviceId) && (
+                <MenuItem value={device.deviceId} disabled>
+                  {device.label ?? 'Saved device'} (not connected)
+                </MenuItem>
+              )}
               {devices
                 .filter(d => selected === 'front' || d.deviceId !== front.deviceId)
                 .map(d => (

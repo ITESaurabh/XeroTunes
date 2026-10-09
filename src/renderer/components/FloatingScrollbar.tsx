@@ -380,6 +380,7 @@ function FloatingScrollbar({
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     color: alpha(theme.palette.text.primary, 0.55),
     pointerEvents: 'auto' as const,
     '&:hover': { color: theme.palette.text.primary },
