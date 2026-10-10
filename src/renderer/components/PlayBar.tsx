@@ -1149,7 +1149,7 @@ export default function PlayBar() {
   useEffect(() => {
     sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
     // Title is a dep because a stream keeps one track id across songs.
-  }, [state.track?.Id, state.track?.Title, paused, discordEnabled]);
+  }, [state.track?.Id, state.track?.Title, paused, discordEnabled, duration]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
 
   // Set while a hand or the needle is on the record: the element is silent and
