@@ -16,7 +16,8 @@ import { PLAYBACK_ERROR_EVENT } from '../utils/LocStoreUtil';
 import SearchDialog from './SearchDialog';
 
 // In: the library fades under the deck. Out: it is already there beneath the
-// deck lifting off, so nothing double-exposes.
+// deck lifting off, so nothing double-exposes. No initial={false} on its
+// AnimatePresence: it reaches every page inside and blocks their entrances.
 const fade = {
   initial: { opacity: 1 },
   animate: { opacity: 1 },
@@ -55,7 +56,7 @@ function Layout() {
     <Box height={'100%'} position="relative" overflow="hidden">
       <Titlebar />
       <Box display={'flex'} height={'100%'}>
-        <AnimatePresence initial={false}>
+        <AnimatePresence>
           {!vinyl && (
             <motion.div key="drawer" style={{ height: '100%', flex: 'none' }} {...fade}>
               <AppDrawer
@@ -91,7 +92,7 @@ function Layout() {
             overflow: 'hidden',
           }}
         >
-          <AnimatePresence initial={false}>
+          <AnimatePresence>
             {!vinyl && (
               <motion.div
                 key="library"
