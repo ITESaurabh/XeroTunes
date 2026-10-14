@@ -88,11 +88,11 @@ function applyActivity(data: NowPlayingData) {
     statusDisplayType: 0,
     // endTimestamp:
     startTimestamp: new Date(now - data.position * 1000),
-    // Line 1 — track title (mirrors Spotify's "Song Name")
+    // Line 1: track title
     details: data.title || 'Unknown Track',
-    // Line 2 — "Artist • Album" (mirrors Spotify's artist + context line)
+    // Line 2: "Artist • Album"
     state: stateStr || undefined,
-    // Large image = app logo; tooltip shows album name like Spotify shows album art tooltip
+    // Large image is the app logo; its tooltip carries the album name
     largeImageKey: 'app_icon',
     largeImageText: 'XeroTunes',
     // Small badge = play / pause indicator

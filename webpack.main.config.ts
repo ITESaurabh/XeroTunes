@@ -23,7 +23,10 @@ export const mainConfig: Configuration = {
   },
   externals: {
     'react-native-fs': 'reactNativeFs',
-    ...(process.env.NODE_ENV === 'development' && { 'better-sqlite3': 'commonjs better-sqlite3' }),
+    ...(process.env.NODE_ENV === 'development' && {
+      'better-sqlite3': 'commonjs better-sqlite3',
+      'castv2-client': 'commonjs castv2-client',
+    }),
   },
   module: {
     rules,
@@ -34,6 +37,10 @@ export const mainConfig: Configuration = {
       patterns: [
         {
           from: path.join(__dirname, 'src', 'loader.html'),
+          to: '.',
+        },
+        {
+          from: path.join(__dirname, 'node_modules', 'castv2', 'lib', 'cast_channel.proto'),
           to: '.',
         },
       ],

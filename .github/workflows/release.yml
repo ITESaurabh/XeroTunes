@@ -12,15 +12,73 @@ permissions:
   contents: write
 
 jobs:
+  # Tags aren't tied to a branch. Stable releases must come from main, beta
+  # prereleases (hyphen tags) from development.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Require tag to be on its channel's branch
+        run: |
+          if [[ "${{ github.ref_name }}" == *-* ]]; then
+            branch=development
+          else
+            branch=main
+          fi
+          git fetch origin "$branch"
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+            echo "::error::Tag ${{ github.ref_name }} ($GITHUB_SHA) is not on $branch; refusing to release."
+            exit 1
+          fi
+
   release:
+    needs: guard
+    # Selects which set of environment secrets (DISCORD_CLIENT_ID, ...) to use.
+    # Beta tags read the "beta" environment, stable tags "production".
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+          - os: macos-latest
+          # THIS: Intel Mac
+          - os: macos-26-intel
+          # OR: Cross-compile escape hatch, for when os26 image retires.
+          # - os: macos-latest
+          #   forge_args: --arch=x64
+          #
+          # better-sqlite3 has no prebuild for Electron 43's ABI, so it is
+          # compiled during the build and whatever glibc it links against
+          # becomes the floor for every Linux artifact. This image is the one
+          # base that satisfies both ends: glibc 2.28, old enough to keep the
+          # floor low, and gcc 14, new enough for Node 24's V8 headers, which
+          # gcc 11 and 12 both reject. Stock runners force 2.38.
+          # See docs/linux-support.md before changing this.
+          - os: ubuntu-latest
+            container: quay.io/pypa/manylinux_2_28_x86_64
     runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
 
     steps:
-      - uses: actions/checkout@v4
+      # RPM-based and bare: checkout needs git, MakerDeb needs dpkg and fakeroot
+      # from EPEL, MakerZIP needs zip. gcc 14 is already on PATH. Root, no sudo.
+      #
+      # LDFLAGS matters more than it looks: gcc 14's libstdc++ is newer than
+      # anything a glibc 2.28 distro ships, so without folding it in the C++
+      # runtime becomes a second, higher floor and the old base buys nothing.
+      - name: Set up Linux build and maker dependencies
+        if: runner.os == 'Linux'
+        run: |
+          dnf install -y epel-release
+          dnf install -y git rpm-build zip dpkg fakeroot binutils
+          echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
+          gcc --version | head -1
+          ldd --version | head -1
+
+      - uses: actions/checkout@v7
 
       - name: Determine channel from tag
         id: channel
@@ -34,23 +92,60 @@ jobs:
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install Linux maker dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y rpm fakeroot dpkg
-
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
       - name: Enable Corepack
         run: corepack enable
 
+      # The GitHub publisher names the release after package.json's version, not
+      # the git tag. Sync them so the tag you push is the release you get.
+      - name: Set version from tag
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Building version $VERSION"
+
       - name: Install dependencies
         run: yarn install --immutable
 
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
+        # Cross-compile variant; pairs with the macos-latest matrix entry.
+        # run: yarn ${{ steps.channel.outputs.script }} ${{ matrix.forge_args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APP_ENV: ${{ steps.channel.outputs.app_env }}
           DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID }}
+          GCAST_APP_ID: ${{ secrets.GCAST_APP_ID }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_API_SECRET: ${{ secrets.LASTFM_API_SECRET }}
+          LIBREFM_API_KEY: ${{ secrets.LIBREFM_API_KEY }}
+          LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}
+
+      - name: Report glibc floor
+        if: runner.os == 'Linux'
+        run: |
+          BIN=$(find out -name better_sqlite3.node | head -1)
+          objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
+          objdump -T "$BIN" | grep -o 'GLIBCXX_[0-9.]*' | sort -uV || echo "GLIBCXX: none"
+
+  # Rebuild the site so its download links pick up the new release assets.
+  netlify:
+    needs: release
+    # The hook is an environment secret like the rest, so this job has to
+    # select an environment too -- without one it resolves to an empty string
+    # and curl fails with a malformed-URL error.
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HOOK: ${{ secrets.NETLIFY_BUILD_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::NETLIFY_BUILD_HOOK is not set for this environment"
+            exit 1
+          fi
+          curl -fsSL -X POST -d '{}' "$HOOK"

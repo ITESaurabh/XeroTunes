@@ -58,10 +58,10 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
       onClose={onClose}
       fullScreen={isPhone}
       maxWidth={false}
-      // fullWidth
       scroll="paper"
       sx={{ mt: 4, zIndex: (theme: Theme) => theme.zIndex.drawer + 1 }}
       PaperProps={{
+        onClick: onClose,
         sx: {
           flex: 1,
           m: 0,
@@ -79,8 +79,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
       slotProps={{
         backdrop: {
           sx: {
-            backgroundColor: (theme: Theme) =>
-              theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.6)' : 'rgba(255,255,255,0.5)',
+            backgroundColor: (theme: Theme) => theme.palette.surfaces.scrim,
             backdropFilter: 'blur(2px)',
           },
         },
@@ -92,6 +91,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           component="img"
           src={imageSrc}
           alt={imageAlt}
+          onClick={e => e.stopPropagation()}
           onContextMenu={handleContextMenu}
           onLoad={event => {
             const { naturalWidth, naturalHeight } = event.currentTarget;
@@ -100,12 +100,11 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
             }
           }}
           sx={{
+            alignSelf: 'center',
             width: 'auto',
             height: 'auto',
             maxWidth: '100%',
-            aspectRatio: '1/1',
             maxHeight: { xs: '50vh', md: '78vh' },
-            objectFit: 'contain',
             display: 'block',
           }}
         />
@@ -125,7 +124,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
         <Typography
           variant="caption"
           textAlign={'center'}
-          sx={{ color: 'rgba(255,255,255,0.7)', minHeight: 20 }}
+          sx={{ color: 'text.secondary', minHeight: 20 }}
         >
           {resolution}
         </Typography>
@@ -133,7 +132,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           size="small"
           variant="text"
           onClick={onClose}
-          sx={{ color: 'rgba(255,255,255,0.92)', fontWeight: 700, fontSize: '0.95rem' }}
+          sx={{ color: 'text.primary', fontWeight: 700, fontSize: '0.95rem' }}
         >
           Close
         </Button>

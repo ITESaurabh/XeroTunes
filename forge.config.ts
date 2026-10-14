@@ -1,3 +1,4 @@
+import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
@@ -14,6 +15,28 @@ import { PublisherGitHub } from '@electron-forge/publisher-github';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 import { CHANNEL, IDENTITY } from './src/config/channel';
+
+const AUDIO_MIME_TYPES = [
+  'audio/mpeg',
+  'audio/mp4',
+  'audio/aac',
+  'audio/aacp',
+  'audio/flac',
+  'audio/x-flac',
+  'audio/ogg',
+  'audio/x-vorbis+ogg',
+  'audio/opus',
+  'audio/x-opus+ogg',
+  'audio/wav',
+  'audio/x-wav',
+  'audio/x-m4a',
+  'audio/mp3',
+  'audio/x-mpeg',
+  // 'audio/aiff',
+  // 'audio/x-aiff',
+  'audio/webm',
+  // 'audio/x-ms-wma',
+];
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -33,6 +56,10 @@ const config: ForgeConfig = {
     // Loose-shipped so the AUMID registration in src/index.ts can point
     // SMTC at a real file path (asar:// paths don't render).
     extraResource: ['./src/assets/logo/XeroTunesLogo.ico', './src/assets/logo/XeroTunesLogo.png'],
+    // macOS kills an app that opens the mic without this; surround's mic sync does.
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'XT Ambion surround sync listens to your speakers to line them up.',
+    },
   },
   rebuildConfig: {},
   makers: [
@@ -42,28 +69,32 @@ const config: ForgeConfig = {
       setupIcon: path.resolve(__dirname, 'src/assets/logo/XeroTunesLogo.ico'),
       loadingGif: './src/assets/meowding.gif',
     }),
-    new MakerZIP({}, ['darwin']),
+    new MakerZIP({}, ['linux', 'win32']),
     new MakerDeb({
       options: {
         name: IDENTITY.installName,
+        // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
+        bin: IDENTITY.installName,
         section: 'sound',
         genericName: 'Music Player',
-        categories: ['Audio'],
+        categories: ['AudioVideo', 'Audio'],
+        mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
     new MakerRpm({
       options: {
         name: IDENTITY.installName,
+        // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
+        bin: IDENTITY.installName,
         genericName: 'Music Player',
-        categories: ['Audio'],
+        categories: ['AudioVideo', 'Audio'],
+        mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
       },
     }),
     new MakerDMG({
-      name: IDENTITY.productName,
       background: './src/assets/dmg-bg/background.tiff',
-      // background: path.resolve(__dirname, 'src/assets/dmg-bg/bg.png'),
       additionalDMGOptions: {
         window: {
           size: { width: 480, height: 320 },
@@ -93,6 +124,7 @@ const config: ForgeConfig = {
     new WebpackPlugin({
       mainConfig,
       devContentSecurityPolicy: "'unsafe-eval'",
+      port: 3456,
       renderer: {
         config: rendererConfig,
         entryPoints: [
@@ -134,13 +166,33 @@ const config: ForgeConfig = {
   ],
   publishers: [
     new PublisherGitHub({
-      repository: { owner: 'ITESaurabh', name: 'xero-music-player' },
+      repository: { owner: 'ITESaurabh', name: 'XeroTunes' },
       // Beta is the default channel, so an un-opted build is a prerelease.
       // A stable release must be built with APP_CHANNEL=stable (yarn publish:prod).
       prerelease: CHANNEL === 'beta',
       draft: false,
     }),
   ],
+  hooks: {
+    async postMake(_config, makeResults) {
+      for (const result of makeResults) {
+        result.artifacts = await Promise.all(
+          result.artifacts.map(async artifact => {
+            if (!artifact.endsWith('.dmg')) return artifact;
+            const renamed = path.join(
+              path.dirname(artifact),
+              path
+                .basename(artifact)
+                .replace(/-arm64\.dmg$/, '.dmg')
+                .replace(/-x64\.dmg$/, '-intel.dmg')
+            );
+            if (renamed !== artifact) await fs.rename(artifact, renamed);
+            return renamed;
+          })
+        );
+      }
+      return makeResults;
+    },
+  },
 };
-
 export default config;

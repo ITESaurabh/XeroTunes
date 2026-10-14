@@ -15,22 +15,47 @@ The tag shape picks the channel:
 
 A tag containing a hyphen is treated as a prerelease.
 
+Each channel's tag must be on its branch — stable on `main`, beta on
+`development`. A tag on the wrong branch fails the guard job before any build
+runs.
+
 ## Cutting a release
 
-1. Bump `version` in `package.json` and commit.
-2. Tag and push:
-   ```
-   git tag v0.10.0        # or v0.10.0-beta.1 for beta
-   git push origin v0.10.0
-   ```
-3. The workflow builds on Windows, macOS, and Linux and uploads installers to a
-   GitHub Release matching the tag.
+The tag is authoritative: CI sets the build version from it (`npm version` in the
+workflow), so the release always matches the tag. No need to bump `package.json`
+first — though keeping it roughly in sync is fine for local dev.
 
-## Required repository secret
+```
+git tag v0.10.0            # stable, from main
+git tag v0.10.0-beta.1     # beta, from development
+git push origin v0.10.0
+```
 
-- `DISCORD_CLIENT_ID` — injected at build time via `dotenv-webpack`
-  (`systemvars: true`), replacing the gitignored `.env.*` files that supply it
-  locally. `GITHUB_TOKEN` is provided automatically by Actions.
+The workflow builds on Windows, Linux, and both macOS architectures (arm64 and
+x64) and uploads installers to a GitHub Release named after the tag.
+
+The Intel build runs natively on `macos-26-intel`. There is no automatic
+fallback: if GitHub retires that image the release fails on that job, on
+purpose. A cross-compiled x64 binary that nobody ran is worse than a build you
+can see is broken.
+
+To cross-compile anyway -- retired image, or you just need the artifact --
+the workflow carries a commented-out block for it: comment the `macos-26-intel`
+matrix entry, uncomment the `macos-latest` one below it, and uncomment the
+matching `run:` line on the Publish step. Test the result on a real Intel Mac
+before it goes to a stable tag; the runner cannot do that for you.
+
+## Secrets per channel
+
+Channel-specific values live in two GitHub **Environments**, `beta` and
+`production`. The release job selects one from the tag, so the same secret name
+resolves to a different value per channel:
+
+- `DISCORD_CLIENT_ID` — set once in each environment. Injected at build time via
+  `dotenv-webpack` (`systemvars: true`), replacing the gitignored `.env.*` files
+  that supply it locally.
+
+`GITHUB_TOKEN` is provided automatically by Actions and is not per-channel.
 
 ## Auto-update
 

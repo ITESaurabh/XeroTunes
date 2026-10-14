@@ -9,9 +9,18 @@ import {
   LibrarySettings,
   ViewSettings,
   FolderViewSettings,
+  FolderViewKey,
   TitleBarStyle,
   clampWindowScale,
+  DEFAULT_CAST_VOLUME,
 } from '../../config/app_settings';
+import { AMETHYST, AppTheme, parseTheme } from '../../config/theme';
+import {
+  DEFAULT_SURROUND_SETTINGS,
+  SURROUND_OUTPUT_ID,
+  SurroundDevice,
+  SurroundSettings,
+} from '../../config/surround';
 
 const QUEUE_STATE_KEY = 'queueState';
 const { ipcRenderer } = window.require('electron');
@@ -176,12 +185,55 @@ export function getPlaybackSettings(): PlaybackSettings {
   return getSettings().playback;
 }
 
+/** Volume for the current output device, or the shared one when perDeviceVolume is off. */
 export function getVolumeLevel(): number {
-  return getPlaybackSettings().volumeLevel;
+  const playback = getPlaybackSettings();
+  if (playback.perDeviceVolume) {
+    const perDevice = playback.deviceVolumeLevels?.[playback.audioOutputDeviceId];
+    return typeof perDevice === 'number' ? perDevice : DEFAULT_APP_SETTINGS.playback.volumeLevel;
+  }
+  return playback.volumeLevel;
 }
 
 export function setVolumeLevel(val: number): void {
-  updateSettings({ playback: { ...getPlaybackSettings(), volumeLevel: val } });
+  const playback = getPlaybackSettings();
+  if (playback.perDeviceVolume) {
+    updateSettings({
+      playback: {
+        ...playback,
+        deviceVolumeLevels: {
+          ...playback.deviceVolumeLevels,
+          [playback.audioOutputDeviceId]: val,
+        },
+      },
+    });
+  } else {
+    updateSettings({ playback: { ...playback, volumeLevel: val } });
+  }
+}
+
+export function getCastVolumeLevel(deviceId: string): number {
+  const levels = getPlaybackSettings().castVolumeLevels ?? {};
+  const val = levels[deviceId];
+  return typeof val === 'number' ? val : DEFAULT_CAST_VOLUME;
+}
+
+export function setCastVolumeLevel(deviceId: string, val: number): void {
+  const playback = getPlaybackSettings();
+  updateSettings({
+    playback: {
+      ...playback,
+      castVolumeLevels: { ...(playback.castVolumeLevels ?? {}), [deviceId]: val },
+    },
+  });
+}
+
+export function getPerDeviceVolumeEnabled(): boolean {
+  return getPlaybackSettings().perDeviceVolume;
+}
+
+export function setPerDeviceVolumeEnabled(enabled: boolean): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), perDeviceVolume: enabled } });
 }
 
 export function getPlaybackShuffle(): boolean {
@@ -206,6 +258,99 @@ export function getPauseOnAudioOutputChange(): boolean {
 
 export function setPauseOnAudioOutputChange(enabled: boolean): void {
   updateSettings({ playback: { ...getPlaybackSettings(), pauseOnAudioOutputChange: enabled } });
+}
+
+export const AUDIO_OUTPUT_DEVICE_EVENT = 'xt-audio-output-device-change';
+
+export const CAST_STOP_EVENT = 'xt-cast-stop';
+
+export const PLAYBACK_ERROR_EVENT = 'xt-playback-error';
+
+// Transport lives in PlayBar; controls rendered elsewhere (vinyl mode) reach it through these.
+export const PLAYBACK_TOGGLE_EVENT = 'xt-playback-toggle';
+
+/** detail: volume 0-100 */
+export const VOLUME_CHANGE_EVENT = 'xt-volume-change';
+
+/** detail: { position, duration } seconds, once a second while playing. */
+export const PLAYBACK_TICK_EVENT = 'xt-playback-tick';
+
+/**
+ * A hand on the deck. 'prime' decodes `uri` for scratching ahead of time;
+ * 'hold' lifts the sound off the element; 'move' drags the record by `seconds`
+ * of groove at `rate` × normal speed (negative = backwards); 'scrub' drops the
+ * needle at `fraction` of the track; 'release' lets go and playback resumes
+ * from wherever the groove ended up.
+ */
+export const PLAYBACK_SCRATCH_EVENT = 'xt-playback-scratch';
+export interface ScratchDetail {
+  phase: 'prime' | 'hold' | 'move' | 'scrub' | 'release';
+  uri?: string;
+  seconds?: number;
+  rate?: number;
+  fraction?: number;
+  /** On 'release': the arm was set down on the record (start) or lifted clear of it (stop). */
+  play?: boolean;
+}
+
+export function getAudioOutputDeviceId(): string {
+  const id = getPlaybackSettings().audioOutputDeviceId;
+  return id === SURROUND_OUTPUT_ID && !isSurroundAvailable() ? 'default' : id;
+}
+
+export function setAudioOutputDeviceId(deviceId: string): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), audioOutputDeviceId: deviceId } });
+  window.dispatchEvent(new CustomEvent(AUDIO_OUTPUT_DEVICE_EVENT, { detail: deviceId }));
+}
+
+export function getSurroundBeta(): boolean {
+  return getPlaybackSettings().surroundBeta;
+}
+
+export function setSurroundBeta(enabled: boolean): void {
+  const playback = getPlaybackSettings();
+  updateSettings({ playback: { ...playback, surroundBeta: enabled } });
+  // Sent even when unchanged: turning the beta on revives a saved surround output.
+  const id = playback.audioOutputDeviceId;
+  setAudioOutputDeviceId(!enabled && id === SURROUND_OUTPUT_ID ? 'default' : id);
+}
+
+export function isSurroundAvailable(): boolean {
+  return getSurroundBeta() && getSurroundSettings().rear !== null;
+}
+
+export function getSurroundSettings(): SurroundSettings {
+  const surround = getPlaybackSettings().surround;
+  // Rejects settings written by earlier shapes of this object.
+  return typeof surround.front === 'object' && typeof surround.preset === 'string'
+    ? surround
+    : DEFAULT_SURROUND_SETTINGS;
+}
+
+export const SURROUND_EVENT = 'xt-surround-change';
+
+export function setSurroundSettings(surround: SurroundSettings): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), surround } });
+  window.dispatchEvent(new Event(SURROUND_EVENT));
+}
+
+/**
+ * Saved surround ids have stopped matching any output across a restart; the
+ * cause wasn't found (the dev origin is fixed and the profile keeps its
+ * device-id salt). A device whose id is gone but whose label matches exactly
+ * one output moves to that output's id.
+ */
+export function healSurroundDeviceIds(devices: MediaDeviceInfo[]): void {
+  const outputs = devices.filter(d => d.kind === 'audiooutput');
+  const heal = (d: SurroundDevice): SurroundDevice => {
+    if (!d.label || outputs.some(o => o.deviceId === d.deviceId)) return d;
+    const found = outputs.filter(o => o.label === d.label);
+    return found.length === 1 ? { ...d, deviceId: found[0].deviceId } : d;
+  };
+  const s = getSurroundSettings();
+  const front = heal(s.front);
+  const rear = s.rear && heal(s.rear);
+  if (front !== s.front || rear !== s.rear) setSurroundSettings({ ...s, front, rear });
 }
 
 export function getLibrarySettings(): LibrarySettings {
@@ -256,6 +401,14 @@ export function setOverlayEnabled(enabled: boolean): void {
   updateSettings({ overlayEnabled: enabled });
 }
 
+export function getStartInVinylMode(): boolean {
+  return getSettings().startInVinylMode;
+}
+
+export function setStartInVinylMode(enabled: boolean): void {
+  updateSettings({ startInVinylMode: enabled });
+}
+
 export function getDiscordEnabled(): boolean {
   return getSettings().discordPresenceEnabled;
 }
@@ -272,6 +425,16 @@ export function setArtistImageFetchingEnabled(enabled: boolean): void {
   updateSettings({ artistImageFetchingEnabled: enabled });
 }
 
+export function getStreamHistoryDays(): number {
+  return getSettings().streamHistoryDays;
+}
+
+export function setStreamHistoryDays(days: number): void {
+  updateSettings({ streamHistoryDays: days });
+}
+
+export const WINDOW_SCALE_EVENT = 'xt-window-scale';
+
 export function getWindowScale(): number {
   return clampWindowScale(getSettings().windowScale);
 }
@@ -282,7 +445,18 @@ export function setWindowScale(scale: number): number {
   ipcRenderer
     .invoke('set-window-scale', { scale: safe })
     .catch((err: unknown) => console.warn('Failed to apply window scale:', err));
+  // The View menu changes the scale too, so views showing it cannot just read
+  // it once on mount.
+  window.dispatchEvent(new CustomEvent(WINDOW_SCALE_EVENT, { detail: safe }));
   return safe;
+}
+
+export function getAlwaysShowScrollbar(): boolean {
+  return getSettings().theme.alwaysShowScrollbar;
+}
+
+export function setAlwaysShowScrollbar(enabled: boolean): boolean {
+  return setThemeSettings({ alwaysShowScrollbar: enabled }).alwaysShowScrollbar;
 }
 
 export function getTitleBarStyle(): TitleBarStyle {
@@ -298,16 +472,60 @@ export function setTitleBarStyle(style: TitleBarStyle): TitleBarStyle {
   return next.titleBarStyle;
 }
 
+/** Built-in first, then user themes. Stored themes are re-validated: the file is editable. */
+export function getAllThemes(): AppTheme[] {
+  const stored = getSettings().theme.customThemes;
+  const valid = (Array.isArray(stored) ? stored : []).flatMap(raw => {
+    const parsed = parseTheme(raw);
+    return 'theme' in parsed && parsed.theme.name !== AMETHYST.name ? [parsed.theme] : [];
+  });
+  return [AMETHYST, ...valid];
+}
+
+export function getActiveTheme(): AppTheme {
+  const { activeTheme } = getSettings().theme;
+  return getAllThemes().find(t => t.name === activeTheme) ?? AMETHYST;
+}
+
+export function setActiveTheme(name: string): AppTheme {
+  setThemeSettings({ activeTheme: name });
+  return getActiveTheme();
+}
+
+/** Upsert by name, so editing a theme replaces it rather than piling up duplicates. */
+export function saveCustomTheme(theme: AppTheme): AppTheme[] {
+  const others = getAllThemes().filter(t => t !== AMETHYST && t.name !== theme.name);
+  setThemeSettings({ customThemes: [...others, theme] });
+  return getAllThemes();
+}
+
+export function deleteCustomTheme(name: string): AppTheme[] {
+  const others = getAllThemes().filter(t => t !== AMETHYST && t.name !== name);
+  setThemeSettings({ customThemes: others });
+  if (getSettings().theme.activeTheme === name) setActiveTheme(AMETHYST.name);
+  return getAllThemes();
+}
+
+/** "Name", "Name (2)", "Name (3)". Used by duplicate and by imports that collide. */
+export function uniqueThemeName(base: string): string {
+  const taken = new Set(getAllThemes().map(t => t.name));
+  if (!taken.has(base)) return base;
+  for (let i = 2; ; i++) {
+    const candidate = `${base} (${i})`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 export function getViewSettings(): ViewSettings {
   return getSettings().views;
 }
 
-export function getFolderViewSettings(key: keyof ViewSettings): FolderViewSettings {
+export function getFolderViewSettings(key: FolderViewKey): FolderViewSettings {
   return getViewSettings()[key];
 }
 
 export function setFolderViewSettings(
-  key: keyof ViewSettings,
+  key: FolderViewKey,
   update: Partial<FolderViewSettings>
 ): FolderViewSettings {
   const current = getViewSettings();

@@ -87,8 +87,9 @@ const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2', albumAr
         onMouseDown={e => e.stopPropagation()}
         onClick={handleClick}
         sx={{
-          cursor: 'pointer',
-          display: 'block',
+          display: 'inline-block',
+          maxWidth: '100%',
+          verticalAlign: 'bottom',
           '&:hover': { textDecoration: 'underline', color: 'primary.main' },
         }}
       >

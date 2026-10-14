@@ -1,5 +1,6 @@
 import { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  alpha,
   Box,
   Button,
   styled,
@@ -8,7 +9,9 @@ import {
   useMediaQuery,
   useTheme,
   Drawer,
+  Tooltip,
 } from '@mui/material';
+import { keyframes } from '@emotion/react';
 import { useNavigate, useLocation, useNavigationType } from 'react-router';
 import { Theme } from '@mui/material/styles';
 import ButtonBase, { ButtonBaseProps } from '@mui/material/ButtonBase';
@@ -20,12 +23,15 @@ import maximizeIcon from '@iconify/icons-fluent/maximize-16-regular';
 import restoreIcon from '@iconify/icons-fluent/square-multiple-16-regular';
 import restoreKdeIcon from '@iconify/icons-fluent/diamond-16-regular';
 import closeIcon from '@iconify/icons-fluent/dismiss-16-regular';
+import castFilledIcon from '@iconify/icons-fluent/cast-24-filled';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import menuIcon from '@iconify/icons-fluent/line-horizontal-3-20-filled';
-import AppIcon from 'svg-react-loader?name=AppIcon!../../img/logo.svg';
+import AppIcon from 'svg-react-loader?name=AppIcon!../../assets/logo.svg';
 import { Icon } from '@iconify/react';
 import { store } from '../utils/store';
+import { CAST_STOP_EVENT } from '../utils/LocStoreUtil';
+import { confirmNavigation } from '../utils/navGuard';
 import MainDrawer from './MainDrawer';
 import { TitleBarStyle } from '../../config/app_settings';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
@@ -48,9 +54,7 @@ const NavButtons = styled(ButtonBase, {
   '&:hover': {
     backgroundColor: closeButton
       ? theme.palette.error.main
-      : theme.palette.mode === 'dark'
-        ? 'rgba(255, 255, 255, 0.05)'
-        : 'rgba(0, 0, 0, 0.05)',
+      : alpha(theme.palette.text.primary, 0.05),
   },
 }));
 
@@ -66,11 +70,43 @@ const KdeButton = styled(ButtonBase, {
   '&:hover': {
     backgroundColor: closeButton
       ? theme.palette.error.main
-      : theme.palette.mode === 'dark'
-        ? 'rgba(255, 255, 255, 0.12)'
-        : 'rgba(0, 0, 0, 0.1)',
+      : alpha(theme.palette.text.primary, 0.12),
   },
 }));
+
+const castBlink = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+`;
+
+const CastPill = styled(ButtonBase)(({ theme }) => {
+  const accent = theme.palette.primary.main;
+  return {
+    height: 22,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '0 10px',
+    marginRight: 10,
+    borderRadius: 999,
+    cursor: 'default',
+    color: accent,
+    fontFamily: 'Roboto',
+    fontSize: 12,
+    fontWeight: 500,
+    lineHeight: 1,
+    backgroundColor: alpha(accent, 0.14),
+    transition: 'background-color 0.1s ease-in-out',
+    '&:hover': { backgroundColor: alpha(accent, 0.26) },
+    '& .cast-pill-icon': { animation: `${castBlink} 2s ease-in-out infinite` },
+    '& .cast-pill-label': {
+      maxWidth: 140,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+  };
+});
 
 function resolveEffectiveStyle(style: TitleBarStyle, currOs: string): TitleBarStyle {
   if (style === 'default') {
@@ -81,6 +117,10 @@ function resolveEffectiveStyle(style: TitleBarStyle, currOs: string): TitleBarSt
   if (style === 'mac' && currOs !== OS_MAC) return 'mac-fake';
   return style;
 }
+
+export const gnomeCircleBgFor = (theme: Theme) => alpha(theme.palette.text.primary, 0.12);
+export const gnomeIconFilterFor = (theme: Theme) =>
+  theme.palette.mode === 'dark' ? 'brightness(0) invert(1)' : 'brightness(0)';
 
 const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
   borderRadius: '50%',
@@ -114,8 +154,14 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
     () => resolveEffectiveStyle(state.titleBarStyle, currOs),
     [state.titleBarStyle, currOs]
   );
+  const gnomeCircleBg = gnomeCircleBgFor(theme);
+  const gnomeIconFilter = gnomeIconFilterFor(theme);
 
-  const hasRightControls = effectiveStyle === 'windows' || effectiveStyle === 'linux-kde';
+  // Full screen has nothing to drag or close, and macOS hides the traffic lights.
+  const chromeless = state.isFullScreen;
+  const showControls = !chromeless;
+  const hasRightControls =
+    showControls && (effectiveStyle === 'windows' || effectiveStyle === 'linux-kde');
 
   const inactiveChromeSx = {
     opacity: state.isWindowFocused ? 1 : 0.75,
@@ -139,13 +185,31 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
 
   const canGoBack = navDepth > 0;
 
+  // Lyric Studio replaces the library navigation with a rail of its own and
+  // renders that into the same drawer, so the menu button there must not also
+  // open this one on top of it.
+  const inTakeover = location.pathname.startsWith('/lyric-studio');
+
   const toggleDrawer = () => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });
   };
 
+  // Vinyl mode draws its own strip; this one fades and is dropped once gone.
+  const inVinyl = location.pathname === '/main_window/vinyl';
+  const [gone, setGone] = useState(inVinyl);
+  useEffect(() => {
+    if (!inVinyl) {
+      setGone(false);
+      return;
+    }
+    const t = setTimeout(() => setGone(true), 300);
+    return () => clearTimeout(t);
+  }, [inVinyl]);
+  if (inVinyl && gone) return null;
+
   return (
     <>
-      {isPhone && !minimal && (
+      {isPhone && !minimal && !inTakeover && (
         <Drawer
           open={state.isMenuExpanded}
           PaperProps={{
@@ -155,8 +219,8 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
               maxWidth: 320,
               backgroundColor:
                 theme.palette.mode === 'dark'
-                  ? theme.palette.common.black
-                  : theme.palette.common.white,
+                  ? theme.palette.surfaces.control
+                  : theme.palette.background.paper,
               overflow: 'hidden',
               borderRight: 'none',
             },
@@ -167,16 +231,17 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
         </Drawer>
       )}
       <Box
-        className={hasRightControls ? 'title-bar title-bar_windows' : 'title-bar title-bar_unix'}
+        className={`${hasRightControls ? 'title-bar title-bar_windows' : 'title-bar title-bar_unix'} ${inVinyl ? 'title-bar_leaving' : 'title-bar_arriving'}`}
         sx={{
-          bgcolor: theme.palette.mode === 'light' ? '#f4f1f9' : '#201e23',
+          bgcolor: 'background.default',
           height: '32px',
-          pl: effectiveStyle === 'mac' ? 8.5 : 0,
+          pl: effectiveStyle === 'mac' && !chromeless ? 8.5 : 0,
+          ...(chromeless && { '-webkit-app-region': 'no-drag' }),
         }}
       >
         <div className="tb-controls">
           {/* macOS fake traffic lights */}
-          {effectiveStyle === 'mac-fake' && (
+          {showControls && effectiveStyle === 'mac-fake' && (
             <div className="traffic-light" style={inactiveChromeSx}>
               <div onClick={() => sendMessageToNode('closeWindow', null)} className="close-unix">
                 close
@@ -199,7 +264,11 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             {!minimal && (
               <Button
                 disabled={!canGoBack}
-                onClick={() => navigate(-1)}
+                // A screen holding unsaved work gets to object first.
+                onClick={async () => {
+                  if (await confirmNavigation()) navigate(-1);
+                }}
+                variant="text"
                 sx={{ minWidth: '2.5rem', borderRadius: '0.4rem' }}
                 size="small"
               >
@@ -209,6 +278,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             {isPhone && !minimal && (
               <Button
                 onClick={toggleDrawer}
+                variant="text"
                 sx={{ minWidth: '2.5rem', borderRadius: '0.4rem' }}
                 size="small"
               >
@@ -229,10 +299,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           <AppIcon width={18} height={18} />
           <Typography
             sx={{
-              color:
-                theme.palette.mode === 'light'
-                  ? 'var(--M3-sys-light-primary, #9B2E99)'
-                  : 'var(--M3-sys-dark-primary, #FFAAF4)',
+              color: 'primary.main',
               fontFamily: 'Roboto',
               fontSize: '14px',
               fontStyle: 'normal',
@@ -244,10 +311,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           </Typography>
           <Typography
             sx={{
-              color:
-                theme.palette.mode === 'light'
-                  ? 'var(--Light-Fill-Color-Text-Secondary, rgba(0, 0, 0, 0.61))'
-                  : theme.palette.text.secondary,
+              color: 'text.secondary',
               fontFamily: 'Roboto',
               fontSize: '12px',
               fontStyle: 'normal',
@@ -261,8 +325,27 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
 
         <Box flexGrow={1} />
 
+        {/* Casting indicator, shared across all titlebar styles; click to stop. */}
+        {state.isCasting && (
+          <Tooltip
+            arrow
+            title={`Casting${state.castDeviceName ? ` to ${state.castDeviceName}` : ''} — click to stop`}
+          >
+            <CastPill
+              aria-label="Stop casting"
+              onClick={() => window.dispatchEvent(new CustomEvent(CAST_STOP_EVENT))}
+              sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+            >
+              <Icon icon={castFilledIcon} width={14} className="cast-pill-icon" />
+              {!isPhone && (
+                <span className="cast-pill-label">{state.castDeviceName || 'Casting'}</span>
+              )}
+            </CastPill>
+          </Tooltip>
+        )}
+
         {/* Windows style controls */}
-        {effectiveStyle === 'windows' && (
+        {showControls && effectiveStyle === 'windows' && (
           <Box sx={{ '-webkit-app-region': 'no-drag', height: '100%', ...inactiveChromeSx }}>
             <NavButtons onClick={() => sendMessageToNode('minimize', null)}>
               <Icon icon={minimizeIcon} />
@@ -276,7 +359,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           </Box>
         )}
         {/* GNOME style controls — dark circles with always-visible icons */}
-        {effectiveStyle === 'linux-gnome' && (
+        {showControls && effectiveStyle === 'linux-gnome' && (
           <Box
             sx={{
               display: 'flex',
@@ -289,42 +372,42 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           >
             <Box
               onClick={() => sendMessageToNode('minimize', null)}
-              sx={circleSx('#38383C', 'brightness(1.4)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.4)', 24)}
             >
               <GnomeMinimizeIcon
                 width={15}
                 height={14}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
             <Box
               onClick={() => sendMessageToNode('maximize', null)}
-              sx={circleSx('#38383C', 'brightness(1.4)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.4)', 24)}
             >
               <GnomeResizeIcon
                 width={11}
                 height={13}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
             <Box
               onClick={() => sendMessageToNode('closeWindow', null)}
-              sx={circleSx('#38383C', 'brightness(1.25)', 24)}
+              sx={circleSx(gnomeCircleBg, 'brightness(1.25)', 24)}
               mr={1}
             >
               <GnomeCloseIcon
                 width={15}
                 height={15}
                 viewBox="0 0 16 16"
-                style={{ filter: 'brightness(0) invert(1)' }}
+                style={{ filter: gnomeIconFilter }}
               />
             </Box>
           </Box>
         )}
         {/* KDE Plasma Breeze style — compact flat buttons, chevron icons */}
-        {effectiveStyle === 'linux-kde' && (
+        {showControls && effectiveStyle === 'linux-kde' && (
           <Box
             sx={{
               display: 'flex',

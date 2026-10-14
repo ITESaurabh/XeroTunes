@@ -1,10 +1,12 @@
 import React, { useContext, useEffect, useCallback, useState } from 'react';
 import {
+  alpha,
   Box,
+  Collapse,
   Typography,
   LinearProgress,
-  ListItemButton,
   useMediaQuery,
+  useTheme,
   Theme,
   Button,
 } from '@mui/material';
@@ -18,8 +20,17 @@ import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import FloatingScrollbar from '../components/FloatingScrollbar';
+import { Icon } from '@iconify/react';
+import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import { detailBannerBg } from '../styles/listSx';
+import { DEFAULT_AA, isTaggable } from '../../config/constants';
 import ArtistCell from '../components/ArtistCell';
+import TrackRow, { TRACK_ROW_H } from '../components/TrackRow';
+import { useTrackMenu } from '../components/TrackContextMenu';
 
 interface AlbumSong extends Track {
   TrackNumber?: string | number;
@@ -29,13 +40,6 @@ interface AlbumSong extends Track {
   AlbumCoverUri?: string;
   GenreName?: string;
   Duration?: number;
-}
-
-function formatDuration(seconds: number | null | undefined): string {
-  if (!seconds) return '--:--';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
 function totalDuration(songs: AlbumSong[]): string {
@@ -53,6 +57,18 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
   return Math.trunc(num);
 }
 
+const PLAYBAR_SPACE = 220;
+const ListInner = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+  ({ style, ...rest }, ref) => (
+    <div
+      ref={ref}
+      style={{ ...style, height: Number(style?.height ?? 0) + PLAYBAR_SPACE }}
+      {...rest}
+    />
+  )
+);
+ListInner.displayName = 'ListInner';
+
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
   const location = useLocation();
@@ -60,8 +76,10 @@ const AlbumDetail: React.FC = () => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch, state } = useContext(store);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
+  const theme = useTheme();
   const { initialScrollOffset, saveScrollPosition } = useScrollRestoration(location.pathname);
   const listRef = React.useRef<FixedSizeList | null>(null);
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   const {
     data: songs = [] as AlbumSong[],
@@ -76,9 +94,22 @@ const AlbumDetail: React.FC = () => {
     enabled: !!albumId,
   });
 
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(songs);
+  const [selectionEditor, setSelectionEditor] = useState<EditableTrack[] | null>(null);
+
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
   }, [dispatch]);
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
 
   const handlePlayAll = useCallback(
     (startIndex = 0) => {
@@ -117,6 +148,15 @@ const AlbumDetail: React.FC = () => {
   const coverUri = songs[0]?.AlbumCoverUri ?? null;
   const releaseYear = songs[0]?.['Year'] ?? null;
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [editor, setEditor] = useState<{ mode: 'track' | 'album'; tracks: EditableTrack[] } | null>(
+    null
+  );
+  const { openTrackMenu, trackMenu } = useTrackMenu();
+
+  const toEditable = (list: AlbumSong[]): EditableTrack[] =>
+    list
+      .filter(s => typeof s.Uri === 'string' && s.Id != null)
+      .map(s => ({ Id: s.Id as number | string, Uri: s.Uri as string, Title: s.Title as string }));
 
   const coverSrc = React.useMemo(() => {
     if (!coverUri) return null;
@@ -155,92 +195,48 @@ const AlbumDetail: React.FC = () => {
     titleSizeVal,
   ]);
 
-  const ROW_HEIGHT = 60;
+  const ROW_HEIGHT = TRACK_ROW_H;
+  const headerShrink = (isPhone ? 180 : 260) - 130;
   const scrollHide = useScrollHidePlayerBar();
   const handleScroll = React.useCallback(
     (args: { scrollOffset: number }) => {
-      const condensed = args.scrollOffset > 0;
-      setIsHeaderCondensed(prev => (prev !== condensed ? condensed : prev));
+      setIsHeaderCondensed(prev => {
+        if (args.scrollOffset <= 0) return false;
+        if (prev) return true;
+        // Condensing grows the list by headerShrink. If that leaves nothing to
+        // scroll, the offset clamps to 0 and the header expands again, looping.
+        const el = scrollerRef.current;
+        return !!el && el.scrollHeight - el.clientHeight > headerShrink;
+      });
       saveScrollPosition(args.scrollOffset);
       scrollHide(args);
     },
-    [saveScrollPosition, scrollHide]
+    [saveScrollPosition, scrollHide, headerShrink]
   );
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => {
       const song = songs[index] as AlbumSong;
-      const isActive = song.Id === state.track?.Id;
-
       return (
-        <ListItemButton
-          style={style}
-          selected={isActive}
-          onClick={e => {
-            if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
-            handlePlayAll(index);
-          }}
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 2,
-            px: 2,
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.01)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-            '&.Mui-selected': { background: 'rgba(99,102,241,0.18)' },
-          }}
-        >
-          {/* Track number */}
-          <Typography
-            variant="caption"
-            sx={{
-              minWidth: 40,
-              textAlign: 'right',
-              color: isActive ? 'primary.main' : 'text.disabled',
-              flexShrink: 0,
-            }}
-          >
-            {isActive
-              ? '▶'
-              : formatTrackNumber(song.TrackNumber) !== null
-                ? formatTrackNumber(song.TrackNumber)
-                : index + 1}
-          </Typography>
-
-          {/* Title + Artist */}
-          <Box sx={{ flex: 1, minWidth: 0, gap: 0, display: 'flex', flexDirection: 'column' }}>
-            <Typography
-              variant="body2"
-              noWrap
-              sx={{
-                fontWeight: isActive ? 700 : 400,
-                color: isActive ? 'primary.main' : 'text.primary',
-              }}
-            >
-              {(song.Title as string) || 'Unknown'}
-            </Typography>
-            {!isPhone && (
-              <Box sx={{ color: 'text.secondary' }}>
-                <ArtistCell
-                  artistNameRaw={song.ArtistName as string | undefined}
-                  variant="caption"
-                />
-              </Box>
-            )}
-          </Box>
-
-          {/* Duration */}
-          <Typography
-            variant="caption"
-            sx={{ color: 'text.secondary', flexShrink: 0, minWidth: 36, textAlign: 'right' }}
-          >
-            {formatDuration(song.Duration)}
-          </Typography>
-        </ListItemButton>
+        <div style={style}>
+          <TrackRow
+            song={song}
+            index={index}
+            height={ROW_HEIGHT}
+            number={formatTrackNumber(song.TrackNumber) ?? index + 1}
+            compact={isPhone}
+            isSelected={song.Id != null && selectedIds.has(song.Id)}
+            isCurrent={song.Id === state.track?.Id}
+            isPlaying={state.isPlaying}
+            anySelected={selectedIds.size > 0}
+            onPlay={handlePlayAll}
+            onToggle={toggleAt}
+            onContextMenu={openTrackMenu}
+          />
+        </div>
       );
     },
-    [songs, state.track?.Id, isPhone, handlePlayAll]
+    [songs, state.track?.Id, state.isPlaying, isPhone, handlePlayAll, selectedIds, toggleAt]
   );
 
   return (
@@ -266,7 +262,7 @@ const AlbumDetail: React.FC = () => {
           position: 'relative',
           overflow: 'hidden',
           borderRadius: '0.5rem 0 0 0',
-          background: 'rgba(255,255,255,0.04)',
+          background: detailBannerBg,
         }}
       >
         {/* Blurred background art */}
@@ -282,9 +278,25 @@ const AlbumDetail: React.FC = () => {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
-              filter: 'blur(60px) brightness(0.5)',
+              filter:
+                theme.palette.mode === 'dark'
+                  ? 'blur(60px) brightness(0.5)'
+                  : 'blur(60px) saturate(1.5)',
               transform: 'scale(1.2)',
               pointerEvents: 'none',
+            }}
+          />
+        )}
+        {/* brightness() scales luminance, so a dark cover stays dark and swallows the
+            theme's black text. A flat alpha wash lands in the same readable band
+            whatever the cover looks like. */}
+        {coverSrc && theme.palette.mode === 'light' && (
+          <Box
+            sx={{
+              position: 'absolute',
+              inset: 0,
+              pointerEvents: 'none',
+              bgcolor: alpha(theme.palette.background.paper, 0.65),
             }}
           />
         )}
@@ -311,33 +323,17 @@ const AlbumDetail: React.FC = () => {
               borderRadius: 0.5,
               overflow: 'hidden',
               flexShrink: 0,
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
-              background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
+              boxShadow:
+                theme.palette.mode === 'dark' ? '0 8px 32px rgba(0,0,0,0.6)' : theme.shadows[8],
               cursor: coverSrc ? 'zoom-in' : 'default',
             }}
           >
-            {coverSrc ? (
-              <Box
-                component="img"
-                src={coverSrc ?? undefined}
-                alt={albumTitle}
-                sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-              />
-            ) : (
-              <Box
-                sx={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Typography sx={{ fontSize: isPhone ? 40 : 56, opacity: 0.2, lineHeight: 1 }}>
-                  ♪
-                </Typography>
-              </Box>
-            )}
+            <Box
+              component="img"
+              src={coverSrc ?? DEFAULT_AA}
+              alt={albumTitle}
+              sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
           </Box>
 
           {/* Album info */}
@@ -357,7 +353,9 @@ const AlbumDetail: React.FC = () => {
                 lineHeight: 1.1,
                 display: 'block',
                 marginBottom: 4,
-                color: 'white',
+                // White only where the banner is actually dimmed to near-black.
+                color:
+                  coverSrc && theme.palette.mode === 'dark' ? '#fff' : theme.palette.text.primary,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -385,7 +383,6 @@ const AlbumDetail: React.FC = () => {
                       navigate(`/main_window/years/${encodeURIComponent(String(releaseYear))}`)
                     }
                     sx={{
-                      cursor: 'pointer',
                       '&:hover': { textDecoration: 'underline', color: 'primary.main' },
                     }}
                   >
@@ -401,15 +398,19 @@ const AlbumDetail: React.FC = () => {
             </Box>
 
             {/* Play all button */}
-            <Button
-              onClick={() => handlePlayAll(0)}
-              variant="contained"
-              sx={{
-                mt: 1,
-              }}
-            >
-              ▶ Play All
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+              <Button onClick={() => handlePlayAll(0)} variant="contained">
+                ▶ Play All
+              </Button>
+              <Button
+                variant="outlined"
+                disabled={!songs.some(x => typeof x.Uri === 'string' && isTaggable(x.Uri))}
+                startIcon={<Icon icon={edit24Regular} width={18} />}
+                onClick={() => setEditor({ mode: 'album', tracks: toEditable(songs) })}
+              >
+                Edit Tags
+              </Button>
+            </Box>
           </Box>
         </Box>
       </Box>
@@ -421,8 +422,30 @@ const AlbumDetail: React.FC = () => {
         imageAlt={albumTitle}
       />
 
+      {trackMenu}
+
+      {editor && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditor(null)}
+          mode={editor.mode}
+          tracks={editor.tracks}
+        />
+      )}
+
+      <Collapse in={selected.length > 0} sx={{ flexShrink: 0, px: 1 }}>
+        <SelectionBar
+          selected={selected}
+          total={songs.length}
+          onToggleAll={toggleAll}
+          onClear={clear}
+          onPlay={handlePlaySelected}
+          onEditTags={() => setSelectionEditor(toEditableTracks(selected))}
+        />
+      </Collapse>
+
       {/* Track list */}
-      <Box sx={{ flex: 1, minHeight: 0 }}>
+      <Box sx={{ flex: 1, minHeight: 0, p: 1 }}>
         {isLoading ? (
           <LinearProgress color="primary" sx={{ m: 2, borderRadius: 1 }} />
         ) : error ? (
@@ -432,12 +455,14 @@ const AlbumDetail: React.FC = () => {
             {({ height, width }: { height: number; width: number }) => (
               <FixedSizeList
                 ref={listRef}
+                outerRef={scrollerRef}
                 height={height}
                 width={width}
                 itemCount={songs.length}
                 itemSize={ROW_HEIGHT}
                 initialScrollOffset={initialScrollOffset}
                 overscanCount={20}
+                innerElementType={ListInner}
                 onScroll={handleScroll}
               >
                 {Row}
@@ -445,7 +470,17 @@ const AlbumDetail: React.FC = () => {
             )}
           </AutoSizer>
         )}
+        <FloatingScrollbar targetRef={scrollerRef} />
       </Box>
+
+      {selectionEditor && (
+        <TagEditorDialog
+          open
+          onClose={() => setSelectionEditor(null)}
+          mode="track"
+          tracks={selectionEditor}
+        />
+      )}
     </Box>
   );
 };

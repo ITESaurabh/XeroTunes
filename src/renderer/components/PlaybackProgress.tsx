@@ -1,7 +1,10 @@
-import React, { useCallback, useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
+import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
 import { styled } from '@mui/material/styles';
+import { Icon } from '@iconify/react';
+import liveIcon from '@iconify/icons-fluent/live-24-filled';
 
 const formatDuration = (value: number): string => {
   const safe = Number.isFinite(value) && value > 0 ? value : 0;
@@ -10,19 +13,33 @@ const formatDuration = (value: number): string => {
   return `${minute}:${secondLeft < 10 ? `0${secondLeft}` : secondLeft}`;
 };
 
-const Root = styled(Box)({
-  width: '100%',
-});
+const Root = styled(Box, { shouldForwardProp: prop => prop !== 'inline' })<{ inline?: boolean }>(
+  ({ inline }) => ({
+    width: '100%',
+    ...(inline && {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 12,
+      '& > .pp-track': { order: 2, flex: 1 },
+      '& > .pp-times': { display: 'contents' },
+      '& .pp-times > *:first-child': { order: 1 },
+      '& .pp-times > *:last-child': { order: 3 },
+      // Tabular figures so the bar does not shift as the digits tick over.
+      '& .pp-times > *': { flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
+    }),
+  })
+);
 
-const TrackContainer = styled(Box)({
+const TrackContainer = styled(Box, {
+  shouldForwardProp: prop => prop !== 'isLive',
+})<{ isLive?: boolean }>(({ isLive }) => ({
   position: 'relative',
   height: 20,
-  cursor: 'pointer',
   display: 'flex',
   alignItems: 'center',
   touchAction: 'none',
-  '&:hover .pp-thumb': { opacity: 1 },
-});
+  ...(isLive ? {} : { '&:hover .pp-thumb': { opacity: 1 } }),
+}));
 
 const Rail = styled(Box)(({ theme }) => ({
   position: 'absolute',
@@ -30,8 +47,8 @@ const Rail = styled(Box)(({ theme }) => ({
   right: 0,
   height: 5,
   borderRadius: 20,
-  backgroundColor: theme.palette.mode === 'dark' ? '#000000' : '#c1c1c1',
-  opacity: 0.28,
+  backgroundColor: theme.palette.surfaces.well,
+  opacity: theme.palette.mode === 'dark' ? 0.28 : 1,
   pointerEvents: 'none',
 }));
 
@@ -61,10 +78,21 @@ const Thumb = styled(Box)(({ theme }) => ({
   transition: 'opacity 120ms ease',
 }));
 
+const BUFFER_GRACE_MS = 400;
 const ELASTIC_DURATION_MS = 280;
 const ELASTIC_EASING = 'cubic-bezier(0.47, 1.64, 0.41, 0.8)';
 const FILL_ELASTIC = `width ${ELASTIC_DURATION_MS}ms ${ELASTIC_EASING}`;
 const THUMB_ELASTIC = `left ${ELASTIC_DURATION_MS}ms ${ELASTIC_EASING}, opacity 120ms ease`;
+
+const BufferBar = styled(LinearProgress)(({ theme }) => ({
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  height: 5,
+  borderRadius: 20,
+  backgroundColor: 'transparent',
+  [`& .MuiLinearProgress-bar`]: { backgroundColor: theme.palette.primary.main },
+}));
 
 const TimeRow = styled(Box)({
   display: 'flex',
@@ -80,10 +108,39 @@ const TimeText = styled(Typography)({
   letterSpacing: 0.2,
 });
 
+const LiveRow = styled(Box)(({ theme }) => ({
+  display: 'flex',
+  alignItems: 'center',
+  gap: 5,
+  color: theme.palette.text.secondary,
+  fontSize: '0.75rem',
+  fontWeight: 600,
+  letterSpacing: 0.6,
+  textTransform: 'uppercase',
+}));
+
+const LiveMark = styled(Box, {
+  shouldForwardProp: prop => prop !== 'animate',
+})<{ animate?: boolean }>(({ animate }) => ({
+  display: 'flex',
+  '@keyframes xt-live-pulse': {
+    '0%, 100%': { opacity: 0.3 },
+    '50%': { opacity: 1 },
+  },
+  ...(animate ? { animation: 'xt-live-pulse 1.8s ease-in-out infinite' } : { opacity: 0.4 }),
+}));
+
 interface PlaybackProgressProps {
   audioRef: React.RefObject<HTMLAudioElement>;
   duration: number;
   trackId?: string | number | null;
+  /** Internet radio: no seeking, no end to count down to. */
+  isLive?: boolean;
+  /** Streamed from a server: it takes a moment to start and can run dry mid-track. */
+  isRemote?: boolean;
+  paused?: boolean;
+  /** Times either side of the bar rather than beneath it. */
+  inline?: boolean;
   onSeekCommit: (_pos: number) => void;
 }
 
@@ -93,6 +150,10 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   audioRef,
   duration,
   trackId,
+  isLive,
+  isRemote,
+  paused,
+  inline,
   onSeekCommit,
 }: PlaybackProgressProps) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -107,6 +168,8 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   const elasticTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const durationRef = useRef(duration);
   durationRef.current = duration;
+  const isLiveRef = useRef(isLive);
+  isLiveRef.current = isLive;
 
   const applyElastic = useCallback(() => {
     if (fillRef.current) fillRef.current.style.transition = FILL_ELASTIC;
@@ -132,6 +195,52 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     }
   }, []);
 
+  // `waiting` means the element ran out of data; on a stream that is the gap
+  // between the buffer draining and the next chunk arriving, and on a remote
+  // file the wait before the first bytes land.
+  const [buffering, setBuffering] = useState(false);
+  useEffect(() => {
+    const audio = audioRef.current;
+    // Local files fire `waiting` on every track change and are ready again a
+    // frame later; swapping the fill for a sweeping bar there reads as the
+    // progress jumping backwards.
+    if (!audio || (!isLive && !isRemote)) {
+      setBuffering(false);
+      return;
+    }
+    setBuffering(false);
+    let pending: ReturnType<typeof setTimeout> | null = null;
+    const clearPending = () => {
+      if (pending) clearTimeout(pending);
+      pending = null;
+    };
+    // Held back so a gap short enough to be inaudible never shows up.
+    const start = () => {
+      if (!pending) pending = setTimeout(() => setBuffering(true), BUFFER_GRACE_MS);
+    };
+    const stop = () => {
+      clearPending();
+      setBuffering(false);
+    };
+    // `loadstart` too: a remote track that hasn't answered yet has nothing to
+    // wait on, so it would otherwise sit silent with the bar at zero.
+    audio.addEventListener('loadstart', start);
+    audio.addEventListener('waiting', start);
+    audio.addEventListener('stalled', start);
+    audio.addEventListener('playing', stop);
+    audio.addEventListener('canplay', stop);
+    audio.addEventListener('pause', stop);
+    return () => {
+      clearPending();
+      audio.removeEventListener('loadstart', start);
+      audio.removeEventListener('waiting', start);
+      audio.removeEventListener('stalled', start);
+      audio.removeEventListener('playing', stop);
+      audio.removeEventListener('canplay', stop);
+      audio.removeEventListener('pause', stop);
+    };
+  }, [audioRef, trackId, isLive, isRemote]);
+
   // Subscribe to timeupdate — DOM only, no React render
   useEffect(() => {
     const audio = audioRef.current;
@@ -144,15 +253,16 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     return () => audio.removeEventListener('timeupdate', onTimeUpdate);
   }, [audioRef, paint]);
 
-  // Reset paint on new track / duration arrival
+  // Reset paint on new track / duration arrival, and once the fill comes back
+  // after buffering swapped it out.
   useEffect(() => {
     paint(audioRef.current?.currentTime ?? 0);
-  }, [trackId, duration, paint, audioRef]);
+  }, [trackId, duration, buffering, paint, audioRef]);
 
   const seekFromClientX = useCallback((clientX: number): number | null => {
     const el = trackRef.current;
     const dur = durationRef.current;
-    if (!el || dur <= 0) return null;
+    if (!el || dur <= 0 || isLiveRef.current) return null;
     const rect = el.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     return pct * dur;
@@ -222,29 +332,44 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   );
 
   return (
-    <Root>
+    <Root inline={inline}>
       <TrackContainer
+        className="pp-track"
         ref={trackRef}
+        isLive={isLive}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        role="slider"
-        aria-label="time-indicator"
-        aria-valuemin={0}
-        aria-valuemax={duration || 0}
+        role={isLive ? undefined : 'slider'}
+        aria-label={isLive ? 'live stream' : 'time-indicator'}
+        aria-valuemin={isLive ? undefined : 0}
+        aria-valuemax={isLive ? undefined : duration || 0}
       >
         <Rail />
-        <Fill ref={fillRef} />
-        <Thumb ref={thumbRef} className="pp-thumb" />
+        {buffering ? (
+          <BufferBar />
+        ) : (
+          <>
+            <Fill ref={fillRef} />
+            {!isLive && <Thumb ref={thumbRef} className="pp-thumb" />}
+          </>
+        )}
       </TrackContainer>
-      <TimeRow>
+      <TimeRow className="pp-times">
         <TimeText>
           <span ref={posTextRef}>0:00</span>
         </TimeText>
-        <TimeText>
-          <span ref={remTextRef}>-0:00</span>
-        </TimeText>
+        {isLive ? (
+          <LiveRow>
+            <LiveMark animate={!paused}>
+              <Icon icon={liveIcon} width={14} />
+            </LiveMark>
+            {buffering ? 'Buffering' : 'Live'}
+          </LiveRow>
+        ) : (
+          <TimeText>{buffering ? 'Buffering' : <span ref={remTextRef}>-0:00</span>}</TimeText>
+        )}
       </TimeRow>
     </Root>
   );

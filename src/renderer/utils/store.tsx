@@ -9,8 +9,14 @@ import {
   setPlaybackRepeatMode,
   getTitleBarStyle,
   setTitleBarStyle,
+  getAlwaysShowScrollbar,
+  setAlwaysShowScrollbar,
+  getActiveTheme,
+  setActiveTheme,
 } from './LocStoreUtil';
+import { AMETHYST, AppTheme } from '../../config/theme';
 import { ThemeMode, TitleBarStyle } from 'src/config/app_settings';
+import { ScanMode } from '../../config/constants';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -70,12 +76,24 @@ export interface ScanProgress {
   scanned: number;
   total: number;
   processed: number;
+  /**
+   * Which server the counts belong to, when a sync is walking several. Without
+   * it the bar restarting at every source looks like the first one was lost.
+   */
+  source?: {
+    index: number;
+    count: number;
+    name: string | null;
+    type: string;
+    accent: string | null;
+  };
 }
 
 export interface LibraryStats {
   songs: number;
   favourites: number;
   playlists: number;
+  streams: number;
   albums: number;
   artists: number;
   albumArtists: number;
@@ -88,6 +106,7 @@ export interface LibraryStats {
 export interface AppState {
   isLightTheme: boolean;
   isMaximized: boolean;
+  isFullScreen: boolean;
   isWindowFocused: boolean;
   isMenuExpanded: boolean;
   path: string | null;
@@ -97,30 +116,40 @@ export interface AppState {
   searchEnabled: boolean;
   queue: QueueTrack[];
   queueIndex: number;
-  /** Original (un-shuffled) order of the queue, stored as IDs only to avoid a full Track[] duplicate. */
   originalOrder: (string | number)[];
   repeatMode: RepeatMode;
   isShuffle: boolean;
   isPlayerBarVisible: boolean;
   isLyricsExpanded: boolean;
   isScanningLibrary: boolean;
-  isFullScan: boolean;
+  /** A remote sync specifically, which unlike a local scan runs on the main process. */
+  isSyncing: boolean;
+  scanMode: ScanMode | null;
   scanProgress: ScanProgress | null;
   libraryStats: LibraryStats | null;
   queueSource: string | null;
   titleBarStyle: TitleBarStyle;
+  alwaysShowScrollbar: boolean;
+  appTheme: AppTheme;
+  isCasting: boolean;
+  castDeviceName: string | null;
 }
 
 export type AppAction =
   | { type: 'SET_THEME_MODE'; payload: ThemeMode }
   | { type: 'SET_TITLEBAR_STYLE'; payload: TitleBarStyle }
+  | { type: 'SET_ALWAYS_SHOW_SCROLLBAR'; payload: boolean }
+  | { type: 'SET_APP_THEME'; payload: AppTheme }
   | { type: 'SET_IS_MAXIMIZED'; payload: boolean }
+  | { type: 'SET_IS_FULLSCREEN'; payload: boolean }
   | { type: 'SET_WINDOW_FOCUSED'; payload: boolean }
   | { type: 'SET_SEARCH_ENABLED'; payload: boolean }
   | { type: 'SET_MENU_EXPANDED'; payload: boolean }
   | { type: 'SET_QUEUE'; payload: { queue: Track[]; index?: number; source?: string | null } }
   | { type: 'SET_PATH'; payload: string | null }
   | { type: 'SET_CURR_TRACK'; payload: Track }
+  | { type: 'REFRESH_QUEUE_TRACKS'; payload: Track[] }
+  | { type: 'ENQUEUE'; payload: { tracks: Track[]; next?: boolean } }
   | { type: 'SET_IS_PLAYING'; payload: boolean }
   | { type: 'SET_PROGRESS'; payload: number }
   | { type: 'CHANGE_TRACK' }
@@ -130,9 +159,11 @@ export type AppAction =
   | { type: 'SET_PLAYER_BAR_VISIBLE'; payload: boolean }
   | { type: 'SET_LYRICS_EXPANDED'; payload: boolean }
   | { type: 'SET_SHUFFLE'; payload: boolean }
-  | { type: 'SET_SCANNING'; payload: { isScanning: boolean; isFullScan?: boolean } }
+  | { type: 'SET_SCANNING'; payload: { isScanning: boolean; scanMode?: ScanMode | null } }
+  | { type: 'SET_SYNCING'; payload: boolean }
   | { type: 'SET_SCAN_PROGRESS'; payload: ScanProgress }
   | { type: 'SET_LIBRARY_STATS'; payload: LibraryStats }
+  | { type: 'SET_CASTING'; payload: { isCasting: boolean; deviceName: string | null } }
   | { type: 'RESET_PLAYBACK' };
 
 export interface StoreContextValue {
@@ -147,10 +178,14 @@ const initialState: AppState = (() => {
   let savedShuffle = false;
   let savedRepeat: RepeatMode = 'off';
   let savedTitleBarStyle: TitleBarStyle = 'default';
+  let savedAlwaysShowScrollbar = false;
+  let savedAppTheme: AppTheme = AMETHYST;
   try {
     savedShuffle = getPlaybackShuffle();
     savedRepeat = getPlaybackRepeatMode();
     savedTitleBarStyle = getTitleBarStyle();
+    savedAlwaysShowScrollbar = getAlwaysShowScrollbar();
+    savedAppTheme = getActiveTheme();
   } catch {
     /* settings unavailable — fall back to defaults */
   }
@@ -159,6 +194,7 @@ const initialState: AppState = (() => {
   return {
     isLightTheme: true,
     isMaximized: false,
+    isFullScreen: false,
     isWindowFocused: typeof document !== 'undefined' ? document.hasFocus() : true,
     isMenuExpanded: typeof window !== 'undefined' ? window.innerWidth >= 960 : true,
     path: null,
@@ -174,11 +210,16 @@ const initialState: AppState = (() => {
     isPlayerBarVisible: true,
     isLyricsExpanded: false,
     isScanningLibrary: false,
-    isFullScan: false,
+    isSyncing: false,
+    scanMode: null,
     scanProgress: null,
     libraryStats: null,
     queueSource: saved?.queueSource ?? null,
     titleBarStyle: savedTitleBarStyle,
+    alwaysShowScrollbar: savedAlwaysShowScrollbar,
+    appTheme: savedAppTheme,
+    isCasting: false,
+    castDeviceName: null,
   };
 })();
 
@@ -204,8 +245,20 @@ function reducer(state: AppState, action: AppAction): AppState {
       setTitleBarStyle(action.payload);
       return { ...state, titleBarStyle: action.payload };
     }
+    case 'SET_ALWAYS_SHOW_SCROLLBAR': {
+      setAlwaysShowScrollbar(action.payload);
+      return { ...state, alwaysShowScrollbar: action.payload };
+    }
+    case 'SET_APP_THEME': {
+      setActiveTheme(action.payload.name);
+      return { ...state, appTheme: action.payload };
+    }
     case 'SET_IS_MAXIMIZED': {
       return { ...state, isMaximized: action.payload };
+    }
+    case 'SET_IS_FULLSCREEN': {
+      if (state.isFullScreen === action.payload) return state;
+      return { ...state, isFullScreen: action.payload };
     }
     case 'SET_WINDOW_FOCUSED': {
       if (state.isWindowFocused === action.payload) return state;
@@ -254,7 +307,28 @@ function reducer(state: AppState, action: AppAction): AppState {
       setQueueState(state.queue, state.queueIndex, slim, state.queueSource);
       return { ...state, track: slim };
     }
+    // The queue holds a snapshot taken when playback started, so anything that
+    // rewrites a track in the library (tag edits, a rescan) leaves it stale.
+    case 'REFRESH_QUEUE_TRACKS': {
+      const fresh = new Map<string | number, QueueTrack>();
+      for (const t of toQueueTracks(action.payload)) fresh.set(t.Id, t);
+      if (!fresh.size) return state;
+      const queue = state.queue.map(t => fresh.get(t.Id) ?? t);
+      const track = state.track ? (fresh.get(state.track.Id) ?? state.track) : state.track;
+      if (track === state.track && queue.every((t, i) => t === state.queue[i])) return state;
+      setQueueState(queue, state.queueIndex, track, state.queueSource);
+      return { ...state, queue, track };
+    }
+    case 'ENQUEUE': {
+      const items = toQueueTracks(action.payload.tracks);
+      if (!items.length) return state;
+      const at = action.payload.next ? state.queueIndex + 1 : state.queue.length;
+      const queue = [...state.queue.slice(0, at), ...items, ...state.queue.slice(at)];
+      setQueueState(queue, state.queueIndex, state.track, state.queueSource);
+      return { ...state, queue, originalOrder: [...state.originalOrder, ...items.map(t => t.Id)] };
+    }
     case 'SET_IS_PLAYING': {
+      if (state.isPlaying === action.payload) return state;
       return { ...state, isPlaying: action.payload };
     }
     case 'SET_PROGRESS': {
@@ -296,25 +370,38 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, repeatMode: action.payload };
     }
     case 'SET_PLAYER_BAR_VISIBLE': {
+      // useScrollHidePlayerBar fires this on every scroll tick, usually with the
+      // value already set; without this guard each tick re-renders every consumer.
+      if (state.isPlayerBarVisible === action.payload) return state;
       return { ...state, isPlayerBarVisible: action.payload };
     }
     case 'SET_LYRICS_EXPANDED': {
       return { ...state, isLyricsExpanded: action.payload };
     }
     case 'SET_SCANNING': {
-      const { isScanning, isFullScan } = action.payload;
+      const { isScanning, scanMode } = action.payload;
       return {
         ...state,
         isScanningLibrary: isScanning,
-        isFullScan: isScanning ? (isFullScan ?? state.isFullScan) : false,
+        scanMode: isScanning ? (scanMode ?? state.scanMode) : null,
         scanProgress: isScanning ? state.scanProgress : null,
       };
     }
     case 'SET_SCAN_PROGRESS': {
       return { ...state, scanProgress: action.payload };
     }
+    case 'SET_SYNCING': {
+      return { ...state, isSyncing: action.payload };
+    }
     case 'SET_LIBRARY_STATS': {
       return { ...state, libraryStats: action.payload };
+    }
+    case 'SET_CASTING': {
+      return {
+        ...state,
+        isCasting: action.payload.isCasting,
+        castDeviceName: action.payload.deviceName,
+      };
     }
     case 'RESET_PLAYBACK': {
       // Clear the persisted queue too, so no track lingers across reloads.

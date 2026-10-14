@@ -4,10 +4,16 @@
     <!-- Required meta tags -->
     <meta charset="utf-8" />
     <style>
-      /* Primary #ad3fa9 */
-      /* BG Dark #050407 */
+      /* Shown only until React mounts and the MUI theme takes over. Static CSS can't
+         read the saved theme, so it follows the OS to avoid a mismatched flash.
+         Values are the Amethyst defaults in config/theme.ts. */
       body {
-        background-color: #050407;
+        background-color: #f4f1f9;
+      }
+      @media (prefers-color-scheme: dark) {
+        body {
+          background-color: #201e23;
+        }
       }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1" />

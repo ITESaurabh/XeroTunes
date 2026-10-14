@@ -6,17 +6,14 @@
     {
       "layers" : [
         {
-          "blend-mode" : "normal",
-          "fill" : "none",
-          "glass" : true,
           "hidden" : false,
-          "image-name" : "logo.svg",
-          "name" : "logo",
+          "image-name" : "Logo FInal.svg",
+          "name" : "Logo FInal",
           "position" : {
-            "scale" : 44,
+            "scale" : 2.0799999999999996,
             "translation-in-points" : [
-              -8.570349999999962,
-              20.000057500000707
+              0,
+              0
             ]
           }
         }

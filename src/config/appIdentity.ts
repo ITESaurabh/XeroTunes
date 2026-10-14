@@ -7,3 +7,6 @@ import { IDENTITY } from './channel';
 // Beta build's library in its own "XeroTunes Beta" folder, not the release one.
 app.setName(IDENTITY.productName);
 app.setAppUserModelId(IDENTITY.appId);
+
+// fix for instance split on 
+if (process.platform === 'linux') app.setDesktopName(`${IDENTITY.installName}.desktop`);

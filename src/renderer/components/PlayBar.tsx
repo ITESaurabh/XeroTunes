@@ -1,14 +1,29 @@
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { styled, useTheme } from '@mui/material/styles';
+import { alpha, styled, useTheme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Slider from '@mui/material/Slider';
 import IconButton from '@mui/material/IconButton';
 import Stack from '@mui/material/Stack';
 
-import { Card, Collapse, useMediaQuery } from '@mui/material';
+import {
+  Card,
+  Collapse,
+  useMediaQuery,
+  Menu,
+  MenuItem,
+  ListItemIcon,
+  ListItemText,
+} from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
+import { toMediaSrc } from '../utils/misc';
+// Surround (beta)
+import { useSurround } from '../utils/useSurround';
+import SurroundMixerDialog from './SurroundMixerDialog';
+import speakerSettings24Regular from '@iconify/icons-fluent/speaker-settings-24-regular';
+import { SURROUND_OUTPUT_ID } from '../../config/surround';
+import * as scratch from '../utils/scratchEngine';
 import {
   getVolumeLevel,
   setVolumeLevel,
@@ -16,8 +31,19 @@ import {
   getDiscordEnabled,
   setDiscordEnabled,
   getPauseOnAudioOutputChange,
+  getAudioOutputDeviceId,
+  getCastVolumeLevel,
+  setCastVolumeLevel,
+  AUDIO_OUTPUT_DEVICE_EVENT,
+  CAST_STOP_EVENT,
+  PLAYBACK_ERROR_EVENT,
+  PLAYBACK_TOGGLE_EVENT,
+  VOLUME_CHANGE_EVENT,
+  PLAYBACK_TICK_EVENT,
+  PLAYBACK_SCRATCH_EVENT,
+  type ScratchDetail,
 } from '../utils/LocStoreUtil';
-import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../img/discord-logo.svg';
+import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
 import { Icon } from '@iconify/react';
@@ -31,21 +57,37 @@ import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
 import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
 import info24Regular from '@iconify/icons-fluent/info-24-regular';
-import info24Filled from '@iconify/icons-fluent/info-24-filled';
+import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
+import moreHorizontal24Regular from '@iconify/icons-fluent/more-horizontal-24-regular';
+import moreHorizontal24Filled from '@iconify/icons-fluent/more-horizontal-24-filled';
+import options24Regular from '@iconify/icons-fluent/options-24-regular';
+import topSpeed24Regular from '@iconify/icons-fluent/top-speed-24-regular';
+import cast24Regular from '@iconify/icons-fluent/cast-24-regular';
+import speaker224Regular from '@iconify/icons-fluent/speaker-2-24-regular';
+import chevronRight20Regular from '@iconify/icons-fluent/chevron-right-20-regular';
 import shuffle24Filled from '@iconify/icons-fluent/arrow-shuffle-24-filled';
 import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-filled';
 import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
+import heart24Regular from '@iconify/icons-fluent/heart-24-regular';
+import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
+import bookmark24Regular from '@iconify/icons-fluent/bookmark-24-regular';
+import bookmark24Filled from '@iconify/icons-fluent/bookmark-24-filled';
 import { Image } from 'mui-image';
 import { DEFAULT_AA } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
-import { parseFile } from 'music-metadata';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
+import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
+import { isTaggable } from '../../config/constants';
+import AudioOutputMenu from './AudioOutputMenu';
+import CastDeviceMenu from './CastDeviceMenu';
+import type { CastDevice, CastLoadPayload, CastStatus } from '../../main/modules/Cast';
 import Marquee from './Marquee';
 import PlaybackProgress from './PlaybackProgress';
 import LyricsPanel from './LyricsPanel';
+import { resolveLyrics, type LyricsSource } from '../utils/lyricsSource';
 
 // ── Styled primitives ──────────────────────────────────────────────────────
 
@@ -57,7 +99,7 @@ const CoverImage = styled(Box)(({ theme }) => ({
   overflow: 'hidden',
   flexShrink: 0,
   borderRadius: 8,
-  backgroundColor: 'rgba(0,0,0,0.08)',
+  backgroundColor: alpha(theme.palette.surfaces.well, 0.08),
   '& > img': { width: '100%' },
   [theme.breakpoints.down('md')]: { width: 90, height: 90 },
 }));
@@ -66,6 +108,20 @@ const CoverImageInteractive = styled(CoverImage, {
   shouldForwardProp: prop => prop !== 'hasArt',
 })<{ hasArt: boolean }>(({ hasArt }) => ({
   cursor: hasArt ? 'zoom-in' : 'default',
+  position: 'relative',
+}));
+
+const FavouriteButton = styled(IconButton, {
+  shouldForwardProp: prop => prop !== 'isFavourite',
+})<{ isFavourite: boolean }>(({ theme, isFavourite }) => ({
+  position: 'absolute',
+  top: 4,
+  right: 4,
+  padding: 4,
+  zIndex: 1,
+  color: isFavourite ? theme.palette.error.main : theme.palette.common.white,
+  backgroundColor: alpha(theme.palette.common.black, 0.45),
+  '&:hover': { backgroundColor: alpha(theme.palette.common.black, 0.65) },
 }));
 
 const TinyText = styled(Typography)({
@@ -89,13 +145,23 @@ const PlayBarRoot = styled(Box, {
   position: 'relative',
 }));
 
-const PlayerCard = styled(Grid)(({ theme }) => ({
+const PlayerCard = styled(Grid, {
+  shouldForwardProp: prop => prop !== 'isPhone',
+})<{ isPhone: boolean }>(({ isPhone, theme }) => ({
   backdropFilter: 'blur(80px)',
   width: '100%',
-  border: 'rgba(0,0,0,0.25) 1px solid',
+  border: `${theme.palette.surfaces.glassBorder} 1px solid`,
   // eslint-disable-next-line @typescript-eslint/naming-convention
   '-electron-corner-smoothing': '100%',
-  backgroundColor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.4)',
+  backgroundColor: theme.palette.surfaces.glass,
+  // The border alone is too faint in light mode to separate the bar from the page.
+  boxShadow: theme.shadows[8],
+  // On phones the root drops its side padding, so the card sits flush against the
+  // window edge; rounded bottom corners would show the page through them.
+  ...(isPhone && {
+    borderRadius: `${theme.shape.borderRadius}px ${theme.shape.borderRadius}px 0 0`,
+    borderBottom: 'none',
+  }),
 }));
 
 const LyricsCollapse = styled(Collapse)({
@@ -122,7 +188,6 @@ const TitleText = styled(Typography, {
   whiteSpace: 'nowrap',
   fontSize: '1.25rem',
   lineHeight: 1.5,
-  cursor: navigable ? 'pointer' : 'default',
   '&:hover': navigable
     ? { textDecoration: 'underline', color: theme.palette.secondary.main }
     : undefined,
@@ -136,7 +201,6 @@ const ArtistsText = styled(Typography)({
 });
 
 const ArtistName = styled(Box)(({ theme }) => ({
-  cursor: 'pointer',
   '&:hover': {
     opacity: 0.8,
     textDecoration: 'underline',
@@ -146,7 +210,6 @@ const ArtistName = styled(Box)(({ theme }) => ({
 
 const AlbumText = styled(Typography)(({ theme }) => ({
   color: theme.palette.primary.main,
-  cursor: 'pointer',
   '&:hover': { textDecoration: 'underline' },
   whiteSpace: 'nowrap',
 }));
@@ -165,10 +228,8 @@ const TransportRow = styled(Box)({
   gap: '0.625rem',
 });
 
-const ControlButton = styled(IconButton, {
-  shouldForwardProp: prop => prop !== 'isDark',
-})<{ isDark: boolean }>(({ isDark }) => ({
-  backgroundColor: isDark ? 'black' : '#d9d9d9',
+const ControlButton = styled(IconButton)(({ theme }) => ({
+  backgroundColor: theme.palette.surfaces.control,
 }));
 
 const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
@@ -200,9 +261,7 @@ const VolumeSlider = styled(Slider)(({ theme }) => ({
     transition: '0.3s cubic-bezier(.47,1.64,.41,.8)',
     '&:before': { boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)' },
     '&:hover, &.Mui-focusVisible': {
-      boxShadow: `0px 0px 0px 8px ${
-        theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
-      }`,
+      boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
     },
     '&.Mui-active': { width: 16, height: 16 },
   },
@@ -237,31 +296,21 @@ const DiscordIconButton = styled(IconButton, {
   opacity: enabled ? 1 : 0.35,
 }));
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-function syltToLrc(synchronisedText: Array<{ text: string; timestamp: number }>): string {
-  return synchronisedText
-    .map(({ text, timestamp }) => {
-      const mins = Math.floor(timestamp / 60000);
-      const secs = Math.floor((timestamp % 60000) / 1000);
-      const centis = Math.floor((timestamp % 1000) / 10);
-      return `[${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centis).padStart(2, '0')}]${text}`;
-    })
-    .join('\n');
+/** `stream:12` → 12; anything else (a library id, a file path) → undefined. */
+function streamIdOf(id: string | number | undefined): number | undefined {
+  const match = typeof id === 'string' && /^stream:(\d+)$/.exec(id);
+  return match ? Number(match[1]) : undefined;
 }
-
-// ── Component ──────────────────────────────────────────────────────────────
 
 export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
-  const isDark = theme.palette.mode === 'dark';
   const { state, dispatch } = useContext(store);
   const defaultVol = getVolumeLevel();
   const [songPath, setSongPath] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  // Hidden silent loop — keeps MediaSession active across track changes
+  // Hidden silent loop - keeps MediaSession active across track changes
   // so SMTC doesn't drop the OS-level entry. See silentSrc below.
   const silentAudioRef = useRef<HTMLAudioElement>(null);
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -271,6 +320,11 @@ export default function PlayBar() {
   // false when a track is already in state (restored from localStorage) → don't blast music on restart.
   const didAutoStartRef = useRef(!state?.track);
   const pausedRef = useRef(true);
+  // Mirrors isCasting for effects and handlers that must not re-subscribe.
+  const castingRef = useRef(false);
+  // Surround (beta): set by useSurround while surroundEngine plays the element.
+  // Like casting, the element then stays muted and only keeps the transport.
+  const surroundRef = useRef(false);
   // Discards stale artwork loads when the user skips past the track.
   const metadataReqRef = useRef(0);
   const [duration, setDuration] = useState(0);
@@ -281,12 +335,33 @@ export default function PlayBar() {
   const [lastVolume, setLastVolume] = useState(defaultVol > 0 ? defaultVol : 30);
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
   const [songInfoOpen, setSongInfoOpen] = useState(false);
+  const [editTrack, setEditTrack] = useState<EditableTrack[] | null>(null);
+
+  // ── Google Cast ────────────────────────────────────────────────────────────
+  const [isCasting, setIsCasting] = useState(false);
+  const [castDeviceId, setCastDeviceId] = useState<string | null>(null);
+  const [castDeviceName, setCastDeviceName] = useState<string | null>(null);
+  const [castMenuAnchorEl, setCastMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const castDeviceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    castingRef.current = isCasting;
+  }, [isCasting]);
+  useEffect(() => {
+    castDeviceIdRef.current = castDeviceId;
+  }, [castDeviceId]);
+  const persistVolumeRef = useRef((val: number) => {
+    if (castingRef.current && castDeviceIdRef.current) {
+      setCastVolumeLevel(castDeviceIdRef.current, val);
+    } else {
+      setVolumeLevel(val);
+    }
+  });
 
   // ── Lyrics ───────────────────────────────────────────────────────────────
   const isLyricsExpanded = state.isLyricsExpanded;
   const [previewOpen, setPreviewOpen] = useState(false);
   const [lrcContent, setLrcContent] = useState<string | null>(null);
-  const [lyricsSource, setLyricsSource] = useState<'LRC file' | 'Embedded' | null>(null);
+  const [lyricsSource, setLyricsSource] = useState<LyricsSource | null>(null);
   const [lyricsType, setLyricsType] = useState<'synced' | 'unsynced' | null>(null);
 
   useEffect(() => {
@@ -297,95 +372,16 @@ export default function PlayBar() {
       return;
     }
     let cancelled = false;
-    (async () => {
-      const fs = window.require('fs') as typeof import('fs');
-      const nodePath = window.require('path') as typeof import('path');
-
-      // 1. Try sidecar .lrc file — determine synced vs unsynced by content
-      const dir = nodePath.dirname(songPath);
-      const base = nodePath.basename(songPath, nodePath.extname(songPath));
-      const lrcPath = nodePath.join(dir, `${base}.lrc`);
-      if (fs.existsSync(lrcPath)) {
-        try {
-          const content = fs.readFileSync(lrcPath, 'utf8');
-          const isSynced = /\[\d{2}:\d{2}[.:]\d{2}/.test(content);
-          if (!cancelled) {
-            setLrcContent(content);
-            setLyricsSource('LRC file');
-            setLyricsType(isSynced ? 'synced' : 'unsynced');
-          }
-          return;
-        } catch {
-          /* fall through */
-        }
-      }
-
-      // 2. Try embedded tags via music-metadata
-      try {
-        const metadata = await parseFile(songPath, { skipCovers: true });
-        const nativeFrames = [
-          ...(metadata.native['ID3v2.3'] ?? []),
-          ...(metadata.native['ID3v2.4'] ?? []),
-        ];
-
-        const sylt = nativeFrames.find(f => f.id === 'SYLT');
-        const syltVal = sylt?.value as
-          | { synchronisedText?: Array<{ text: string; timestamp: number }> }
-          | undefined;
-        if (syltVal?.synchronisedText?.length) {
-          const lrc = syltToLrc(syltVal.synchronisedText);
-          if (!cancelled) {
-            setLrcContent(lrc);
-            setLyricsSource('Embedded');
-            setLyricsType('synced');
-          }
-          return;
-        }
-
-        const uslt = nativeFrames.find(f => f.id === 'USLT');
-        const usltVal = uslt?.value as { text?: string } | undefined;
-        if (usltVal?.text) {
-          const text: string = usltVal.text;
-          const isSynced = /\[\d{2}:\d{2}[.:]\d{2}/.test(text);
-          if (!cancelled) {
-            setLrcContent(text);
-            setLyricsSource('Embedded');
-            setLyricsType(isSynced ? 'synced' : 'unsynced');
-          }
-          return;
-        }
-
-        const commonLyrics = (metadata.common as unknown as Record<string, unknown>).lyrics;
-        const lyricText = Array.isArray(commonLyrics)
-          ? (commonLyrics as Array<{ text?: string } | string>)
-              .map(l => (typeof l === 'string' ? l : (l?.text ?? '')))
-              .filter(Boolean)
-              .join('\n')
-          : typeof commonLyrics === 'string'
-            ? commonLyrics
-            : null;
-        if (lyricText) {
-          if (!cancelled) {
-            setLrcContent(lyricText);
-            setLyricsSource('Embedded');
-            setLyricsType('unsynced');
-          }
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-
-      if (!cancelled) {
-        setLrcContent(null);
-        setLyricsSource(null);
-        setLyricsType(null);
-      }
-    })();
+    resolveLyrics(songPath, state.track?.Id).then(found => {
+      if (cancelled) return;
+      setLrcContent(found?.content ?? null);
+      setLyricsSource(found?.source ?? null);
+      setLyricsType(found?.type ?? null);
+    });
     return () => {
       cancelled = true;
     };
-  }, [songPath]);
+  }, [songPath, state.track?.Id]);
 
   const handleLyricsToggle = useCallback(() => {
     dispatch({ type: 'SET_LYRICS_EXPANDED', payload: !isLyricsExpanded });
@@ -407,6 +403,15 @@ export default function PlayBar() {
       if (!next) ipcRenderer.send('discord-clear');
       return next;
     });
+  }, []);
+
+  // ── Scrobbling (Last.fm / ListenBrainz) ──────────────────────────────
+  // Refs, not state: the 1Hz tick below reads them without restarting itself.
+  const scrobbledRef = useRef(false);
+  const trackStartedAtRef = useRef(0);
+  const startScrobbleWindow = useCallback(() => {
+    scrobbledRef.current = false;
+    trackStartedAtRef.current = Math.floor(Date.now() / 1000);
   }, []);
 
   const artistNames = React.useMemo(() => {
@@ -435,6 +440,26 @@ export default function PlayBar() {
   );
 
   const trackUri = state?.track?.Uri as string | undefined;
+  // Internet radio: no duration, no seeking, and the bar shows Live instead of times.
+  // Keyed on the queue id, not the URL scheme: the Streams view is the only thing
+  // that enqueues a `stream:<id>`, whereas a synced remote track also has an http
+  // Uri but is finite and seekable like any other song.
+  const isLive = streamIdOf(state?.track?.Id) !== undefined;
+  // Not backed by a local file: internet radio, or a remote track we haven't
+  // downloaded. Gates the features that need real bytes on disk.
+  const isRemote = !!trackUri && /^https?:\/\//i.test(trackUri);
+
+  // A source set to read tags lazily hands the library a track named after its
+  // file, and playing it is what fills in the rest. Main answers immediately
+  // for anything already tagged.
+  const currentTrackId = state?.track?.Id;
+  useEffect(() => {
+    if (!isRemote || isLive || currentTrackId == null) return;
+    void ipcRenderer
+      .invoke('ensure-remote-tags', { trackId: currentTrackId })
+      .catch(() => undefined);
+  }, [isRemote, isLive, currentTrackId]);
+
   useEffect(() => {
     if (trackUri) {
       setSongPath(trackUri);
@@ -446,16 +471,79 @@ export default function PlayBar() {
     }
   }, [trackUri]);
 
+  // The ICY title is written onto the current track, so the player bar, OS controls,
+  // overlay and Discord follow along without knowing a stream is involved. The queue
+  // entry is read from here because it still holds the station's own name.
+  const streamBaseRef = useRef(state.track);
+  streamBaseRef.current = state.queue[state.queueIndex] ?? state.track;
+  // The history row for the song currently on air, so it can be bookmarked.
+  const [streamHistory, setStreamHistory] = useState<{ id: number; saved: boolean } | null>(null);
+  useEffect(() => {
+    // Cleared for every track, or a library song inherits the last station's
+    // row and shows a bookmark instead of a heart.
+    setStreamHistory(null);
+    if (!isLive) return;
+    const handleMeta = (
+      _event: Electron.IpcRendererEvent,
+      meta: {
+        title?: string;
+        artist?: string | null;
+        historyId?: number;
+        saved?: boolean;
+      }
+    ) => {
+      const base = streamBaseRef.current;
+      if (!base || !meta?.title) return;
+      setStreamHistory(meta.historyId != null ? { id: meta.historyId, saved: !!meta.saved } : null);
+      dispatch({
+        type: 'SET_CURR_TRACK',
+        payload: { ...base, Title: meta.title, ArtistName: meta.artist ?? base.ArtistName },
+      });
+    };
+    ipcRenderer.on('stream-metadata', handleMeta);
+    ipcRenderer.send('stream-meta-start', {
+      url: trackUri,
+      streamId: streamIdOf(streamBaseRef.current?.Id),
+    });
+    return () => {
+      ipcRenderer.removeListener('stream-metadata', handleMeta);
+      ipcRenderer.send('stream-meta-stop');
+    };
+  }, [trackUri, isLive, dispatch]);
+
+  // setSinkId persists across src changes, but the audio element mounts lazily
+  // with the first track, so re-apply on each load and on the change event below.
+  const applySinkId = useCallback(async (): Promise<void> => {
+    const deviceId = getAudioOutputDeviceId();
+    // Surround (beta): the element is muted, so where its sink points is moot.
+    if (deviceId === SURROUND_OUTPUT_ID) return;
+    for (const el of [audioRef.current, silentAudioRef.current]) {
+      const sinkable = el as
+        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
+        | null;
+      if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
+      try {
+        await sinkable.setSinkId(deviceId);
+      } catch {
+        // Device vanished; fall back to the system default so audio keeps playing.
+        if (deviceId !== 'default') await sinkable.setSinkId('default').catch(() => undefined);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
-      audio.src = `file://${songPath.replace(/\\/g, '/')}`;
-      audio.volume = muteVolumeRef.current ? 0 : volumeRef.current;
+      audio.src = toMediaSrc(songPath);
+      audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
+      audio.muted = castingRef.current || surroundRef.current || audio.muted;
+      void applySinkId();
       // Kick playback off immediately rather than waiting for loadedmetadata
       // so the new track starts at canplay instead of an extra round-trip later.
-      if (!pausedRef.current) audio.play().catch(() => undefined);
+      // While casting, the local element is a muted clock; never let it play.
+      if (!pausedRef.current && !castingRef.current) audio.play().catch(() => undefined);
     }
-  }, [songPath]);
+  }, [songPath, applySinkId]);
 
   useEffect(() => {
     if (!songPath) {
@@ -469,15 +557,16 @@ export default function PlayBar() {
     volumeRef.current = volume / 100;
     muteVolumeRef.current = muteVolume;
     if (audioRef.current && !fadeIntervalRef.current) {
-      audioRef.current.volume = muteVolume ? 0 : volume / 100;
-      audioRef.current.muted = muteVolume;
+      const silent = muteVolume || castingRef.current;
+      audioRef.current.volume = silent ? 0 : volume / 100;
+      audioRef.current.muted = silent || surroundRef.current;
     }
   }, [volume, muteVolume]);
 
   const handleVolumeChange = useCallback((_: Event, value: number | number[]) => {
     const resolved = Array.isArray(value) ? value[0] : value;
     setVolume(resolved);
-    setVolumeLevel(resolved);
+    persistVolumeRef.current(resolved);
     if (resolved === 0) {
       setMuteVolume(true);
     } else {
@@ -491,7 +580,7 @@ export default function PlayBar() {
     const delta = event.deltaY < 0 ? 1 : -1;
     setVolume(prev => {
       const next = Math.max(0, Math.min(100, prev + delta));
-      setVolumeLevel(next);
+      persistVolumeRef.current(next);
       if (next === 0) {
         setMuteVolume(true);
       } else {
@@ -507,7 +596,7 @@ export default function PlayBar() {
       if (prev) {
         const restore = lastVolume > 0 ? lastVolume : 30;
         setVolume(restore);
-        setVolumeLevel(restore);
+        persistVolumeRef.current(restore);
         return false;
       }
       return true;
@@ -520,7 +609,10 @@ export default function PlayBar() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
-    const handleLoadedMetadata = () => setDuration(audio.duration);
+    // A live stream reports Infinity; 0 is what every consumer already treats as an
+    // unknown duration, so no seek, progress fill, play-count or scrobble happens.
+    const handleLoadedMetadata = () =>
+      setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
   }, [songPath]);
@@ -529,10 +621,14 @@ export default function PlayBar() {
     const audio = audioRef.current;
     if (!audio) return;
     audio.onended = () => {
+      // While casting, the device signals track end via cast-status, then cast-ended.
+      if (castingRef.current) return;
       if (state.queue && state.queue.length > 0) {
         if (state.repeatMode === 'one') {
           audio.currentTime = 0;
           audio.play().catch(() => undefined);
+          // Track id doesn't change on repeat, so arm the next scrobble here.
+          startScrobbleWindow();
         } else if (state.queueIndex < state.queue.length - 1) {
           dispatch({ type: 'NEXT_TRACK' });
         } else if (state.repeatMode === 'all') {
@@ -542,11 +638,51 @@ export default function PlayBar() {
         }
       }
     };
-  }, [state.queue, state.queueIndex, state.repeatMode, dispatch]);
+    // A file Chromium's demuxer rejects (malformed FLAC picture block, truncated
+    // container) fires error and nothing else, so the bar would sit at 0:00 forever.
+    // Never repeat on error, even with repeatMode 'one', or it spins on a dead file.
+    audio.onerror = () => {
+      if (!audio.getAttribute('src')) return; // clearing src on queue end
+      const { code, message } = audio.error ?? {};
+      console.error('[audio] cannot play', audio.currentSrc, code, message);
+      if (castingRef.current) return;
+      const canAdvance =
+        (state.queue?.length ?? 0) > 0 &&
+        (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all');
+      const title = (state.track?.Title as string) || 'This track';
+      // An unreachable server fails every one of its tracks identically, so
+      // advancing would race through the queue firing a toast per song, and
+      // "damaged file" would be the wrong diagnosis every time. Stop once instead.
+      if (/^https?:\/\//i.test(String(state.track?.Uri ?? ''))) {
+        window.dispatchEvent(
+          new CustomEvent(PLAYBACK_ERROR_EVENT, {
+            detail: `Can't reach the server for ${title}. Check that it's online.`,
+          })
+        );
+        dispatch({ type: 'RESET_PLAYBACK' });
+        return;
+      }
+      window.dispatchEvent(
+        new CustomEvent(PLAYBACK_ERROR_EVENT, {
+          detail: `${title} can't be played — the file is unsupported or damaged.${
+            canAdvance ? ' Skipping.' : ''
+          }`,
+        })
+      );
+      if (canAdvance) dispatch({ type: 'NEXT_TRACK' });
+      else dispatch({ type: 'RESET_PLAYBACK' });
+    };
+  }, [state.queue, state.queueIndex, state.repeatMode, state.track, dispatch, startScrobbleWindow]);
 
   useEffect(() => {
     pausedRef.current = paused;
   }, [paused]);
+
+  // The bar owns the real transport state; views only write `isPlaying` when they
+  // start something, so without this mirror it goes stale on the first pause.
+  useEffect(() => {
+    dispatch({ type: 'SET_IS_PLAYING', payload: !paused });
+  }, [paused, dispatch]);
 
   // ── SMTC keepalive (silent loop) ─────────────────────────────────────
   // 1s silent WAV looped in a hidden audio element. While it's playing,
@@ -659,8 +795,46 @@ export default function PlayBar() {
     };
   }, []);
 
+  const syncVolumeFromSettings = useCallback(() => {
+    const next = getVolumeLevel();
+    setVolume(next);
+    if (next === 0) {
+      setMuteVolume(true);
+    } else {
+      setMuteVolume(false);
+      setLastVolume(next);
+    }
+  }, []);
+
+  // ── Surround (beta) ──────────────────────────────────────────────────────
+  // Effects and mixer state live in useSurround. Elsewhere PlayBar only ORs
+  // surroundRef into audio.muted and renders the mixer entry points.
+  const surround = useSurround(audioRef, songPath, castingRef, muteVolumeRef, surroundRef);
+
+  // Re-route live when the output device is changed in Settings.
+  useEffect(() => {
+    const handler = (): void => {
+      // While casting the slider shows the cast volume; an output-device change
+      // must not overwrite it with the local level.
+      if (!castingRef.current) syncVolumeFromSettings();
+      void applySinkId();
+    };
+    window.addEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
+    return () => window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, handler);
+  }, [applySinkId, syncVolumeFromSettings]);
+
   // Sync audio play/pause with smooth fade
   useEffect(() => {
+    // While casting, transport lives on the device; forward the intent and leave the local element paused.
+    if (castingRef.current) {
+      if (fadeIntervalRef.current) {
+        clearInterval(fadeIntervalRef.current);
+        fadeIntervalRef.current = null;
+      }
+      ipcRenderer.send('cast-control', { action: paused ? 'pause' : 'play' });
+      return;
+    }
+
     const audio = audioRef.current;
     if (!audio || !songPath) return;
 
@@ -688,6 +862,9 @@ export default function PlayBar() {
     } else {
       const targetVol = muteVolumeRef.current ? 0 : volumeRef.current;
       audio.volume = 0;
+      // Resuming a live stream off its stale buffer plays however long you were
+      // paused behind the broadcast; reloading snaps back to the live edge.
+      if (!Number.isFinite(audio.duration)) audio.load();
       audio.play().catch(() => undefined);
       let step = 0;
       fadeIntervalRef.current = setInterval(() => {
@@ -722,11 +899,38 @@ export default function PlayBar() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id]);
 
+  const scrobbleMeta = useMemo(() => {
+    const track = state.track;
+    // ICY metadata gives a station a title and artist, which would otherwise pass as a song.
+    if (!track?.Id || isLive) return null;
+    const artist = artistNames.join(', ');
+    const title = (track.Title as string) || '';
+    if (!artist || !title) return null;
+    // `artist` is the joined display string, a fallback only; the main process
+    // resolves the real per-artist rows from `trackId`.
+    return {
+      trackId: track.Id as number,
+      artist,
+      track: title,
+      album: (track.AlbumTitle as string) || undefined,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.track?.Id, artistNames, isLive]);
+  const scrobbleMetaRef = useRef(scrobbleMeta);
+  scrobbleMetaRef.current = scrobbleMeta;
+
+  useEffect(() => {
+    // Duration 0 is any live audio, including a radio URL that came in via a playlist rather than the Streams view.
+    if (paused || !scrobbleMeta || !duration) return;
+    ipcRenderer.send('scrobbler-now-playing', { ...scrobbleMeta, duration });
+  }, [scrobbleMeta, paused, duration]);
+
   // ── Track play count / last-played + OS seek bar — coalesced 1Hz tick ──
   const playedCountedRef = useRef(false);
   useEffect(() => {
     playedCountedRef.current = false;
-  }, [state.track?.Id]);
+    startScrobbleWindow();
+  }, [state.track?.Id, startScrobbleWindow]);
 
   useEffect(() => {
     const trackId = state.track?.Id;
@@ -736,6 +940,9 @@ export default function PlayBar() {
       const audio = audioRef.current;
       if (!audio) return;
       const pos = audio.currentTime;
+      window.dispatchEvent(
+        new CustomEvent(PLAYBACK_TICK_EVENT, { detail: { position: pos, duration } })
+      );
 
       if ('mediaSession' in navigator) {
         try {
@@ -752,6 +959,20 @@ export default function PlayBar() {
       if (!playedCountedRef.current && pos / duration >= 0.7) {
         playedCountedRef.current = true;
         ipcRenderer.send('track-played', { trackId });
+      }
+
+      // Last.fm's rule: tracks over 30s count at half their length or 4
+      // minutes in, whichever comes first. ListenBrainz uses the same one.
+      if (!scrobbledRef.current && duration > 30 && pos >= Math.min(duration / 2, 240)) {
+        scrobbledRef.current = true;
+        const meta = scrobbleMetaRef.current;
+        if (meta) {
+          ipcRenderer.send('scrobbler-scrobble', {
+            ...meta,
+            duration,
+            timestamp: trackStartedAtRef.current,
+          });
+        }
       }
     };
 
@@ -855,22 +1076,20 @@ export default function PlayBar() {
     navigator.mediaSession.setActionHandler('previoustrack', () =>
       dispatch({ type: 'PREV_TRACK' })
     );
+    const applySeek = (target: number) => {
+      if (audioRef.current) audioRef.current.currentTime = target;
+      if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
+    };
     navigator.mediaSession.setActionHandler('seekto', details => {
-      if (audioRef.current && details.seekTime !== undefined) {
-        audioRef.current.currentTime = details.seekTime;
-      }
+      if (details.seekTime !== undefined) applySeek(details.seekTime);
     });
     navigator.mediaSession.setActionHandler('seekforward', details => {
       const skipTime = details.seekOffset || 10;
-      if (audioRef.current) {
-        audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + skipTime);
-      }
+      if (audioRef.current) applySeek(Math.min(duration, audioRef.current.currentTime + skipTime));
     });
     navigator.mediaSession.setActionHandler('seekbackward', details => {
       const skipTime = details.seekOffset || 10;
-      if (audioRef.current) {
-        audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - skipTime);
-      }
+      if (audioRef.current) applySeek(Math.max(0, audioRef.current.currentTime - skipTime));
     });
 
     return () => {
@@ -925,14 +1144,70 @@ export default function PlayBar() {
   const sendDiscordUpdateRef = useRef(sendDiscordUpdate);
   sendDiscordUpdateRef.current = sendDiscordUpdate;
   const handleSeekCommit = useCallback((pos: number) => {
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: pos });
     sendDiscordUpdateRef.current(pos);
   }, []);
 
   useEffect(() => {
     sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.track?.Id, paused, discordEnabled]);
+    // Title is a dep because a stream keeps one track id across songs.
+  }, [state.track?.Id, state.track?.Title, paused, discordEnabled, duration]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
+
+  // Set while a hand or the needle is on the record: the element is silent and
+  // the scratch engine makes the sound. `paused` is left alone; the record is
+  // held, not stopped, so the tone switch and the tick keep reporting play.
+  const scratchRef = useRef<{ wasPlaying: boolean } | null>(null);
+  useEffect(() => {
+    const onToggle = () => setPaused(prev => !prev);
+    const onVolume = (e: Event) => handleVolumeChange(e, (e as CustomEvent<number>).detail);
+    const onScratch = (e: Event) => {
+      const d = (e as CustomEvent<ScratchDetail>).detail;
+      if (d.phase === 'prime') {
+        if (!castingRef.current) scratch.prime(d.uri ?? null);
+        return;
+      }
+      const audio = audioRef.current;
+      if (!audio || !duration || castingRef.current) return;
+      const held = scratchRef.current;
+      switch (d.phase) {
+        case 'hold':
+          scratchRef.current = { wasPlaying: !audio.paused };
+          audio.pause();
+          scratch.hold(audio.currentTime, muteVolumeRef.current ? 0 : volumeRef.current);
+          break;
+        case 'move':
+          if (held) scratch.move(d.seconds ?? 0, d.rate ?? 0, duration);
+          break;
+        case 'scrub': {
+          const t = (d.fraction ?? 0) * duration;
+          if (held?.wasPlaying) scratch.scrub(t);
+          else scratch.place(t);
+          break;
+        }
+        case 'release': {
+          if (d.fraction != null) scratch.place(d.fraction * duration);
+          const t = scratch.release();
+          if (!held) return;
+          audio.currentTime = t;
+          // Set down or lifted clear by hand flips the transport.
+          if (d.play != null) setPaused(!d.play);
+          else if (held.wasPlaying) audio.play().catch(() => undefined);
+          handleSeekCommit(t);
+          scratchRef.current = null;
+          break;
+        }
+      }
+    };
+    window.addEventListener(PLAYBACK_TOGGLE_EVENT, onToggle);
+    window.addEventListener(VOLUME_CHANGE_EVENT, onVolume);
+    window.addEventListener(PLAYBACK_SCRATCH_EVENT, onScratch);
+    return () => {
+      window.removeEventListener(PLAYBACK_TOGGLE_EVENT, onToggle);
+      window.removeEventListener(VOLUME_CHANGE_EVENT, onVolume);
+      window.removeEventListener(PLAYBACK_SCRATCH_EVENT, onScratch);
+    };
+  }, [handleVolumeChange, handleSeekCommit, duration]);
 
   // ── Thumbnail toolbar sync ──────────────────────────────────────────
   useEffect(() => {
@@ -966,7 +1241,7 @@ export default function PlayBar() {
     dispatch({ type: 'SET_REPEAT_MODE', payload: nextMode });
   }, [dispatch, state.repeatMode]);
 
-  const mainIconColor = isDark ? '#fff' : '#000';
+  const mainIconColor = theme.palette.text.primary;
 
   // ── Long-press skip buttons ───────────────────────────────────────────
   const longPressTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -974,15 +1249,19 @@ export default function PlayBar() {
   const longPressFiredRef = useRef(false);
 
   const handlePrevLongPressAction = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 15);
-    }
+    const audio = audioRef.current;
+    if (!audio) return;
+    const target = Math.max(0, audio.currentTime - 15);
+    audio.currentTime = target;
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
   }, []);
 
   const handleNextLongPressAction = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.currentTime = Math.min(duration, audioRef.current.currentTime + 15);
-    }
+    const audio = audioRef.current;
+    if (!audio) return;
+    const target = Math.min(duration, audio.currentTime + 15);
+    audio.currentTime = target;
+    if (castingRef.current) ipcRenderer.send('cast-control', { action: 'seek', value: target });
   }, [duration]);
 
   const clearLongPress = useCallback((callback?: () => void) => {
@@ -1073,6 +1352,57 @@ export default function PlayBar() {
 
   const handleClosePreview = useCallback(() => setPreviewOpen(false), []);
 
+  // ── Favourite toggle ──────────────────────────────────────────────────────
+  // Files played via "Open with" are keyed by path, not by a library row, so
+  // there is nothing to favourite.
+  const trackId = state.track?.Id;
+  // A radio song has no library row; bookmarking it flags its history entry
+  // instead, which is also what keeps the entry past its expiry.
+  const canFavourite = typeof trackId === 'number' || streamHistory != null;
+  const [isFavourite, setIsFavourite] = useState(false);
+
+  useEffect(() => {
+    if (streamHistory) {
+      setIsFavourite(streamHistory.saved);
+      return;
+    }
+    if (!canFavourite) {
+      setIsFavourite(false);
+      return;
+    }
+    // Re-checked on library-updated so removing it from the Favourites screen
+    // (or any other window) is reflected here.
+    const check = () =>
+      ipcRenderer
+        .invoke('is-favourite', { trackId })
+        .then((v: unknown) => setIsFavourite(!!v))
+        .catch(() => undefined);
+    check();
+    ipcRenderer.on('library-updated', check);
+    return () => {
+      ipcRenderer.removeListener('library-updated', check);
+    };
+  }, [trackId, canFavourite, streamHistory]);
+
+  const handleToggleFavourite = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!canFavourite) return;
+      if (streamHistory) {
+        const next = !streamHistory.saved;
+        await ipcRenderer.invoke('set-stream-track-saved', { id: streamHistory.id, saved: next });
+        setStreamHistory({ ...streamHistory, saved: next });
+        setIsFavourite(next);
+        return;
+      }
+      const res = (await ipcRenderer.invoke('toggle-favourite', { trackId })) as {
+        favourite?: boolean;
+      };
+      setIsFavourite(!!res?.favourite);
+    },
+    [trackId, canFavourite, streamHistory]
+  );
+
   const handleTitleClick = useCallback(() => {
     if (!state.queueSource) return;
     navigate(state.queueSource, {
@@ -1087,12 +1417,233 @@ export default function PlayBar() {
   }, [navigate, state.track?.AlbumId]);
 
   const handleOpenSongInfo = useCallback(() => setSongInfoOpen(true), []);
+  const handleOpenTagEditor = useCallback(() => {
+    if (!state.track?.Id || !songPath) return;
+    setEditTrack([{ Id: state.track.Id, Uri: songPath, Title: state.track.Title }]);
+  }, [state.track?.Id, state.track?.Title, songPath]);
   const handleCloseSongInfo = useCallback(() => setSongInfoOpen(false), []);
+
+  const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const menuOpen = Boolean(menuAnchorEl) || Boolean(menuPosition);
+  const [deviceMenuAnchorEl, setDeviceMenuAnchorEl] = useState<HTMLElement | null>(null);
+
+  const handleOpenMenuButton = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    setMenuPosition(null);
+    setMenuAnchorEl(e.currentTarget);
+  }, []);
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    // to prevent event bubbling
+    if (!e.currentTarget.contains(e.target as Node)) return;
+    e.preventDefault();
+    setMenuAnchorEl(null);
+    setMenuPosition({ top: e.clientY, left: e.clientX });
+  }, []);
+  const handleCloseMenu = useCallback(() => {
+    setMenuAnchorEl(null);
+    setMenuPosition(null);
+    setDeviceMenuAnchorEl(null);
+    setCastMenuAnchorEl(null);
+  }, []);
+  const runMenuAction = useCallback(
+    (action: () => void) => () => {
+      handleCloseMenu();
+      action();
+    },
+    [handleCloseMenu]
+  );
+  const handleOpenDeviceMenu = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => setDeviceMenuAnchorEl(e.currentTarget),
+    []
+  );
+
   const handleHidePlayBar = useCallback(
     () => dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false }),
     [dispatch]
   );
   const togglePlay = useCallback(() => setPaused(prev => !prev), []);
+
+  // ── Cast orchestration ─────────────────────────────────────────────────────
+  // The device reports position ~1×/sec; these anchor a wall-clock interpolation
+  // so the scrubber stays smooth between reports.
+  const castPosRef = useRef(0);
+  const castWallRef = useRef(0);
+  const castPlayingRef = useRef(false);
+  const anchorCastClock = useCallback((pos: number, playing: boolean) => {
+    castPosRef.current = pos;
+    castWallRef.current = Date.now();
+    castPlayingRef.current = playing;
+  }, []);
+
+  // Latest-state closures so the once-subscribed IPC listeners never go stale.
+  const sendCastLoadRef = useRef<(_autoplay: boolean, _startTime: number) => void>(() => undefined);
+  sendCastLoadRef.current = (autoplay: boolean, startTime: number) => {
+    const track = state.track;
+    if (!track?.Uri) return;
+    const next = state.queue[state.queueIndex + 1];
+    const ext = String(track.Uri).split('.').pop()?.toUpperCase() ?? '';
+    const payload: CastLoadPayload = {
+      filePath: track.Uri as string,
+      title: (track.Title as string) || 'Unknown Title',
+      artist: artistNames.join(', ') || 'Unknown Artist',
+      album: (track.AlbumTitle as string) || '',
+      artPath: (track.AlbumArt as string) || null,
+      currentTime: startTime,
+      autoplay,
+      customData: {
+        nextTitle: next?.Title ?? null,
+        queueIndex: state.queueIndex + 1,
+        queueTotal: state.queue.length,
+        formatText: ext,
+      },
+    };
+    ipcRenderer.send('cast-load', payload);
+    // Anchor now, or the bar sits at the previous track's position until the
+    // first status arrives.
+    anchorCastClock(startTime, autoplay);
+  };
+
+  // Mirrors the local onended queue logic, but drives the device.
+  const castAdvanceRef = useRef<() => void>(() => undefined);
+  castAdvanceRef.current = () => {
+    if (!state.queue || state.queue.length === 0) return;
+    if (state.repeatMode === 'one') {
+      ipcRenderer.send('cast-control', { action: 'seek', value: 0 });
+      ipcRenderer.send('cast-control', { action: 'play' });
+    } else if (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all') {
+      dispatch({ type: 'NEXT_TRACK' });
+    } else {
+      setPaused(true);
+    }
+  };
+
+  const resumeLocalPlayback = useCallback(() => {
+    setIsCasting(false);
+    setCastDeviceId(null);
+    setCastDeviceName(null);
+    const localVol = getVolumeLevel();
+    setVolume(localVol);
+    if (localVol === 0) {
+      setMuteVolume(true);
+    } else {
+      setMuteVolume(false);
+      setLastVolume(localVol);
+    }
+    const audio = audioRef.current;
+    if (audio) {
+      const muted = localVol === 0;
+      audio.muted = muted || surroundRef.current;
+      audio.volume = muted ? 0 : localVol / 100;
+      // Resume locally from wherever the device left the shared clock.
+      if (!pausedRef.current) audio.play().catch(() => undefined);
+    }
+  }, []);
+
+  const handleSelectCastDevice = useCallback((device: CastDevice) => {
+    setCastDeviceId(device.id);
+    setCastDeviceName(device.name);
+    ipcRenderer.send('cast-connect', { deviceId: device.id });
+  }, []);
+
+  const handleStopCasting = useCallback(() => {
+    ipcRenderer.send('cast-disconnect');
+    resumeLocalPlayback();
+  }, [resumeLocalPlayback]);
+
+  useEffect(() => {
+    dispatch({ type: 'SET_CASTING', payload: { isCasting, deviceName: castDeviceName } });
+  }, [isCasting, castDeviceName, dispatch]);
+
+  useEffect(() => {
+    const handler = () => handleStopCasting();
+    window.addEventListener(CAST_STOP_EVENT, handler);
+    return () => window.removeEventListener(CAST_STOP_EVENT, handler);
+  }, [handleStopCasting]);
+
+  const handleOpenCastMenu = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => setCastMenuAnchorEl(e.currentTarget),
+    []
+  );
+
+  // Subscribe once; the handlers read fresh state through the refs above.
+  useEffect(() => {
+    const onConnected = () => {
+      const audio = audioRef.current;
+      // Hand off at the local position, then keep the element muted as the UI clock.
+      const startAt = audio?.currentTime ?? 0;
+      if (audio) {
+        audio.pause();
+        audio.muted = true;
+        audio.volume = 0;
+      }
+      setIsCasting(true);
+      // The volume-to-device effect pushes this once isCasting flips on.
+      const castVol = castDeviceIdRef.current ? getCastVolumeLevel(castDeviceIdRef.current) : 10;
+      setVolume(castVol);
+      if (castVol === 0) {
+        setMuteVolume(true);
+      } else {
+        setMuteVolume(false);
+        setLastVolume(castVol);
+      }
+      sendCastLoadRef.current(!pausedRef.current, startAt);
+    };
+    const onStatus = (_e: unknown, s: CastStatus) => {
+      if (s.duration && Number.isFinite(s.duration)) setDuration(s.duration);
+      if (Number.isFinite(s.currentTime)) {
+        anchorCastClock(s.currentTime, s.playerState === 'PLAYING');
+      } else {
+        castPlayingRef.current = s.playerState === 'PLAYING';
+        castWallRef.current = Date.now();
+      }
+    };
+    const onEnded = () => castAdvanceRef.current();
+    const onError = (_e: unknown, payload: { message: string }) => {
+      // cast-error also carries the non-fatal "falling back to the default
+      // receiver" notice, so don't clear the pending device here; the indicator
+      // would lose its name.
+      console.warn('[cast]', payload?.message);
+    };
+    ipcRenderer.on('cast-connected', onConnected);
+    ipcRenderer.on('cast-status', onStatus);
+    ipcRenderer.on('cast-ended', onEnded);
+    ipcRenderer.on('cast-error', onError);
+    return () => {
+      ipcRenderer.removeListener('cast-connected', onConnected);
+      ipcRenderer.removeListener('cast-status', onStatus);
+      ipcRenderer.removeListener('cast-ended', onEnded);
+      ipcRenderer.removeListener('cast-error', onError);
+    };
+  }, []);
+
+  // Track changes start at 0; connect-time resume is handled in onConnected.
+  useEffect(() => {
+    if (castingRef.current) sendCastLoadRef.current(!pausedRef.current, 0);
+  }, [state.track?.Id]);
+
+  // Writing to the muted element is what makes PlaybackProgress repaint; it
+  // listens on timeupdate.
+  useEffect(() => {
+    if (!isCasting) return;
+    const id = setInterval(() => {
+      const audio = audioRef.current;
+      if (!audio) return;
+      let pos = castPosRef.current;
+      if (castPlayingRef.current) pos += (Date.now() - castWallRef.current) / 1000;
+      if (duration > 0) pos = Math.min(pos, duration);
+      audio.currentTime = pos;
+    }, 250);
+    return () => clearInterval(id);
+  }, [isCasting, duration]);
+
+  useEffect(() => {
+    if (isCasting) {
+      ipcRenderer.send('cast-control', {
+        action: 'setVolume',
+        value: muteVolume ? 0 : volume / 100,
+      });
+    }
+  }, [volume, muteVolume, isCasting]);
 
   if (!state?.track) return null;
 
@@ -1103,7 +1654,13 @@ export default function PlayBar() {
 
   return (
     <PlayBarRoot isPhone={isPhone}>
-      <PlayerCard container elevation={3} component={Card}>
+      <PlayerCard
+        container
+        isPhone={isPhone}
+        elevation={3}
+        component={Card}
+        onContextMenu={handleContextMenu}
+      >
         <LyricsCollapse in={isLyricsExpanded} mountOnEnter unmountOnExit>
           <LyricsPanel
             audioRef={audioRef}
@@ -1123,6 +1680,46 @@ export default function PlayBar() {
                 style={AlbumArtImageStyle}
                 fit="contain"
               />
+              {canFavourite && (
+                <FavouriteButton
+                  size="medium"
+                  isFavourite={isFavourite}
+                  onClick={handleToggleFavourite}
+                  // The red heart stays reserved for library favourites.
+                  sx={streamHistory && isFavourite ? { color: 'primary.main' } : undefined}
+                  aria-label={
+                    streamHistory
+                      ? isFavourite
+                        ? 'remove bookmark'
+                        : 'bookmark this song'
+                      : isFavourite
+                        ? 'remove from favourites'
+                        : 'add to favourites'
+                  }
+                  title={
+                    streamHistory
+                      ? isFavourite
+                        ? 'Remove bookmark'
+                        : 'Bookmark this song'
+                      : isFavourite
+                        ? 'Remove from Favourites'
+                        : 'Add to Favourites'
+                  }
+                >
+                  <Icon
+                    icon={
+                      streamHistory
+                        ? isFavourite
+                          ? bookmark24Filled
+                          : bookmark24Regular
+                        : isFavourite
+                          ? heart24Filled
+                          : heart24Regular
+                    }
+                    width={25}
+                  />
+                </FavouriteButton>
+              )}
             </CoverImageInteractive>
             <ImagePreviewDialog
               open={previewOpen}
@@ -1189,11 +1786,13 @@ export default function PlayBar() {
               audioRef={audioRef}
               duration={duration}
               trackId={state.track.Id as string | number | null}
+              isLive={isLive}
+              isRemote={isRemote}
+              paused={paused}
               onSeekCommit={handleSeekCommit}
             />
             <TransportRow>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="previous song"
@@ -1208,7 +1807,6 @@ export default function PlayBar() {
                 />
               </ControlButton>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label={paused ? 'play' : 'pause'}
@@ -1231,7 +1829,6 @@ export default function PlayBar() {
                 )}
               </ControlButton>
               <ControlButton
-                isDark={isDark}
                 component={motion.div}
                 whileTap={{ scale: 0.9 }}
                 aria-label="next song"
@@ -1264,6 +1861,16 @@ export default function PlayBar() {
                 onChange={handleVolumeChange}
               />
               <VolumeLabel className="no-select no-drag">{`${volume}%`}</VolumeLabel>
+              {/* Surround (beta) */}
+              {surround.on && (
+                <IconButton
+                  size="small"
+                  title="Ambion mixer"
+                  onClick={() => surround.setMixerOpen(true)}
+                >
+                  <Icon icon={speakerSettings24Regular} width={20} />
+                </IconButton>
+              )}
             </VolumeStack>
           </ProgressColumn>
         </Grid>
@@ -1280,8 +1887,15 @@ export default function PlayBar() {
             <Grid xs={6}>
               <FadedIconButton
                 onClick={handleShuffle}
-                active={state.isShuffle}
-                title={state.isShuffle ? 'Shuffle: On' : 'Shuffle: Off'}
+                disabled={isLive}
+                active={state.isShuffle && !isLive}
+                title={
+                  isLive
+                    ? 'Shuffle unavailable on a stream'
+                    : state.isShuffle
+                      ? 'Shuffle: On'
+                      : 'Shuffle: Off'
+                }
                 aria-label="shuffle"
               >
                 {state.isShuffle ? (
@@ -1294,13 +1908,16 @@ export default function PlayBar() {
             <Grid xs={6}>
               <FadedIconButton
                 onClick={handleRepeat}
-                active={state.repeatMode !== 'off'}
+                disabled={isLive}
+                active={state.repeatMode !== 'off' && !isLive}
                 title={
-                  state.repeatMode === 'off'
-                    ? 'Repeat: Off'
-                    : state.repeatMode === 'all'
-                      ? 'Repeat: All'
-                      : 'Repeat: One'
+                  isLive
+                    ? 'Repeat unavailable on a stream'
+                    : state.repeatMode === 'off'
+                      ? 'Repeat: Off'
+                      : state.repeatMode === 'all'
+                        ? 'Repeat: All'
+                        : 'Repeat: One'
                 }
                 aria-label="repeat"
               >
@@ -1322,7 +1939,7 @@ export default function PlayBar() {
                 title={discordEnabled ? 'Discord Presence: On' : 'Discord Presence: Off'}
                 enabled={discordEnabled}
               >
-                <DiscordIcon viewBox="0 0 70 60" width={22} height={22} />
+                <DiscordIcon viewBox="0 0 24 24" className="icon-themed" width={22} height={22} />
               </DiscordIconButton>
             </Grid>
             <Grid xs={6}>
@@ -1336,14 +1953,14 @@ export default function PlayBar() {
                 {isLyricsExpanded ? (
                   <LyricNoteActiveIcon
                     viewBox="0 0 16 17"
-                    className="icon-white"
+                    className="icon-themed"
                     width={22}
                     height={22}
                   />
                 ) : (
                   <LyricNoteIcon
                     viewBox="0 0 16 17"
-                    className="icon-white"
+                    className="icon-themed"
                     width={22}
                     height={22}
                   />
@@ -1354,12 +1971,15 @@ export default function PlayBar() {
           <SideButtonsRow container>
             <Grid xs={6}>
               <IconButton
-                onClick={handleOpenSongInfo}
-                aria-label="song info"
-                title="Song info / tags"
+                onClick={handleOpenMenuButton}
+                aria-label="track menu"
+                title="More"
                 disabled={!state.track}
               >
-                <Icon icon={songInfoOpen ? info24Filled : info24Regular} width={22} />
+                <Icon
+                  icon={menuOpen ? moreHorizontal24Filled : moreHorizontal24Regular}
+                  width={22}
+                />
               </IconButton>
             </Grid>
             <Grid xs={6}>
@@ -1379,6 +1999,94 @@ export default function PlayBar() {
         onClose={handleCloseSongInfo}
         track={state.track}
         songPath={songPath}
+      />
+      {editTrack && (
+        <TagEditorDialog open onClose={() => setEditTrack(null)} mode="track" tracks={editTrack} />
+      )}
+      <Menu
+        open={menuOpen}
+        onClose={handleCloseMenu}
+        anchorReference={menuPosition ? 'anchorPosition' : 'anchorEl'}
+        anchorEl={menuAnchorEl}
+        anchorPosition={menuPosition ?? undefined}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <MenuItem onClick={runMenuAction(handleOpenSongInfo)} disabled={isLive}>
+          <ListItemIcon>
+            <Icon icon={info24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Properties</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={runMenuAction(handleOpenTagEditor)}
+          disabled={isRemote || !songPath || !isTaggable(songPath)}
+        >
+          <ListItemIcon>
+            <Icon icon={edit24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Edit tags</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleCloseMenu} disabled>
+          <ListItemIcon>
+            <Icon icon={options24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Equalizer</ListItemText>
+        </MenuItem>
+        {/* Surround (beta) */}
+        {surround.on && (
+          <MenuItem
+            onClick={() => {
+              surround.setMixerOpen(true);
+              handleCloseMenu();
+            }}
+          >
+            <ListItemIcon>
+              <Icon icon={speakerSettings24Regular} width={20} />
+            </ListItemIcon>
+            <ListItemText>Ambion mixer</ListItemText>
+          </MenuItem>
+        )}
+        <MenuItem onClick={handleCloseMenu} disabled>
+          <ListItemIcon>
+            <Icon icon={topSpeed24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Tempo</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={handleOpenDeviceMenu}>
+          <ListItemIcon>
+            <Icon icon={speaker224Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Audio output</ListItemText>
+          <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
+        </MenuItem>
+        <MenuItem onClick={handleOpenCastMenu}>
+          <ListItemIcon>
+            <Icon icon={cast24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>
+            {isCasting && castDeviceName ? `Casting to ${castDeviceName}` : 'Cast to device'}
+          </ListItemText>
+          <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
+        </MenuItem>
+      </Menu>
+      <AudioOutputMenu
+        anchorEl={deviceMenuAnchorEl}
+        open={Boolean(deviceMenuAnchorEl)}
+        onClose={handleCloseMenu}
+      />
+      {/* Surround (beta) */}
+      <SurroundMixerDialog
+        open={surround.mixerOpen}
+        onClose={() => surround.setMixerOpen(false)}
+      />
+      <CastDeviceMenu
+        anchorEl={castMenuAnchorEl}
+        open={Boolean(castMenuAnchorEl)}
+        onClose={handleCloseMenu}
+        onSelect={handleSelectCastDevice}
+        onStopCasting={handleStopCasting}
+        connectedDeviceId={isCasting ? castDeviceId : null}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
       {/* SMTC keepalive — see silentSrc useMemo. */}

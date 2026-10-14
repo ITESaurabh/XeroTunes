@@ -1,8 +1,15 @@
-import React, { useEffect, useContext, createContext, useMemo, ReactNode } from 'react';
-import { store, LibraryStats } from '../utils/store';
+import React, { useEffect, useContext, createContext, useMemo, useRef, ReactNode } from 'react';
+import { parseFile } from 'music-metadata';
+import { store, LibraryStats, Track } from '../utils/store';
 import { debounce } from '../utils/misc';
+import { ScanMode } from '../../config/constants';
 
 const { ipcRenderer } = window.require('electron');
+
+function fileTitle(filePath: string): string {
+  const base = filePath.split(/[\\/]/).pop() ?? filePath;
+  return base.replace(/\.[^.]+$/, '');
+}
 
 interface IpcContextValue {
   sendEventToMainProcess: (event: string, payload?: unknown) => void;
@@ -25,7 +32,13 @@ interface IpcProviderProps {
 }
 
 export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
-  const { dispatch } = useContext(store);
+  const { state, dispatch } = useContext(store);
+  // Read through a ref so the long-lived IPC listeners below can stay on empty
+  // deps instead of being torn down and re-attached on every queue change.
+  const queueIdsRef = useRef<(string | number)[]>([]);
+  queueIdsRef.current = [
+    ...new Set([...state.queue.map(t => t.Id), ...(state.track ? [state.track.Id] : [])]),
+  ];
 
   // Sync scan state on mount — the auto-scan may have started before React mounted
   useEffect(() => {
@@ -33,10 +46,10 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     ipcRenderer
       .invoke('get-scan-status')
       .then((res: unknown) => {
-        const status = res as { isScanning: boolean; isFullScan?: boolean };
+        const status = res as { isScanning: boolean; scanMode?: ScanMode | null };
         dispatch({
           type: 'SET_SCANNING',
-          payload: { isScanning: status.isScanning, isFullScan: status.isFullScan },
+          payload: { isScanning: status.isScanning, scanMode: status.scanMode },
         });
       })
       .catch(() => undefined);
@@ -63,6 +76,37 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     };
   }, []);
 
+  // "Open with" while the full player is running: play here instead of
+  // spawning a mini player. The file may be outside the library, so build a
+  // transient one-track queue from its tags.
+  useEffect(() => {
+    if (mini) return;
+    const handlePlayExternal = async (_event: Electron.IpcRendererEvent, filePath: string) => {
+      if (!filePath) return;
+      let title = fileTitle(filePath);
+      let artist = '';
+      let album = '';
+      try {
+        const meta = await parseFile(filePath, { skipCovers: true });
+        title = meta.common.title || title;
+        artist = meta.common.artist || '';
+        album = meta.common.album || '';
+      } catch {
+        /* unreadable tags — filename fallback already set above */
+      }
+      // Id doubles as the queue key; the path is unique and won't collide with
+      // library rows (numeric ids), so play-count updates simply no-op.
+      const track = { Id: filePath, Title: title, ArtistName: artist, AlbumTitle: album, Uri: filePath };
+      dispatch({ type: 'SET_QUEUE', payload: { queue: [track], index: 0, source: null } });
+      dispatch({ type: 'SET_CURR_TRACK', payload: track });
+      dispatch({ type: 'SET_IS_PLAYING', payload: true });
+    };
+    ipcRenderer.on('play-external-file', handlePlayExternal);
+    return () => {
+      ipcRenderer.removeListener('play-external-file', handlePlayExternal);
+    };
+  }, [mini, dispatch]);
+
   useEffect(() => {
     const handleExpandMessage = debounce((_event: Electron.IpcRendererEvent, arg: boolean) => {
       dispatch({ type: 'SET_IS_MAXIMIZED', payload: arg });
@@ -77,10 +121,26 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
 
   useEffect(() => {
     if (mini) return;
-    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: 'basic' | 'full') => {
+    const handleFullScreen = (_event: Electron.IpcRendererEvent, arg: boolean) =>
+      dispatch({ type: 'SET_IS_FULLSCREEN', payload: arg });
+    ipcRenderer.on('fullscreen-state', handleFullScreen);
+    ipcRenderer
+      .invoke('get-fullscreen-state')
+      .then((full: boolean) => dispatch({ type: 'SET_IS_FULLSCREEN', payload: full }))
+      .catch(() => {
+        /* no handler in this process; keep the default */
+      });
+    return () => {
+      ipcRenderer.removeListener('fullscreen-state', handleFullScreen);
+    };
+  }, [mini, dispatch]);
+
+  useEffect(() => {
+    if (mini) return;
+    const handleScanStart = (_event: Electron.IpcRendererEvent, mode?: ScanMode) => {
       dispatch({
         type: 'SET_SCANNING',
-        payload: { isScanning: true, isFullScan: mode === 'full' },
+        payload: { isScanning: true, scanMode: mode ?? 'basic' },
       });
     };
     const handleScanProgress = (
@@ -88,6 +148,9 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
       arg: { scanned: number; total: number; processed: number }
     ) => {
       dispatch({ type: 'SET_SCAN_PROGRESS', payload: arg });
+    };
+    const handleSyncState = (_event: Electron.IpcRendererEvent, running: boolean) => {
+      dispatch({ type: 'SET_SYNCING', payload: Boolean(running) });
     };
     const refreshStats = () => {
       ipcRenderer
@@ -108,14 +171,34 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
       payload?: { wiped?: boolean }
     ) => {
       refreshStats();
-      if (payload?.wiped) dispatch({ type: 'RESET_PLAYBACK' });
+      if (payload?.wiped) {
+        dispatch({ type: 'RESET_PLAYBACK' });
+        return;
+      }
+      // Title, artist and cover in the player bar come from this snapshot, not
+      // from the library queries, so re-read the rows it still points at.
+      if (!queueIdsRef.current.length) return;
+      ipcRenderer
+        .invoke('get-queue-tracks', { trackIds: queueIdsRef.current })
+        .then((rows: unknown) => {
+          dispatch({ type: 'REFRESH_QUEUE_TRACKS', payload: rows as Track[] });
+        })
+        .catch(() => undefined);
     };
 
+    // Asked once as well as listened for: a renderer that reloaded mid-sync has
+    // missed the event and would otherwise leave everything enabled.
+    ipcRenderer
+      .invoke('is-syncing')
+      .then(running => dispatch({ type: 'SET_SYNCING', payload: Boolean(running) }))
+      .catch(() => undefined);
+    ipcRenderer.on('sync-state', handleSyncState);
     ipcRenderer.on('scan-start', handleScanStart);
     ipcRenderer.on('scan-progress', handleScanProgress);
     ipcRenderer.on('scan-end', handleScanEnd);
     ipcRenderer.on('library-updated', handleLibraryUpdated);
     return () => {
+      ipcRenderer.removeListener('sync-state', handleSyncState);
       ipcRenderer.removeListener('scan-start', handleScanStart);
       ipcRenderer.removeListener('scan-progress', handleScanProgress);
       ipcRenderer.removeListener('scan-end', handleScanEnd);

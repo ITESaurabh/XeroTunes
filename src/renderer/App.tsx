@@ -1,8 +1,8 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
-import { getThemeSettings, getOnboardingComplete } from './utils/LocStoreUtil';
+import { getThemeSettings, getOnboardingComplete, getStartInVinylMode } from './utils/LocStoreUtil';
 import Onboarding from './views/Onboarding';
-import { useRoutes } from 'react-router';
+import { useNavigate, useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
 // import '@fontsource/open-sans/300.css';
@@ -12,9 +12,11 @@ import routes from './utils/routes';
 import { getBaseTheme } from '../config/theme';
 import { ipcRenderer } from 'electron';
 import Titlebar from './components/Titlebar';
+import ErrorBoundary from './components/ErrorBoundary';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
+import { useMenuCommands } from './utils/useMenuCommands';
 import { APP_DISPLAY_NAME } from '../config/constants';
 
 const queryClient = new QueryClient({
@@ -33,9 +35,9 @@ const App = () => {
   const { state, dispatch } = useContext(store);
   const [systemIsDark, setSystemIsDark] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete());
+  const [crashed, setCrashed] = useState(false);
   const themeSettings = getThemeSettings();
 
-  // console.log('Re Render Core');
   const themePref = useMemo(() => {
     if (themeSettings.mode === 1) return 'light';
     if (themeSettings.mode === 2) return 'dark';
@@ -45,10 +47,18 @@ const App = () => {
 
   const element = useRoutes(finalRoutes);
 
+  // The library is pushed first so the deck's back button still leads somewhere.
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!onboardingComplete || !getStartInVinylMode()) return;
+    navigate('/main_window', { replace: true });
+    navigate('/main_window/vinyl');
+  }, []);
+
   const theme = useMemo(() => {
-    const darkModeTheme = createTheme(getBaseTheme(themePref));
+    const darkModeTheme = createTheme(getBaseTheme(themePref, state.appTheme));
     return responsiveFontSizes(darkModeTheme);
-  }, [themePref]);
+  }, [themePref, state.appTheme]);
 
   useEffect(() => {
     ipcRenderer.invoke('get-dark-mode').then(darkMode => {
@@ -86,6 +96,9 @@ const App = () => {
         QUERY_KEYS.ALL_ALBUMS,
         QUERY_KEYS.ALL_ARTISTS,
         QUERY_KEYS.RECENTLY_ADDED,
+        QUERY_KEYS.FAVOURITE_SONGS,
+        QUERY_KEYS.PLAYLISTS,
+        QUERY_KEYS.PLAYLIST_TRACKS,
         QUERY_KEYS.FOLDERS_WITH_SONGS,
         QUERY_KEYS.FOLDER_CHILDREN,
         QUERY_KEYS.FOLDER_SONGS,
@@ -102,16 +115,41 @@ const App = () => {
     };
   }, []);
 
+  // The main-process sweep emits one artist at a time for hours, so patch the
+  // cached list instead of invalidating; a refetch each time rescans the library.
+  useEffect(() => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      { artistId, uri }: { artistId: number; uri: string | null }
+    ) => {
+      if (!uri) return;
+      queryClient.setQueriesData<Array<{ Id?: number }>>(
+        { queryKey: [QUERY_KEYS.ALL_ARTISTS] },
+        old =>
+          Array.isArray(old)
+            ? old.map(a => (a?.Id === artistId ? { ...a, ProfileImgUri: uri, ProfileImg: uri } : a))
+            : old
+      );
+    };
+    ipcRenderer.on('artist-image-updated', handler);
+    return () => {
+      ipcRenderer.removeListener('artist-image-updated', handler);
+    };
+  }, []);
+
   useEffect(() => {
     dispatch({ type: 'SET_THEME_MODE', payload: themeSettings.mode });
   }, [themeSettings.mode, dispatch]);
 
   useEffect(() => {
     const title = state.track?.Title;
+    const artist = state.track?.ArtistName as string | undefined;
     document.title = title
-      ? `${state.queueIndex + 1}. ${title} - ${APP_DISPLAY_NAME}`
+      ? `${state.queueIndex + 1}. ${title}${artist ? ` - ${artist}` : ''} - ${APP_DISPLAY_NAME}`
       : APP_DISPLAY_NAME;
   }, [state.track, state.queueIndex]);
+
+  useMenuCommands();
 
   // Register keyboard shortcuts
   useKeyboardShortcuts(
@@ -128,12 +166,14 @@ const App = () => {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Titlebar minimal={!onboardingComplete} />
-        {onboardingComplete ? (
-          element
-        ) : (
-          <Onboarding onFinish={() => setOnboardingComplete(true)} />
-        )}
+        <Titlebar minimal={!onboardingComplete || crashed} />
+        <ErrorBoundary scope="app" onErrorChange={setCrashed}>
+          {onboardingComplete ? (
+            element
+          ) : (
+            <Onboarding onFinish={() => setOnboardingComplete(true)} />
+          )}
+        </ErrorBoundary>
       </ThemeProvider>
     </QueryClientProvider>
   );

@@ -1,16 +1,19 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
-import { Box, LinearProgress, Typography, useTheme } from '@mui/material';
+import { alpha, Box, LinearProgress, Typography, useTheme } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
 import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
+import FloatingScrollbar from '../components/FloatingScrollbar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
+import { DEFAULT_AA } from '../../config/constants';
 
 export interface Album {
   Id: number;
@@ -65,14 +68,11 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        cursor: 'pointer',
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',
         backgroundColor: theme.palette.background.default,
-        // Fluent-style border glow on hover
-        outline: mouse ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
-        // boxShadow: mouse ? '0 2px 10px rgba(0,0,0,0.55)' : 'none',
+        outline: `1px solid ${mouse ? alpha(theme.palette.text.primary, 0.18) : theme.palette.surfaces.glassBorder}`,
         transition: 'box-shadow 0.2s ease, outline-color 0.15s ease',
       }}
     >
@@ -84,7 +84,7 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
           pointerEvents: 'none',
           zIndex: 2,
           background: mouse
-            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, rgba(255,255,255,0.15) 0%, transparent 70%)`
+            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, ${alpha(theme.palette.text.primary, 0.15)} 0%, transparent 70%)`
             : 'none',
         }}
       />
@@ -97,40 +97,16 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
           position: 'relative',
           borderRadius: 0.5,
           overflow: 'hidden',
-          backgroundColor: '#1a1a2e',
+          backgroundColor: 'surfaces.artFrom',
           flexShrink: 0,
         }}
       >
-        {album.CoverUri ? (
-          <img
-            src={`file://${album.CoverUri}`}
-            alt={album.Title}
-            loading="lazy"
-            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-          />
-        ) : (
-          <Box
-            sx={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'linear-gradient(135deg, #1e1e3f 0%, #2d2d5a 100%)',
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: artSize * 0.38,
-                opacity: 0.25,
-                userSelect: 'none',
-                lineHeight: 1,
-              }}
-            >
-              ♪
-            </Typography>
-          </Box>
-        )}
+        <img
+          src={album.CoverUri ? `file://${album.CoverUri}` : DEFAULT_AA}
+          alt={album.Title}
+          loading="lazy"
+          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+        />
       </Box>
 
       {/* Text */}
@@ -185,18 +161,12 @@ const Cell = React.memo(
 );
 Cell.displayName = 'Cell';
 
-// Overlay scrollbar so the scrollbar doesn't steal width from the grid,
-// keeping all columns fully visible without clipping the right edge.
 const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   ({ style, ...rest }, ref) => (
     <div
       {...rest}
       ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
+      style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }}
     />
   )
 );
@@ -208,6 +178,7 @@ const Albums: React.FC = () => {
   const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
   const { initialScrollTop, saveScrollPosition } = useScrollRestoration('albums');
   const navigate = useNavigate();
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   const handleGridScroll = React.useCallback(
     (args: { scrollTop: number }) => {
@@ -273,6 +244,14 @@ const Albums: React.FC = () => {
       </Box>
     );
 
+  if (!albums.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title="Albums" />
+        <Empty page="Albums" hint="Add a music folder in Settings, then scan your library." />
+      </Box>
+    );
+
   return (
     <Box
       component={motion.div}
@@ -285,6 +264,7 @@ const Albums: React.FC = () => {
       <PageToolbar title={`Albums (${albums.length})`} />
 
       <Box sx={{ flex: 1, minHeight: 0, px: `${PADDING}px` }}>
+        <FloatingScrollbar targetRef={scrollerRef} />
         <AutoSizer onResize={handleResize}>
           {({ height, width }: { height: number; width: number }) => {
             const { colCount, colWidth, rowHeight } = calcLayout(width);
@@ -302,6 +282,7 @@ const Albums: React.FC = () => {
                 overscanRowCount={4}
                 onScroll={handleGridScroll}
                 itemData={itemData}
+                outerRef={scrollerRef}
                 outerElementType={ScrollContainer}
               >
                 {Cell}

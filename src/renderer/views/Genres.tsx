@@ -1,13 +1,13 @@
 import React, { useContext, useEffect, useCallback } from 'react';
-import { Box, Container, Grid, LinearProgress, ListItemButton, Typography } from '@mui/material';
+import { Box, Container, Grid, LinearProgress, Typography } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import genresIcon from '@iconify/icons-fluent/guitar-24-filled';
-import { FixedSizeList, ListChildComponentProps } from 'react-window';
-import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../components/PageToolbar';
+import Empty from '../components/Empty';
+import LibraryTable, { TableColumn, useLibraryTable } from '../components/LibraryTable';
 import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { store } from '../utils/store';
@@ -21,68 +21,30 @@ export interface Genre {
   AlbumCount: number;
 }
 
-const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
-  ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
-    />
-  )
-);
-ScrollContainer.displayName = 'ScrollContainer';
-
-const HeaderRow: React.FC = () => (
-  <div
-    style={{
-      display: 'flex',
-      width: '100%',
-      background: '#222',
-      color: '#fff',
-      paddingLeft: 14,
-      fontWeight: 500,
-    }}
-  >
-    <div
-      style={{
-        flex: 4,
-        padding: '8px 16px',
-        textAlign: 'left',
-        minWidth: 0,
-        overflow: 'hidden',
-      }}
-    >
-      Genre
-    </div>
-    <div
-      style={{
-        flex: 1,
-        padding: '8px 16px',
-        textAlign: 'right',
-        minWidth: 0,
-        overflow: 'hidden',
-      }}
-    >
-      Albums
-    </div>
-    <div
-      style={{
-        flex: 1,
-        padding: '8px 16px',
-        paddingRight: 28,
-        textAlign: 'right',
-        minWidth: 0,
-        overflow: 'hidden',
-      }}
-    >
-      Songs
-    </div>
-  </div>
-);
+const columns: TableColumn<Genre>[] = [
+  {
+    label: 'Genre',
+    key: 'Name',
+    align: 'left',
+    flex: 4,
+    gridWidth: 180,
+    render: row => (
+      <>
+        <Box
+          component="span"
+          sx={{ color: 'surfaces.genre', flexShrink: 0, display: 'inline-flex', mr: 1.25, verticalAlign: 'middle' }}
+        >
+          <Icon icon={genresIcon} height="1.25rem" />
+        </Box>
+        <Typography variant="body2" noWrap fontWeight={500} component="span">
+          {row.Name || 'Unknown Genre'}
+        </Typography>
+      </>
+    ),
+  },
+  { label: 'Albums', key: 'AlbumCount', align: 'right', flex: 1, gridWidth: 90 },
+  { label: 'Songs', key: 'SongCount', align: 'right', flex: 1, gridWidth: 90 },
+];
 
 const Genres: React.FC = () => {
   const { invokeEventToMainProcess } = useIpc();
@@ -108,6 +70,8 @@ const Genres: React.FC = () => {
     queryFn: () => invokeEventToMainProcess('get-all-genres', undefined) as Promise<Genre[]>,
   });
 
+  const { rows: sortedRows, view } = useLibraryTable(genres, columns);
+
   useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: true });
   }, [dispatch]);
@@ -117,56 +81,6 @@ const Genres: React.FC = () => {
       navigate(`/main_window/genres/${genre.Id}`);
     },
     [navigate]
-  );
-
-  const Row = useCallback(
-    ({ index, style }: ListChildComponentProps) => {
-      const genre = genres[index];
-      return (
-        <ListItemButton
-          style={style}
-          onClick={() => handleGenreClick(genre)}
-          sx={{
-            display: 'flex',
-            width: '100%',
-            alignItems: 'center',
-            borderBottom: '1px solid #333',
-            borderRadius: 0.5,
-            background: index % 2 === 0 ? 'rgba(255,255,255,0.0)' : 'rgba(255,255,255,0.03)',
-            '&:hover': { background: 'rgba(255,255,255,0.08)' },
-          }}
-        >
-          <Box
-            sx={{
-              flex: 4,
-              pl: 2,
-              pr: 2,
-              minWidth: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1.25,
-              overflow: 'hidden',
-            }}
-          >
-            <Icon icon={genresIcon} height="1.25rem" style={{ color: '#c084fc', flexShrink: 0 }} />
-            <Typography variant="body2" noWrap fontWeight={500}>
-              {genre.Name || 'Unknown Genre'}
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1, pl: 2, pr: 2, minWidth: 0, textAlign: 'right' }}>
-            <Typography variant="body2" noWrap sx={{ color: 'text.secondary' }}>
-              {genre.AlbumCount}
-            </Typography>
-          </Box>
-          <Box sx={{ flex: 1, pl: 2, pr: 3.5, minWidth: 0, textAlign: 'right' }}>
-            <Typography variant="body2" noWrap>
-              {genre.SongCount}
-            </Typography>
-          </Box>
-        </ListItemButton>
-      );
-    },
-    [genres, handleGenreClick]
   );
 
   if (isLoading)
@@ -196,36 +110,23 @@ const Genres: React.FC = () => {
     >
       <PageToolbar title={`Genres (${genres.length})`} />
       <Container
-        maxWidth="xl"
+        maxWidth={false}
         sx={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}
       >
         {genres.length === 0 ? (
-          <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-            <Typography>
-              No genres found. Tracks in your library don&apos;t have genre tags.
-            </Typography>
-          </Box>
+          <Empty page="Genres" hint="Tracks in your library don't have genre tags." />
         ) : (
           <>
-            <HeaderRow />
-            <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', overflowX: 'hidden' }}>
-              <AutoSizer>
-                {({ height, width }: { height: number; width: number }) => (
-                  <FixedSizeList
-                    height={height}
-                    overscanCount={50}
-                    itemCount={genres.length}
-                    itemSize={48}
-                    width={width}
-                    initialScrollOffset={initialScrollOffset}
-                    onScroll={handleScroll}
-                    outerElementType={ScrollContainer}
-                  >
-                    {Row}
-                  </FixedSizeList>
-                )}
-              </AutoSizer>
-            </Box>
+            <LibraryTable
+              rows={sortedRows}
+              columns={columns}
+              getRowId={row => row.Id}
+              view={view}
+              rowHeight={48}
+              onRowClick={handleGenreClick}
+              initialScrollOffset={initialScrollOffset}
+              onScroll={handleScroll}
+            />
           </>
         )}
       </Container>

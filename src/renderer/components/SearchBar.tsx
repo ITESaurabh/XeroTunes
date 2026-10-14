@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import { useContext } from 'react';
 import Paper from '@mui/material/Paper';
 import Box from '@mui/material/Box';
 import InputBase from '@mui/material/InputBase';
@@ -14,12 +14,26 @@ interface SearchBarProps {
 }
 
 export default function SearchBar({ open, tempDrawer, toggleDrawer }: SearchBarProps) {
-  const { dispatch } = useContext(store);
+  const { state, dispatch } = useContext(store);
+  // A scan rewrites the library underneath the results as they render.
+  const libraryBusy = state.isScanningLibrary || state.isSyncing;
 
   return (
     <Box
       component={open ? Paper : 'div'}
-      sx={{ borderRadius: 100, display: 'flex', alignItems: 'center', px: 1, mt: 1, mb: 2 }}
+      sx={{
+        borderRadius: 100,
+        display: 'flex',
+        alignItems: 'center',
+        px: 1,
+        mt: 1,
+        mb: 2,
+        ...(open && {
+          bgcolor: 'surfaces.elevated',
+          boxShadow: 'none',
+          border: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+        }),
+      }}
     >
       {!tempDrawer && (
         <IconButton sx={{ pl: '10px' }} aria-label="menu" onClick={toggleDrawer}>
@@ -28,17 +42,16 @@ export default function SearchBar({ open, tempDrawer, toggleDrawer }: SearchBarP
       )}
       <InputBase
         sx={{ ml: 1, flex: 1 }}
-        onClick={(e: React.MouseEvent) => {
-          e.preventDefault();
-          dispatch({ type: 'SET_SEARCH_ENABLED', payload: true });
-        }}
-        placeholder="Search"
-        inputProps={{ 'aria-label': 'search' }}
+        disabled={libraryBusy}
+        onClick={() => dispatch({ type: 'SET_SEARCH_ENABLED', payload: true })}
+        placeholder={libraryBusy ? 'Library is busy…' : 'Search'}
+        inputProps={{ 'aria-label': 'search', readOnly: true }}
       />
       <IconButton
         type="button"
         sx={{ p: '10px' }}
         aria-label="search"
+        disabled={libraryBusy}
         onClick={() => dispatch({ type: 'SET_SEARCH_ENABLED', payload: true })}
       >
         <SearchIcon />

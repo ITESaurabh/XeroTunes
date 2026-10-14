@@ -61,25 +61,38 @@ export const useKeyboardShortcuts = (
   }, [shortcuts, deps]);
 };
 
+const KEY_LABELS: Record<string, string> = {
+  ' ': 'Space',
+  arrowup: '↑',
+  arrowdown: '↓',
+  arrowleft: '←',
+  arrowright: '→',
+  escape: 'Esc',
+};
+
+const CTRL_LABEL = navigator.userAgent.includes('Mac') ? '⌃' : 'Ctrl';
+
+export type ShortcutKeys = Pick<KeyboardShortcut, 'key' | 'ctrl' | 'alt' | 'shift' | 'meta'>;
+
+export const shortcutParts = (shortcut: ShortcutKeys): string[] => {
+  const parts: string[] = [];
+
+  if (shortcut.ctrl) parts.push(CTRL_LABEL);
+  if (shortcut.alt) parts.push('Alt');
+  if (shortcut.shift) parts.push('Shift');
+  if (shortcut.meta) parts.push('Meta');
+
+  parts.push(KEY_LABELS[shortcut.key.toLowerCase()] ?? shortcut.key.toUpperCase());
+
+  return parts;
+};
+
 /**
  * Utility function to format keyboard shortcut for display
  * @param shortcut - Shortcut object
  * @returns Formatted shortcut string (e.g., "Ctrl+K")
  */
-export const formatShortcut = (
-  shortcut: Pick<KeyboardShortcut, 'key' | 'ctrl' | 'alt' | 'shift' | 'meta'>
-): string => {
-  const parts: string[] = [];
-
-  if (shortcut.ctrl) parts.push('Ctrl');
-  if (shortcut.alt) parts.push('Alt');
-  if (shortcut.shift) parts.push('Shift');
-  if (shortcut.meta) parts.push('Meta');
-
-  parts.push(shortcut.key.toUpperCase());
-
-  return parts.join('+');
-};
+export const formatShortcut = (shortcut: ShortcutKeys): string => shortcutParts(shortcut).join('+');
 
 export interface ShortcutDefinition {
   key: string;

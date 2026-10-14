@@ -1,12 +1,12 @@
 import React, { useContext } from 'react';
 import List from '@mui/material/List';
 import {
+  alpha,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   ListSubheader,
   Divider,
-  useTheme,
   useMediaQuery,
   Box,
   LinearProgress,
@@ -19,6 +19,7 @@ import {
   tooltipClasses,
 } from '@mui/material';
 import SearchBar from './SearchBar';
+import FloatingScrollbar from './FloatingScrollbar';
 import { Link, useMatch, useResolvedPath } from 'react-router';
 import { IconifyIcon, Icon } from '@iconify/react';
 import musicNoteIcon from '@iconify/icons-fluent/music-note-2-24-regular';
@@ -27,6 +28,8 @@ import FavIcon from '@iconify/icons-fluent/heart-24-regular';
 import FavActiveIcon from '@iconify/icons-fluent/heart-24-filled';
 import playlistIcon from '@iconify/icons-fluent/navigation-play-20-regular';
 import playlistActiveIcon from '@iconify/icons-fluent/navigation-play-20-filled';
+import streamIcon from '@iconify/icons-fluent/live-24-regular';
+import streamActiveIcon from '@iconify/icons-fluent/live-24-filled';
 import albumIcon from '@iconify/icons-fluent/cd-16-regular';
 import albumActiveIcon from '@iconify/icons-fluent/cd-16-filled';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
@@ -43,6 +46,8 @@ import yearsIcon from '@iconify/icons-fluent/timer-24-regular';
 import yearsActiveIcon from '@iconify/icons-fluent/timer-24-filled';
 import recentIcon from '@iconify/icons-fluent/add-circle-24-regular';
 import recentActiveIcon from '@iconify/icons-fluent/add-circle-24-filled';
+import vinylIcon from '@iconify/icons-fluent/record-24-regular';
+import vinylActiveIcon from '@iconify/icons-fluent/record-24-filled';
 import settingsIcon from '@iconify/icons-fluent/settings-24-regular';
 import settingsActiveIcon from '@iconify/icons-fluent/settings-24-filled';
 import { store, LibraryStats } from '../utils/store';
@@ -76,7 +81,7 @@ const MenuTooltip = styled(({ className, ...props }: TooltipProps) => (
 ))(({ theme }) => ({
   [`& .${tooltipClasses.tooltip}`]: {
     backgroundColor: theme.palette.background.paper,
-    color: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.87)' : 'rgba(0, 0, 0, 0.87)',
+    color: theme.palette.text.primary,
     boxShadow: theme.shadows[1],
     fontSize: 16,
     borderRadius: 50,
@@ -106,6 +111,13 @@ const menuItems: MenuItem[] = [
     icon: playlistIcon,
     iconActive: playlistActiveIcon,
     statKey: 'playlists',
+  },
+  {
+    title: 'Streams',
+    href: '/main_window/streams',
+    icon: streamIcon,
+    iconActive: streamActiveIcon,
+    statKey: 'streams',
   },
   {
     title: 'Recently Added',
@@ -163,14 +175,36 @@ const menuItems: MenuItem[] = [
     href: '/main_window/years',
     icon: yearsIcon,
     iconActive: yearsActiveIcon,
+    divider: true,
     statKey: 'years',
+  },
+  {
+    title: 'Vinyl Mode',
+    href: '/main_window/vinyl',
+    icon: vinylIcon,
+    iconActive: vinylActiveIcon,
   },
 ];
 
 function MainDrawer({ tempDrawer }: MainDrawerProps) {
   const { state, dispatch } = useContext(store);
-  const { isScanningLibrary, isFullScan, scanProgress, libraryStats, isMenuExpanded } = state;
-  const theme = useTheme();
+  const navScrollRef = React.useRef<HTMLUListElement | null>(null);
+  const { isScanningLibrary, isSyncing, scanMode, scanProgress, libraryStats, isMenuExpanded } =
+    state;
+  const libraryBusy = (isScanningLibrary && scanMode !== 'quick') || isSyncing;
+
+  // The counts restart at each server, so the label says which one this is.
+  const scanLabel = (() => {
+    if (!isSyncing) return 'Scanning…';
+    const at = scanProgress?.source;
+    return at && at.count > 1 ? `Syncing ${at.index}/${at.count}` : 'Syncing…';
+  })();
+
+  // No room to name the server, so the colour is what says the run moved on.
+  const accent = scanProgress?.source?.accent ?? null;
+  const accentSx = accent
+    ? { color: accent, '& .MuiLinearProgress-bar': { bgcolor: accent } }
+    : undefined;
 
   const toggleDrawer = () => {
     dispatch({ type: 'SET_MENU_EXPANDED', payload: !state.isMenuExpanded });
@@ -187,7 +221,9 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
         transition: state.isWindowFocused ? 'opacity 0.05s ease-out' : 'opacity 0.3s ease-out',
       }}
     >
+      <FloatingScrollbar targetRef={navScrollRef} />
       <List
+        ref={navScrollRef}
         sx={{
           width: '100%',
           position: 'relative',
@@ -206,8 +242,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
           disableGutters
           sx={{
             borderRadius: 100,
-            backgroundColor:
-              theme.palette.mode === 'dark' ? '#201e23' : theme.palette.background.paper,
+            backgroundColor: 'background.default',
           }}
         >
           <SearchBar
@@ -223,7 +258,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             stat={item.statKey && libraryStats ? libraryStats[item.statKey] : undefined}
             showStat={isMenuExpanded}
             menuExpanded={isMenuExpanded}
-            disabled={isFullScan}
+            disabled={libraryBusy}
           />
         ))}
       </List>
@@ -245,8 +280,6 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                   mb: 1,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  alignContent: 'center',
                   gap: 1.5,
                   borderRadius: 2,
                   bgcolor: 'action.hover',
@@ -259,7 +292,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                 }}
               >
                 {state.isMenuExpanded ? (
-                  <Box sx={{ flex: 1 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
                     <LinearProgress
                       variant={
                         scanProgress && scanProgress.total > 0 ? 'determinate' : 'indeterminate'
@@ -269,7 +302,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                           ? Math.round((scanProgress.processed / scanProgress.total) * 100)
                           : undefined
                       }
-                      sx={{ borderRadius: 2, height: 4 }}
+                      sx={{ borderRadius: 2, height: 4, ...accentSx }}
                     />
                   </Box>
                 ) : (
@@ -291,21 +324,24 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
                           : undefined
                       }
                       size={20}
-                      // sx={{ borderRadius: 2, height: 4 }}
+                      sx={accentSx}
                     />
                   </Box>
                 )}
                 <Typography
                   variant="caption"
+                  title={scanLabel}
                   sx={{
+                    flexShrink: 1,
+                    minWidth: 0,
                     whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                     opacity: 0.7,
                     display: state.isMenuExpanded ? 'block' : 'none',
                   }}
                 >
-                  {scanProgress && scanProgress.total > 0
-                    ? `Scanning library… ${scanProgress.processed} / ${scanProgress.total}`
-                    : 'Scanning library…'}
+                  {scanLabel}
                 </Typography>
               </Box>
             </motion.div>
@@ -319,7 +355,7 @@ function MainDrawer({ tempDrawer }: MainDrawerProps) {
             iconActive: settingsActiveIcon,
           }}
           menuExpanded={isMenuExpanded}
-          disabled={isFullScan}
+          disabled={libraryBusy}
         />
       </List>
     </Box>
@@ -345,7 +381,16 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
         <ListItemButton
           component={Link}
           className="no-drag"
-          sx={{ borderRadius: 15, mb: 1 }}
+          sx={{
+            borderRadius: theme => theme.shape.borderRadius,
+            mb: 1,
+            // MUI's default selected state is a neutral grey wash, which turns muddy
+            // over a tinted surface. Tint with the primary so the active item reads.
+            '&.Mui-selected, &.Mui-selected:hover': {
+              bgcolor: 'surfaces.selection',
+              color: 'primary.main',
+            },
+          }}
           selected={!!match}
           disabled={disabled}
           onClick={
@@ -354,7 +399,7 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
           to={item.href}
           {...(props as object)}
         >
-          <ListItemIcon sx={{ mr: -1 }}>
+          <ListItemIcon sx={{ mr: -1, color: match ? 'primary.main' : 'text.primary' }}>
             <Icon icon={match ? item.iconActive : item.icon} height={'1.5rem'} />
           </ListItemIcon>
           <ListItemText primary={item.title} />
@@ -366,8 +411,11 @@ function CustomLink({ item, stat, showStat, menuExpanded, disabled, ...props }: 
                 px: 1,
                 py: 0.25,
                 borderRadius: 10,
-                bgcolor: match ? 'action.selected' : 'action.hover',
-                color: 'text.secondary',
+                bgcolor: theme =>
+                  match
+                    ? alpha(theme.palette.primary.main, 0.18)
+                    : alpha(theme.palette.text.primary, 0.07),
+                color: match ? 'primary.main' : 'text.secondary',
                 fontWeight: 600,
                 minWidth: 24,
                 textAlign: 'center',

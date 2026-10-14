@@ -1,7 +1,7 @@
 import React, { useContext, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { StateProvider, store } from './utils/store';
-import { getThemeSettings } from './utils/LocStoreUtil';
+import { getActiveTheme, getThemeSettings } from './utils/LocStoreUtil';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 // import '@fontsource/open-sans/300.css';
 // import '@fontsource/open-sans/400.css';
@@ -27,7 +27,7 @@ const App = () => {
         : isDarkThemePreferred
           ? 'dark'
           : 'light';
-  const darkModeTheme = createTheme(getBaseTheme(themePref));
+  const darkModeTheme = createTheme(getBaseTheme(themePref, getActiveTheme()));
   const theme = responsiveFontSizes(darkModeTheme);
 
   useEffect(() => {

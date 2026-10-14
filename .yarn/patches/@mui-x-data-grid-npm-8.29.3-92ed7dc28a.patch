@@ -1,0 +1,24 @@
+diff --git a/hooks/features/pagination/gridPaginationUtils.js b/hooks/features/pagination/gridPaginationUtils.js
+index d64370d8443f72072065ce2e46009c9d424b1328..695e1b842c66e6728d61c937ced2ed44563d0c0a 100644
+--- a/hooks/features/pagination/gridPaginationUtils.js
++++ b/hooks/features/pagination/gridPaginationUtils.js
+@@ -5,7 +5,7 @@ Object.defineProperty(exports, "__esModule", {
+ });
+ exports.throwIfPageSizeExceedsTheLimit = exports.getValidPage = exports.getPageCount = exports.getDefaultGridPaginationModel = exports.defaultPageSize = void 0;
+ var _signature = require("../../../constants/signature");
+-const MAX_PAGE_SIZE = 100;
++const MAX_PAGE_SIZE = Infinity;
+ const defaultPageSize = autoPageSize => autoPageSize ? 0 : 100;
+ exports.defaultPageSize = defaultPageSize;
+ const getPageCount = (rowCount, pageSize, page) => {
+diff --git a/hooks/features/pagination/gridPaginationUtils.mjs b/hooks/features/pagination/gridPaginationUtils.mjs
+index 45c08e1ef45e9c1a5cfdf4de102e098ab018d7b5..b0a1a25eadcdfd25fbe4c44dfc531bfee95844fa 100644
+--- a/hooks/features/pagination/gridPaginationUtils.mjs
++++ b/hooks/features/pagination/gridPaginationUtils.mjs
+@@ -1,5 +1,5 @@
+ import { GridSignature } from "../../../constants/signature.mjs";
+-const MAX_PAGE_SIZE = 100;
++const MAX_PAGE_SIZE = Infinity;
+ export const defaultPageSize = autoPageSize => autoPageSize ? 0 : 100;
+ export const getPageCount = (rowCount, pageSize, page) => {
+   if (pageSize > 0 && rowCount > 0) {

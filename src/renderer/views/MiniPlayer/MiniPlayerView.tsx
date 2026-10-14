@@ -1,6 +1,6 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
 import { useIpc } from '../../state/ipc';
-import { Box, Container, IconButton, Slider, Typography, useTheme } from '@mui/material';
+import { alpha, Box, Container, IconButton, Slider, Typography, useTheme } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2';
 import { store } from '../../utils/store';
 import { Icon } from '@iconify/react';
@@ -17,7 +17,7 @@ import { APP_NAME, APP_EDITION, DEFAULT_AA } from '../../../config/constants';
 import MuiImage from 'mui-image';
 import { parseFile } from 'music-metadata';
 import Marquee from 'react-fast-marquee';
-import { formatTime } from '../../utils/misc';
+import { formatTime, toMediaSrc } from '../../utils/misc';
 import { getVolumeLevel, setVolumeLevel } from '../../utils/LocStoreUtil';
 
 interface SongMeta {
@@ -57,7 +57,6 @@ const initialMeta: SongMeta = {
 
 export default function MiniPlayerView(): React.ReactElement {
   const theme = useTheme();
-  const isDark = theme.palette.mode === 'dark';
 
   const defaultVol = getVolumeLevel();
   const [volume, setVolume] = useState<number>(defaultVol);
@@ -83,6 +82,31 @@ export default function MiniPlayerView(): React.ReactElement {
       audioRef.current.muted = muteVolume;
     }
   }, [volume, audioRef, muteVolume]);
+
+  // Ordered before the fade effect below so its play() call sees the new src
+  // already set, since a track change may not toggle isPlaying.
+  useEffect(() => {
+    if (!path) return;
+    const audioElement = audioRef.current;
+    if (!audioElement) return;
+    // Without this, play() on a still-playing element races the src swap and rejects with "interrupted by a new load request" - silent until the user toggles play/pause.
+    audioElement.pause();
+    audioElement.src = toMediaSrc(path);
+    setPosition(0);
+    setIsSeeking(false);
+
+    parseMusic(path)
+      .then(meta => {
+        setSongMeta({
+          title: meta.title || initialMeta.title,
+          artist: meta.artist || initialMeta.artist,
+          album: meta.album || initialMeta.album,
+          albumArt: meta.albumArt || initialMeta.albumArt,
+        });
+      })
+      .catch(() => setSongMeta(initialMeta));
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [path]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -125,7 +149,7 @@ export default function MiniPlayerView(): React.ReactElement {
         }
       }, FADE_INTERVAL_MS);
     }
-  }, [isPlaying, audioRef]);
+  }, [isPlaying, path, audioRef]);
 
   useEffect(() => {
     const audioElement = audioRef.current;
@@ -164,29 +188,6 @@ export default function MiniPlayerView(): React.ReactElement {
     setIsSeeking(false);
   };
 
-  useEffect(() => {
-    if (path) {
-      const audioElement = audioRef.current;
-      // Convert file path to file:/// URL — Windows absolute paths need 3 slashes
-      // (2 for the empty authority + 1 for the path root), otherwise "C:" is
-      // treated as the hostname and the audio element won't load the file.
-      const fileUrl = `file:///${path.replace(/\\/g, '/')}`;
-      audioElement.src = fileUrl;
-
-      parseMusic(path)
-        .then(meta => {
-          setSongMeta({
-            title: meta.title || initialMeta.title,
-            artist: meta.artist || initialMeta.artist,
-            album: meta.album || initialMeta.album,
-            albumArt: meta.albumArt || initialMeta.albumArt,
-          });
-        })
-        .catch(() => setSongMeta(initialMeta));
-      dispatch({ type: 'SET_IS_PLAYING', payload: true });
-    }
-  }, [path]);
-
   return (
     <Container
       disableGutters
@@ -198,10 +199,18 @@ export default function MiniPlayerView(): React.ReactElement {
         height: '100vh',
         width: '100vw',
         overflow: 'hidden',
+        backgroundColor: alpha(theme.palette.background.default, 0.96),
+        backdropFilter: 'blur(30px)',
       }}
       className="play-area"
     >
-      <Grid className="canva">
+      <Grid
+        className="canva"
+        sx={{
+          width: '-webkit-fill-available',
+          backgroundColor: alpha(theme.palette.text.primary, 0.04),
+        }}
+      >
         <Box
           sx={{
             display: 'flex',
@@ -226,7 +235,7 @@ export default function MiniPlayerView(): React.ReactElement {
               aria-label="minimize"
               onClick={() => sendEventToMainProcess('minimize', null)}
               sx={{
-                backgroundColor: isDark ? 'black' : '#d9d9d9',
+                backgroundColor: theme.palette.surfaces.control,
               }}
             >
               <Icon icon={subtract12Filled} fontSize={12} />
@@ -237,9 +246,9 @@ export default function MiniPlayerView(): React.ReactElement {
                 transition: 'background-color 0.2s ease-in-out',
                 ':hover': {
                   backgroundColor: theme.palette.error.main,
-                  color: theme.palette.common.white,
+                  color: theme.palette.error.contrastText,
                 },
-                backgroundColor: isDark ? 'black' : '#d9d9d9',
+                backgroundColor: theme.palette.surfaces.control,
               }}
               aria-label="close"
             >
@@ -314,7 +323,7 @@ export default function MiniPlayerView(): React.ReactElement {
               }}
             >
               <IconButton
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
                 onClick={() => {
                   const audioElement = audioRef.current;
                   audioElement.currentTime = audioElement.currentTime - 15;
@@ -325,7 +334,7 @@ export default function MiniPlayerView(): React.ReactElement {
               </IconButton>
               <IconButton
                 onClick={() => dispatch({ type: 'SET_IS_PLAYING', payload: !isPlaying })}
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
               >
                 <Icon icon={isPlaying ? pause16Filled : play16Filled} fontSize={30} />
               </IconButton>
@@ -336,7 +345,7 @@ export default function MiniPlayerView(): React.ReactElement {
                   setIsSeeking(false);
                 }}
                 aria-label="next song"
-                sx={{ backgroundColor: isDark ? 'black' : '#d9d9d9' }}
+                sx={{ backgroundColor: theme.palette.surfaces.control }}
               >
                 <Icon icon={fastForward16Filled} fontSize={18} />
               </IconButton>
@@ -363,14 +372,7 @@ export default function MiniPlayerView(): React.ReactElement {
                   setVolumeLevel(newValue as number);
                 }}
                 sx={{
-                  color:
-                    theme.palette.mode === 'dark'
-                      ? volume >= 60
-                        ? theme.palette.error.main
-                        : '#fff'
-                      : volume >= 60
-                        ? theme.palette.error.main
-                        : '#6b6b6b',
+                  color: volume >= 60 ? theme.palette.error.main : theme.palette.text.primary,
                   '& .MuiSlider-track': {
                     border: 'none',
                   },
@@ -384,11 +386,7 @@ export default function MiniPlayerView(): React.ReactElement {
                       boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
                     },
                     '&:hover, &.Mui-focusVisible': {
-                      boxShadow: `0px 0px 0px 8px ${
-                        theme.palette.mode === 'dark'
-                          ? 'rgb(255 255 255 / 16%)'
-                          : 'rgb(0 0 0 / 16%)'
-                      }`,
+                      boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
                     },
                     '&.Mui-active': {
                       width: 16,
@@ -425,7 +423,7 @@ export default function MiniPlayerView(): React.ReactElement {
           onTouchStart={() => setIsSeeking(true)}
           onTouchEnd={() => setIsSeeking(false)}
           sx={{
-            color: theme.palette.mode === 'dark' ? '#fff' : '#6b6b6b',
+            color: 'text.primary',
             '& .MuiSlider-track': {
               border: 'none',
             },
@@ -438,9 +436,7 @@ export default function MiniPlayerView(): React.ReactElement {
                 boxShadow: '0 2px 12px 0 rgba(0,0,0,0.4)',
               },
               '&:hover, &.Mui-focusVisible': {
-                boxShadow: `0px 0px 0px 8px ${
-                  theme.palette.mode === 'dark' ? 'rgb(255 255 255 / 16%)' : 'rgb(0 0 0 / 16%)'
-                }`,
+                boxShadow: `0px 0px 0px 8px ${alpha(theme.palette.text.primary, 0.16)}`,
               },
               '&.Mui-active': {
                 width: 16,

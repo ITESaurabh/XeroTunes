@@ -1,6 +1,7 @@
 import React, { lazy } from 'react';
 import Layout from '../components/Layout';
-import { Navigate } from 'react-router';
+import ErrorBoundary from '../components/ErrorBoundary';
+import { Navigate, useLocation } from 'react-router';
 import { Box, CircularProgress } from '@mui/material';
 
 const AllSongs = lazy(() => import('../views/AllSongs'));
@@ -8,15 +9,21 @@ const Albums = lazy(() => import('../views/Albums'));
 const AlbumDetail = lazy(() => import('../views/AlbumDetail'));
 const AllArtists = lazy(() => import('../views/artists/AllArtists'));
 const ArtistDetail = lazy(() => import('../views/artists/ArtistDetail'));
-const Search = lazy(() => import('../views/Search'));
 const Settings = lazy(() => import('../views/Settings'));
 const RecentlyAdded = lazy(() => import('../views/RecentlyAdded'));
+const Favourites = lazy(() => import('../views/Favourites'));
+const Playlists = lazy(() => import('../views/Playlists'));
+const PlaylistDetail = lazy(() => import('../views/PlaylistDetail'));
+const Streams = lazy(() => import('../views/Streams'));
+const StreamDetail = lazy(() => import('../views/StreamDetail'));
 const Folders = lazy(() => import('../views/Folders'));
 const FolderHierarchy = lazy(() => import('../views/FolderHierarchy'));
 const Genres = lazy(() => import('../views/Genres'));
 const GenreDetail = lazy(() => import('../views/GenreDetail'));
 const Years = lazy(() => import('../views/Years'));
 const YearDetail = lazy(() => import('../views/YearDetail'));
+const LyricStudio = lazy(() => import('../views/LyricStudio'));
+const VinylMode = lazy(() => import('../views/VinylMode'));
 
 const BigLoader = () => {
   return (
@@ -33,6 +40,16 @@ const BigLoader = () => {
   );
 };
 
+// Keyed on pathname so a crashed page does not outlive the route it belongs to.
+const Page = ({ children }: { children: React.ReactNode }) => {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary key={pathname} scope="page">
+      <React.Suspense fallback={<BigLoader />}>{children}</React.Suspense>
+    </ErrorBoundary>
+  );
+};
+
 const routes = [
   {
     path: '/main_window',
@@ -41,140 +58,182 @@ const routes = [
       {
         index: true,
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllSongs />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'favourites',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
-            <Search />
-          </React.Suspense>
+          <Page>
+            <Favourites />
+          </Page>
         ),
       },
       {
         path: 'playlists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
-            <Search />
-          </React.Suspense>
+          <Page>
+            <Playlists />
+          </Page>
+        ),
+      },
+      {
+        path: 'playlists/:playlistId',
+        element: (
+          <Page>
+            <PlaylistDetail />
+          </Page>
+        ),
+      },
+      {
+        path: 'streams',
+        element: (
+          <Page>
+            <Streams />
+          </Page>
+        ),
+      },
+      {
+        path: 'streams/:streamId',
+        element: (
+          <Page>
+            <StreamDetail />
+          </Page>
         ),
       },
       {
         path: 'albums',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Albums />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'albums/:albumId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AlbumDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'artists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllArtists />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'artists/:artistId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <ArtistDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'album-artists',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <AllArtists showAlbumsOnly />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'album-artists/:artistId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <ArtistDetail showAlbumArtist />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'folders',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Folders />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'folder-hierarchy',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <FolderHierarchy />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'genres',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Genres />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'genres/:genreId',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <GenreDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'years',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Years />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'years/:year',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <YearDetail />
-          </React.Suspense>
+          </Page>
         ),
       },
       {
         path: 'recently-added',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <RecentlyAdded />
-          </React.Suspense>
+          </Page>
+        ),
+      },
+      {
+        path: 'vinyl',
+        element: (
+          <Page>
+            <VinylMode />
+          </Page>
         ),
       },
       {
         path: 'settings',
         element: (
-          <React.Suspense fallback={<BigLoader />}>
+          <Page>
             <Settings />
-          </React.Suspense>
+          </Page>
         ),
       },
     ],
+  },
+  // Outside Layout on purpose: the studio replaces the drawer and the play bar
+  // with its own chrome, and owns the audio element for the track it is editing.
+  {
+    path: '/lyric-studio/:trackId',
+    element: (
+      <Page>
+        <LyricStudio />
+      </Page>
+    ),
   },
   { path: '*', element: <Navigate to="main_window" /> },
 ];

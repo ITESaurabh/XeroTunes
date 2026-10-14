@@ -1,8 +1,10 @@
 import React, { useContext, useEffect, useMemo, useCallback, useState } from 'react';
 import {
+  alpha,
   Box,
   Breadcrumbs,
   Button,
+  Collapse,
   IconButton,
   LinearProgress,
   ListItemButton,
@@ -13,44 +15,40 @@ import {
 import { useSearchParams, useLocation, useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
-import musicNoteIcon from '@iconify/icons-fluent/music-note-2-24-regular';
 import chevronRightIcon from '@iconify/icons-fluent/chevron-right-16-regular';
 import arrowUpIcon from '@iconify/icons-fluent/arrow-up-24-regular';
 import homeIcon from '@iconify/icons-fluent/home-24-regular';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import PageToolbar from '../components/PageToolbar';
-import ArtistCell from '../components/ArtistCell';
+import Empty from '../components/Empty';
+import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
+import { useTrackMenu } from '../components/TrackContextMenu';
+import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
+import TrackRow, {
+  TRACK_ROW_H,
+  TRACK_ROW_PHONE_H,
+} from '../components/TrackRow';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { VariableSizeList, ListChildComponentProps } from 'react-window';
+import FloatingScrollbar from './../components/FloatingScrollbar';
+import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
 import { GridSize, ViewMode } from '../../config/app_settings';
 import { getFolderViewSettings, setFolderViewSettings } from '../utils/LocStoreUtil';
+import { detailBannerBg, gridCardSx } from '../styles/listSx';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
-
-interface SubFolder {
-  Path: string;
-  Name: string;
-  SongCount: number;
-  IsRoot?: boolean;
-}
+import { BodyRow, SubFolder, buildFolderRows, gridColumns } from './folderRows';
 
 interface FolderChildren {
   subfolders: SubFolder[];
   songs: Track[];
   isRoot: boolean;
 }
-
-const formatDuration = (seconds: unknown): string => {
-  const secs = typeof seconds === 'number' && seconds > 0 ? seconds : null;
-  if (secs == null) return '';
-  const m = Math.floor(secs / 60);
-  const s = Math.floor(secs % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-};
 
 const detectSep = (p: string): '\\' | '/' => (p.includes('\\') ? '\\' : '/');
 
@@ -128,14 +126,7 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         gap: 1,
         p: 2,
         borderRadius: 2,
-        cursor: 'pointer',
-        background: 'rgba(255,255,255,0.03)',
-        border: '1px solid rgba(255,255,255,0.07)',
-        transition: 'background 0.15s, border-color 0.15s',
-        '&:hover': {
-          background: 'rgba(255,255,255,0.08)',
-          borderColor: 'rgba(255,255,255,0.15)',
-        },
+        ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',
           outlineColor: 'primary.main',
@@ -145,11 +136,20 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         userSelect: 'none',
       }}
     >
-      <Icon
-        icon={folderIcon}
-        height={iconSize}
-        style={{ color: folder.IsRoot ? '#7cc4ff' : '#facc6b', flexShrink: 0 }}
-      />
+      <Box
+        component="span"
+        sx={{
+          color: folder.SourceType
+            ? 'surfaces.server'
+            : folder.IsRoot
+              ? 'surfaces.year'
+              : 'surfaces.folder',
+          flexShrink: 0,
+          display: 'flex',
+        }}
+      >
+        <Icon icon={folderIcon} height={iconSize} />
+      </Box>
       <Typography variant="body2" noWrap fontWeight={500} sx={{ width: '100%' }}>
         {folder.Name}
       </Typography>
@@ -161,6 +161,158 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
 );
 SubFolderCard.displayName = 'SubFolderCard';
 
+/** Pinned row heights; keep in sync with the row styles below. */
+const HEADER_H = 40;
+const SECTION_GAP_H = 16;
+const FOLDER_ROW_H = 40;
+const FOLDER_ROOT_ROW_H = 60;
+const GRID_CARD_H: Record<GridSize, number> = { small: 122, medium: 138, large: 154 };
+
+const FolderListRow: React.FC<{
+  folder: SubFolder;
+  onClick: () => void;
+  onHover: () => void;
+}> = React.memo(({ folder, onClick, onHover }) => (
+  <ListItemButton
+    onDoubleClick={onClick}
+    onClick={onClick}
+    onMouseEnter={onHover}
+    onFocus={onHover}
+    sx={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: 1.5,
+      borderRadius: 1,
+      px: 1.5,
+      py: 1,
+      height: (folder.IsRoot ? FOLDER_ROOT_ROW_H : FOLDER_ROW_H) - 4,
+      '&:hover': { bgcolor: theme => alpha(theme.palette.text.primary, 0.06) },
+    }}
+  >
+    <Box
+      component="span"
+      sx={{
+        color: folder.IsRoot ? 'surfaces.year' : 'surfaces.folder',
+        flexShrink: 0,
+        display: 'flex',
+      }}
+    >
+      <Icon icon={folderIcon} height="1.5rem" />
+    </Box>
+    <Box sx={{ minWidth: 0, flex: 1 }}>
+      <Typography variant="body2" noWrap fontWeight={500}>
+        {folder.Name}
+      </Typography>
+      {folder.IsRoot && (
+        <Typography
+          variant="caption"
+          noWrap
+          sx={{
+            display: 'block',
+            color: 'text.secondary',
+            fontFamily: 'monospace',
+            fontSize: 11,
+          }}
+        >
+          {folder.Path}
+        </Typography>
+      )}
+    </Box>
+    <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+      {folder.SongCount} {folder.SongCount === 1 ? 'song' : 'songs'}
+    </Typography>
+  </ListItemButton>
+));
+FolderListRow.displayName = 'FolderListRow';
+
+interface BodyData {
+  rows: BodyRow[];
+  cols: number;
+  gridSize: GridSize;
+  songRowH: number;
+  isPhone: boolean;
+  selectedIds: Set<string | number>;
+  currentTrackId: string | number | undefined;
+  isPlaying: boolean;
+  onOpenFolder: (_path: string) => void;
+  onPrefetch: (_path: string) => void;
+  onPlaySong: (_index: number) => void;
+  onToggleSong: (_index: number, _extend: boolean) => void;
+  onOpenAlbum: (_albumId: string | number) => void;
+  onContextMenu: (_e: React.MouseEvent, _song: Track) => void;
+}
+
+const BodyRowRenderer: React.FC<ListChildComponentProps<BodyData>> = ({ index, style, data }) => {
+  const row = data.rows[index];
+  switch (row.kind) {
+    case 'gap':
+      return <div style={style} />;
+    case 'header':
+      return (
+        <div style={style}>
+          <Typography
+            variant="overline"
+            sx={{ display: 'block', color: 'text.secondary', pl: 1, letterSpacing: 1 }}
+          >
+            {row.label}
+          </Typography>
+        </div>
+      );
+    case 'grid':
+      return (
+        <div style={style}>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${data.cols}, minmax(0, 1fr))`,
+              gap: GRID_GAP[data.gridSize],
+              height: GRID_CARD_H[data.gridSize],
+            }}
+          >
+            {row.folders.map(sf => (
+              <SubFolderCard
+                key={sf.Path}
+                folder={sf}
+                iconSize={GRID_ICON_REM[data.gridSize]}
+                onClick={() => data.onOpenFolder(sf.Path)}
+                onHover={() => data.onPrefetch(sf.Path)}
+              />
+            ))}
+          </Box>
+        </div>
+      );
+    case 'folder':
+      return (
+        <div style={style}>
+          <FolderListRow
+            folder={row.folder}
+            onClick={() => data.onOpenFolder(row.folder.Path)}
+            onHover={() => data.onPrefetch(row.folder.Path)}
+          />
+        </div>
+      );
+    case 'song':
+      return (
+        <div style={style}>
+          <TrackRow
+            song={row.song}
+            index={row.index}
+            height={data.songRowH}
+            compact={data.isPhone}
+            isSelected={row.song.Id != null && data.selectedIds.has(row.song.Id)}
+            isCurrent={row.song.Id === data.currentTrackId}
+            isPlaying={data.isPlaying}
+            anySelected={data.selectedIds.size > 0}
+            onPlay={data.onPlaySong}
+            onToggle={data.onToggleSong}
+            onOpenAlbum={data.onOpenAlbum}
+            onContextMenu={data.onContextMenu}
+          />
+        </div>
+      );
+  }
+};
+
 const FolderHierarchy: React.FC = () => {
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
   const { invokeEventToMainProcess, sendEventToMainProcess } = useIpc();
@@ -170,7 +322,9 @@ const FolderHierarchy: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const currentPath = searchParams.get('path');
-  const bodyRef = React.useRef<HTMLDivElement | null>(null);
+  const listRef = React.useRef<VariableSizeList | null>(null);
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
+  const [bodyWidth, setBodyWidth] = useState(0);
 
   const [viewMode, setViewMode] = useState<ViewMode>(
     () => getFolderViewSettings('folderHierarchy').viewMode
@@ -179,15 +333,9 @@ const FolderHierarchy: React.FC = () => {
     () => getFolderViewSettings('folderHierarchy').gridSize
   );
 
-  const onScrollHidePlayerBar = useScrollHidePlayerBar<{ scrollTop: number }>({
-    field: 'scrollTop',
-  });
-  const handleBodyScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      onScrollHidePlayerBar({ scrollTop: e.currentTarget.scrollTop });
-    },
-    [onScrollHidePlayerBar]
-  );
+  const handleScroll = useScrollHidePlayerBar<{ scrollOffset: number }>();
+
+  const handleResize = useCallback(({ width }: { width: number }) => setBodyWidth(width), []);
 
   const handleViewMode = useCallback((mode: ViewMode) => {
     setViewMode(mode);
@@ -224,8 +372,8 @@ const FolderHierarchy: React.FC = () => {
       }) as Promise<FolderChildren>,
   });
 
-  const subfolders = children?.subfolders ?? [];
-  const songs = (children?.songs ?? []) as Track[];
+  const subfolders = useMemo(() => children?.subfolders ?? [], [children]);
+  const songs = useMemo(() => (children?.songs ?? []) as Track[], [children]);
 
   const breadcrumb = useMemo(() => buildBreadcrumb(currentPath, roots), [currentPath, roots]);
 
@@ -268,6 +416,24 @@ const FolderHierarchy: React.FC = () => {
     [songs, dispatch, location.pathname, location.search]
   );
 
+  const { selectedIds, selected, toggleAt, toggleAll, clear } = useTrackSelection(songs);
+  const { openTrackMenu, trackMenu } = useTrackMenu();
+  const [editTracks, setEditTracks] = useState<EditableTrack[] | null>(null);
+
+  // Walking into another folder ends the selection; the ids no longer belong to
+  // anything on screen.
+  useEffect(() => clear(), [currentPath, clear]);
+
+  const handlePlaySelected = useCallback(() => {
+    if (!selected.length) return;
+    dispatch({
+      type: 'SET_QUEUE',
+      payload: { queue: selected, index: 0, source: location.pathname + location.search },
+    });
+    dispatch({ type: 'SET_CURR_TRACK', payload: selected[0] });
+    dispatch({ type: 'SET_IS_PLAYING', payload: true });
+  }, [selected, dispatch, location.pathname, location.search]);
+
   const handlePlayFolder = useCallback(async () => {
     if (!currentPath) return;
     const all = (await invokeEventToMainProcess('get-songs-in-folder', {
@@ -282,18 +448,93 @@ const FolderHierarchy: React.FC = () => {
     dispatch({ type: 'SET_IS_PLAYING', payload: true });
   }, [currentPath, invokeEventToMainProcess, dispatch, location.pathname, location.search]);
 
+  const isAtRootPath = !currentPath;
+
+  const cols = useMemo(
+    () => gridColumns(bodyWidth, GRID_MIN_PX[gridSize], GRID_GAP[gridSize] * 8),
+    [bodyWidth, gridSize]
+  );
+  const songRowH = isPhone ? TRACK_ROW_PHONE_H : TRACK_ROW_H;
+
+  const rows = useMemo(
+    () =>
+      buildFolderRows(subfolders, songs, {
+        grid: viewMode === 'grid',
+        cols,
+        isAtRoot: isAtRootPath,
+      }),
+    [subfolders, songs, viewMode, cols, isAtRootPath]
+  );
+
+  const getItemSize = useCallback(
+    (index: number) => {
+      const row = rows[index];
+      switch (row.kind) {
+        case 'header':
+          return HEADER_H;
+        case 'gap':
+          return SECTION_GAP_H;
+        case 'grid':
+          return GRID_CARD_H[gridSize] + GRID_GAP[gridSize] * 8;
+        case 'folder':
+          return row.folder.IsRoot ? FOLDER_ROOT_ROW_H : FOLDER_ROW_H;
+        case 'song':
+          return songRowH;
+      }
+    },
+    [rows, gridSize, songRowH]
+  );
+
+  // VariableSizeList caches measurements; any change to the row model invalidates them.
+  useEffect(() => listRef.current?.resetAfterIndex(0), [rows, gridSize, songRowH]);
+
   const focusTrackId = (location.state as { focusTrackId?: string | number } | null)?.focusTrackId;
   const focusTs = (location.state as { _ts?: number } | null)?._ts;
   useEffect(() => {
-    if (focusTrackId == null || !songs.length || !bodyRef.current) return;
-    const id = requestAnimationFrame(() => {
-      const el = bodyRef.current?.querySelector(
-        `[data-track-id="${focusTrackId}"]`
-      ) as HTMLElement | null;
-      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [focusTrackId, focusTs, songs]);
+    if (focusTrackId == null || !listRef.current) return;
+    const idx = rows.findIndex(r => r.kind === 'song' && r.song.Id === focusTrackId);
+    if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
+  }, [focusTrackId, focusTs, rows]);
+
+  const handleOpenAlbum = useCallback(
+    (albumId: string | number) => navigate(`/main_window/albums/${albumId}`),
+    [navigate]
+  );
+
+  const itemData = useMemo<BodyData>(
+    () => ({
+      rows,
+      cols,
+      gridSize,
+      songRowH,
+      isPhone,
+      selectedIds,
+      currentTrackId: state.track?.Id,
+      isPlaying: state.isPlaying,
+      onOpenFolder: navigateTo,
+      onPrefetch: prefetchChildren,
+      onPlaySong: handleSongClick,
+      onToggleSong: toggleAt,
+      onOpenAlbum: handleOpenAlbum,
+      onContextMenu: openTrackMenu,
+    }),
+    [
+      rows,
+      cols,
+      gridSize,
+      songRowH,
+      isPhone,
+      selectedIds,
+      state.track?.Id,
+      state.isPlaying,
+      navigateTo,
+      prefetchChildren,
+      handleSongClick,
+      toggleAt,
+      handleOpenAlbum,
+      openTrackMenu,
+    ]
+  );
 
   const handleRevealInExplorer = useCallback(() => {
     if (!currentPath) return;
@@ -301,7 +542,7 @@ const FolderHierarchy: React.FC = () => {
   }, [currentPath, sendEventToMainProcess]);
 
   const parentPath = currentPath ? getParentPath(currentPath, roots) : null;
-  const isAtRoot = !currentPath;
+  const isAtRoot = isAtRootPath;
 
   const toolbarAction = useMemo(
     () => (
@@ -359,7 +600,7 @@ const FolderHierarchy: React.FC = () => {
           mt: 1,
           mx: { xs: 1, md: 2 },
           borderRadius: 1,
-          background: 'rgba(255,255,255,0.04)',
+          background: detailBannerBg,
           minHeight: 44,
           flexShrink: 0,
           flexWrap: { xs: 'wrap', md: 'nowrap' },
@@ -395,7 +636,7 @@ const FolderHierarchy: React.FC = () => {
             scrollbarWidth: 'thin',
             '&::-webkit-scrollbar': { height: 4 },
             '&::-webkit-scrollbar-thumb': {
-              background: 'rgba(255,255,255,0.15)',
+              background: theme => alpha(theme.palette.text.primary, 0.15),
               borderRadius: 2,
             },
           }}
@@ -416,7 +657,6 @@ const FolderHierarchy: React.FC = () => {
               component="span"
               onClick={() => navigateTo(null)}
               sx={{
-                cursor: 'pointer',
                 color: 'text.secondary',
                 fontWeight: 500,
                 whiteSpace: 'nowrap',
@@ -439,7 +679,6 @@ const FolderHierarchy: React.FC = () => {
                     if (!isLast && seg.path) prefetchChildren(seg.path);
                   }}
                   sx={{
-                    cursor: isLast ? 'default' : 'pointer',
                     color: isLast ? 'text.primary' : 'text.secondary',
                     fontWeight: isLast ? 600 : 500,
                     whiteSpace: 'nowrap',
@@ -468,198 +707,72 @@ const FolderHierarchy: React.FC = () => {
         )}
       </Box>
 
+      {/* Outside the scroller: it was `position: sticky`, which absolutely
+          positioned virtual rows can't honour. */}
+      <Collapse in={selected.length > 0} sx={{ flexShrink: 0, px: { xs: 1, md: 2 }, mt: 1 }}>
+        <SelectionBar
+          selected={selected}
+          total={songs.length}
+          onToggleAll={toggleAll}
+          onClear={clear}
+          onPlay={handlePlaySelected}
+          onEditTags={() => setEditTracks(toEditableTracks(selected))}
+        />
+      </Collapse>
+
       {/* Body */}
       <Box
-        ref={bodyRef}
-        onScroll={handleBodyScroll}
-        sx={{ flex: 1, minHeight: 0, overflow: 'auto', mt: 1, px: { xs: 1, md: 2 } }}
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          mt: 1,
+          px: { xs: 1, md: 2 },
+          display: 'flex',
+          flexDirection: 'column',
+        }}
       >
         {isLoading && <LinearProgress color="primary" sx={{ borderRadius: 1, mb: 2 }} />}
         {error && <Typography sx={{ p: 3, color: 'error.main' }}>Error loading folder.</Typography>}
-        {!isLoading && !error && (
-          <>
-            {isAtRoot && subfolders.length === 0 && (
-              <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                <Typography>
-                  No music folders configured. Add a Music Folder in Settings to get started.
-                </Typography>
-              </Box>
-            )}
-
-            {subfolders.length > 0 && (
-              <Box sx={{ mb: 2 }}>
-                <Typography
-                  variant="overline"
-                  sx={{ color: 'text.secondary', pl: 1, letterSpacing: 1 }}
+        {!isLoading && !error && rows.length === 0 && (
+          <Empty
+            page={isAtRoot ? 'Folder Hierarchy' : 'folder'}
+            hint={isAtRoot ? 'Add a Music Folder in Settings to get started.' : undefined}
+          />
+        )}
+        {!isLoading && !error && rows.length > 0 && (
+          <Box sx={{ flex: 1, minHeight: 0 }}>
+            <FloatingScrollbar targetRef={scrollerRef} />
+            <AutoSizer onResize={handleResize}>
+              {({ height, width }: { height: number; width: number }) => (
+                <VariableSizeList
+                  ref={listRef}
+                  outerRef={scrollerRef}
+                  height={height}
+                  width={width}
+                  itemCount={rows.length}
+                  itemSize={getItemSize}
+                  itemData={itemData}
+                  overscanCount={viewMode === 'grid' ? 10 : 100}
+                  onScroll={handleScroll}
                 >
-                  {isAtRoot ? 'Music Folders' : `Folders (${subfolders.length})`}
-                </Typography>
-                {viewMode === 'grid' ? (
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: `repeat(auto-fill, minmax(${GRID_MIN_PX[gridSize]}px, 1fr))`,
-                      gap: GRID_GAP[gridSize],
-                      mt: 1,
-                    }}
-                  >
-                    {subfolders.map(sf => (
-                      <SubFolderCard
-                        key={sf.Path}
-                        folder={sf}
-                        iconSize={GRID_ICON_REM[gridSize]}
-                        onClick={() => navigateTo(sf.Path)}
-                        onHover={() => prefetchChildren(sf.Path)}
-                      />
-                    ))}
-                  </Box>
-                ) : (
-                  <Box>
-                    {subfolders.map(sf => (
-                      <ListItemButton
-                        key={sf.Path}
-                        onDoubleClick={() => navigateTo(sf.Path)}
-                        onClick={() => navigateTo(sf.Path)}
-                        onMouseEnter={() => prefetchChildren(sf.Path)}
-                        onFocus={() => prefetchChildren(sf.Path)}
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1.5,
-                          borderRadius: 1,
-                          mb: 0.5,
-                          px: 1.5,
-                          py: 1,
-                          '&:hover': { background: 'rgba(255,255,255,0.06)' },
-                        }}
-                      >
-                        <Icon
-                          icon={folderIcon}
-                          height="1.5rem"
-                          style={{
-                            color: sf.IsRoot ? '#7cc4ff' : '#facc6b',
-                            flexShrink: 0,
-                          }}
-                        />
-                        <Box sx={{ minWidth: 0, flex: 1 }}>
-                          <Typography variant="body2" noWrap fontWeight={500}>
-                            {sf.Name}
-                          </Typography>
-                          {sf.IsRoot && (
-                            <Typography
-                              variant="caption"
-                              noWrap
-                              sx={{
-                                color: 'text.secondary',
-                                fontFamily: 'monospace',
-                                fontSize: 11,
-                              }}
-                            >
-                              {sf.Path}
-                            </Typography>
-                          )}
-                        </Box>
-                        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                          {sf.SongCount} {sf.SongCount === 1 ? 'song' : 'songs'}
-                        </Typography>
-                      </ListItemButton>
-                    ))}
-                  </Box>
-                )}
-              </Box>
-            )}
-
-            {songs.length > 0 && (
-              <Box>
-                <Typography
-                  variant="overline"
-                  sx={{ color: 'text.secondary', pl: 1, letterSpacing: 1 }}
-                >
-                  Songs ({songs.length})
-                </Typography>
-                <Box>
-                  {songs.map((song, idx) => (
-                    <ListItemButton
-                      key={String(song.Id ?? idx)}
-                      data-track-id={song.Id ?? ''}
-                      onClick={e => {
-                        if ((e.target as HTMLElement).closest('[data-nav-cell]')) return;
-                        handleSongClick(idx);
-                      }}
-                      selected={song.Id === state.track?.Id}
-                      sx={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 1.5,
-                        borderRadius: 1,
-                        mb: 0.25,
-                        px: 1.5,
-                        py: 0.75,
-                        '&:hover': { background: 'rgba(255,255,255,0.06)' },
-                      }}
-                    >
-                      <Icon
-                        icon={musicNoteIcon}
-                        height="1.1rem"
-                        style={{
-                          color: song.Id === state.track?.Id ? 'var(--mui-primary)' : '#9aa0a6',
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" noWrap>
-                          {(song.Title as string) || 'Unknown'}
-                        </Typography>
-                        {!isPhone && (
-                          <Box sx={{ display: 'flex', alignItems: 'center', overflow: 'hidden', color: 'text.secondary' }}>
-                            <Box sx={{ flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
-                              <ArtistCell artistNameRaw={song.ArtistName as string | undefined} variant="caption" />
-                            </Box>
-                            {song.AlbumTitle && (
-                              <>
-                                <Typography variant="caption" sx={{ flexShrink: 0, color: 'text.secondary' }}>
-                                  &nbsp;·&nbsp;
-                                </Typography>
-                                <Typography
-                                  variant="caption"
-                                  noWrap
-                                  data-nav-cell="true"
-                                  onMouseDown={e => e.stopPropagation()}
-                                  onClick={e => {
-                                    e.stopPropagation();
-                                    if (song.AlbumId != null) navigate(`/main_window/albums/${song.AlbumId as string | number}`);
-                                  }}
-                                  sx={{
-                                    flexShrink: 0,
-                                    color: 'text.secondary',
-                                    cursor: song.AlbumId != null ? 'pointer' : 'default',
-                                    '&:hover': song.AlbumId != null ? { textDecoration: 'underline', color: 'primary.main' } : undefined,
-                                  }}
-                                >
-                                  {song.AlbumTitle as string}
-                                </Typography>
-                              </>
-                            )}
-                          </Box>
-                        )}
-                      </Box>
-                      <Typography variant="caption" sx={{ color: 'text.secondary', flexShrink: 0 }}>
-                        {formatDuration(song.Duration)}
-                      </Typography>
-                    </ListItemButton>
-                  ))}
-                </Box>
-              </Box>
-            )}
-
-            {!isAtRoot && subfolders.length === 0 && songs.length === 0 && (
-              <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
-                <Typography>This folder is empty.</Typography>
-              </Box>
-            )}
-          </>
+                  {BodyRowRenderer}
+                </VariableSizeList>
+              )}
+            </AutoSizer>
+          </Box>
         )}
       </Box>
+
+      {trackMenu}
+
+      {editTracks && (
+        <TagEditorDialog
+          open
+          onClose={() => setEditTracks(null)}
+          mode="track"
+          tracks={editTracks}
+        />
+      )}
     </Box>
   );
 };

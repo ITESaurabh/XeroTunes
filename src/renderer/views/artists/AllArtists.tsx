@@ -1,17 +1,19 @@
 import React, { useContext, useEffect, useCallback, useMemo, useState } from 'react';
-import { Box, Typography, LinearProgress, Avatar } from '@mui/material';
+import { alpha, Box, Typography, LinearProgress, Avatar } from '@mui/material';
 import { useNavigate, useLocation } from 'react-router';
-import { FixedSizeGrid, GridChildComponentProps, GridOnItemsRenderedProps } from 'react-window';
+import { FixedSizeGrid, GridChildComponentProps } from 'react-window';
 import AutoSizer from 'react-virtualized-auto-sizer';
 import { motion } from 'motion/react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import PageToolbar from '../../components/PageToolbar';
+import Empty from '../../components/Empty';
 import { useIpc } from '../../state/ipc';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { store } from '../../utils/store';
 import { useScrollHidePlayerBar } from '../../utils/useScrollHidePlayerBar';
+import FloatingScrollbar from '../../components/FloatingScrollbar';
+import { alphabetSections } from '../../utils/scrollSections';
 import { useScrollRestoration } from '../../utils/useScrollRestoration';
-import { artistImageService } from '../../utils/artistImageService';
 
 export interface Artist {
   Id: number;
@@ -62,11 +64,11 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        cursor: 'pointer',
         borderRadius: 0.5,
         overflow: 'hidden',
         position: 'relative',
-        outline: mouse ? '1px solid rgba(255,255,255,0.18)' : '1px solid transparent',
+        outline: theme =>
+          `1px solid ${mouse ? alpha(theme.palette.text.primary, 0.18) : 'transparent'}`,
         transition: 'outline-color 0.15s ease',
       }}
     >
@@ -76,9 +78,10 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
           inset: 0,
           pointerEvents: 'none',
           zIndex: 2,
-          background: mouse
-            ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, rgba(255,255,255,0.15) 0%, transparent 70%)`
-            : 'none',
+          background: theme =>
+            mouse
+              ? `radial-gradient(circle 550px at ${mouse.x}px ${mouse.y}px, ${alpha(theme.palette.text.primary, 0.15)} 0%, transparent 70%)`
+              : 'none',
         }}
       />
 
@@ -150,11 +153,7 @@ const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDiv
     <div
       {...rest}
       ref={ref}
-      style={{
-        ...style,
-        overflowY: 'overlay' as React.CSSProperties['overflowY'],
-        overflowX: 'hidden',
-      }}
+      style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }}
     />
   )
 );
@@ -167,11 +166,11 @@ interface AllArtistsProps {
 const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
   const { invokeEventToMainProcess } = useIpc();
   const { dispatch } = useContext(store);
-  const queryClient = useQueryClient();
   const location = useLocation();
   const scrollHide = useScrollHidePlayerBar<{ scrollTop: number }>({ field: 'scrollTop' });
   const { initialScrollTop, saveScrollPosition } = useScrollRestoration(location.pathname);
   const navigate = useNavigate();
+  const scrollerRef = React.useRef<HTMLDivElement | null>(null);
 
   const handleGridScroll = React.useCallback(
     (args: { scrollTop: number }) => {
@@ -179,14 +178,6 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
       scrollHide(args);
     },
     [saveScrollPosition, scrollHide]
-  );
-
-  const enqueueArtistImageFetch = useCallback(
-    (artist: Artist) => {
-      if (!artist.Id || artist.ProfileImgUri) return;
-      artistImageService.enqueue(artist.Id, queryClient, [QUERY_KEYS.ALL_ARTISTS, showAlbumsOnly]);
-    },
-    [queryClient, showAlbumsOnly]
   );
 
   const {
@@ -241,6 +232,16 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
     [filtered, gridLayout, handleArtistClick]
   );
 
+  // The query hands artists back name-sorted, which is what makes an A-Z rail honest.
+  const sections = useMemo(
+    () =>
+      alphabetSections(
+        filtered.map(a => a.Name),
+        { rowHeight: gridLayout.rowHeight, colCount: gridLayout.colCount }
+      ),
+    [filtered, gridLayout]
+  );
+
   if (isLoading)
     return (
       <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -257,6 +258,17 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
       </Box>
     );
 
+  if (!filtered.length)
+    return (
+      <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <PageToolbar title={showAlbumsOnly ? 'Album Artists' : 'Artists'} />
+        <Empty
+          page={showAlbumsOnly ? 'Album Artists' : 'Artists'}
+          hint="Add a music folder in Settings, then scan your library."
+        />
+      </Box>
+    );
+
   return (
     <Box
       component={motion.div}
@@ -268,27 +280,11 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
     >
       <PageToolbar title={`${showAlbumsOnly ? 'Album Artists' : 'Artists'} (${filtered.length})`} />
       <Box sx={{ flex: 1, minHeight: 0, px: `${PADDING}px` }}>
+        <FloatingScrollbar targetRef={scrollerRef} sections={sections} />
         <AutoSizer onResize={handleResize}>
           {({ height, width }: { height: number; width: number }) => {
             const { colCount, colWidth, rowHeight } = calcLayout(width);
             const rowCount = Math.ceil(filtered.length / colCount);
-
-            const handleItemsRendered = ({
-              visibleRowStartIndex,
-              visibleRowStopIndex,
-              visibleColumnStartIndex,
-              visibleColumnStopIndex,
-            }: GridOnItemsRenderedProps) => {
-              for (let row = visibleRowStartIndex; row <= visibleRowStopIndex; row += 1) {
-                for (let column = visibleColumnStartIndex; column <= visibleColumnStopIndex; column += 1) {
-                  const index = row * colCount + column;
-                  const artist = filtered[index];
-                  if (artist) {
-                    enqueueArtistImageFetch(artist);
-                  }
-                }
-              }
-            };
 
             return (
               <FixedSizeGrid
@@ -301,9 +297,9 @@ const AllArtists: React.FC<AllArtistsProps> = ({ showAlbumsOnly = false }) => {
                 width={width}
                 initialScrollTop={initialScrollTop}
                 overscanRowCount={4}
-                onItemsRendered={handleItemsRendered}
                 onScroll={handleGridScroll}
                 itemData={itemData}
+                outerRef={scrollerRef}
                 outerElementType={ScrollContainer}
               >
                 {Cell}
