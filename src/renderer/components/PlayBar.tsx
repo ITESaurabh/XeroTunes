@@ -901,7 +901,8 @@ export default function PlayBar() {
 
   const scrobbleMeta = useMemo(() => {
     const track = state.track;
-    if (!track?.Id) return null;
+    // ICY metadata gives a station a title and artist, which would otherwise pass as a song.
+    if (!track?.Id || isLive) return null;
     const artist = artistNames.join(', ');
     const title = (track.Title as string) || '';
     if (!artist || !title) return null;
@@ -914,12 +915,13 @@ export default function PlayBar() {
       album: (track.AlbumTitle as string) || undefined,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.track?.Id, artistNames]);
+  }, [state.track?.Id, artistNames, isLive]);
   const scrobbleMetaRef = useRef(scrobbleMeta);
   scrobbleMetaRef.current = scrobbleMeta;
 
   useEffect(() => {
-    if (paused || !scrobbleMeta) return;
+    // Duration 0 is any live audio, including a radio URL that came in via a playlist rather than the Streams view.
+    if (paused || !scrobbleMeta || !duration) return;
     ipcRenderer.send('scrobbler-now-playing', { ...scrobbleMeta, duration });
   }, [scrobbleMeta, paused, duration]);
 
