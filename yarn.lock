@@ -10444,6 +10444,11 @@ __metadata:
     ts-loader: "npm:^9.5.4"
     ts-node: "npm:^10.9.2"
     typescript: "npm:^5.9.3"
+  dependenciesMeta:
+    better-sqlite3:
+      built: true
+    electron-winstaller:
+      built: true
   languageName: unknown
   linkType: soft
 

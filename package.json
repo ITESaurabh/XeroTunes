@@ -100,6 +100,14 @@
     "react-virtualized-auto-sizer": "^1.0.26",
     "react-window": "^1.8.11"
   },
+  "dependenciesMeta": {
+    "better-sqlite3": {
+      "built": true
+    },
+    "electron-winstaller": {
+      "built": true
+    }
+  },
   "resolutions": {
     "electron-installer-redhat@npm:^3.2.0": "patch:electron-installer-redhat@npm%3A3.4.0#~/.yarn/patches/electron-installer-redhat-npm-3.4.0-7f790e86e4.patch"
   }
