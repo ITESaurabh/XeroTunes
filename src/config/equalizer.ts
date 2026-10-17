@@ -39,6 +39,7 @@ export const EQ_PRESETS: Record<string, { label: string; gains: number[] }> = {
   electronic: { label: 'Electronic', gains: [5, 4, 1, 0, -2, 0, 1, 2, 4, 5] },
   classical: { label: 'Classical', gains: [3, 2, 1, 0, 0, 0, -1, 1, 2, 3] },
   acoustic: { label: 'Acoustic', gains: [3, 3, 2, 1, 1, 1, 2, 2, 2, 1] },
+  clarity: { label: 'Clarity', gains: [1, 1, 0, -2, -4, -4, -2, 0, 1, 2] },
 };
 
 export const DEFAULT_EQUALIZER_SETTINGS: EqualizerSettings = {

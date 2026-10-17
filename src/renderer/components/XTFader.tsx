@@ -83,7 +83,7 @@ const GlassSlider = styled(Slider)(({ theme }) => {
 
 type XTFaderProps = Omit<SliderProps, 'value' | 'track'> & {
   value: number;
-  /** Where the fill starts. Defaults to `min`; an EQ band fills out from 0 dB. */
+  /** Where the fill starts, and where a triple click or tap puts it back. Defaults to `min`. */
   origin?: number;
 };
 
@@ -95,6 +95,7 @@ const XTFader: React.FC<XTFaderProps> = ({
   origin = min,
   orientation = 'vertical',
   style,
+  onClick,
   ...props
 }) => {
   const at = (v: number): number => (v - min) / (max - min);
@@ -110,6 +111,12 @@ const XTFader: React.FC<XTFaderProps> = ({
       min={min}
       max={max}
       style={{ ...style, ...fill }}
+      onClick={e => {
+        onClick?.(e);
+        if (e.detail !== 3 || value === origin) return;
+        props.onChange?.(e.nativeEvent, origin, 0);
+        props.onChangeCommitted?.(e.nativeEvent, origin);
+      }}
       {...props}
     />
   );

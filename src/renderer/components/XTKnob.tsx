@@ -38,7 +38,7 @@ const arc = (r: number, from: number, to: number): string => {
 
 /**
  * Rotary control in the same glass material as XTSwitch and XTFader. Drag up or right, or circle
- * clockwise, to turn it up.
+ * clockwise, to turn it up. A triple click or tap resets it to `min`.
  */
 const XTKnob: React.FC<XTKnobProps> = ({
   value,
@@ -60,6 +60,12 @@ const XTKnob: React.FC<XTKnobProps> = ({
   const angle = START_DEG + ((value - min) / (max - min)) * SWEEP_DEG;
   const [dotX, dotY] = polar(22, angle);
 
+  const jumpTo = (next: number): void => {
+    if (next === value) return;
+    onChange(next);
+    onChangeCommitted?.(next);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent): void => {
     const page = (max - min) / 5;
     const deltas: Record<string, number> = {
@@ -76,9 +82,7 @@ const XTKnob: React.FC<XTKnobProps> = ({
     else if (e.key in deltas) next = clamp(value + deltas[e.key]);
     else return;
     e.preventDefault();
-    if (next === value) return;
-    onChange(next);
-    onChangeCommitted?.(next);
+    jumpTo(next);
   };
 
   return (
@@ -91,6 +95,9 @@ const XTKnob: React.FC<XTKnobProps> = ({
       aria-valuetext={getAriaValueText?.(value)}
       aria-disabled={disabled || undefined}
       {...aria}
+      onClick={e => {
+        if (e.detail === 3) jumpTo(min);
+      }}
       onPointerDown={e => {
         e.preventDefault();
         e.currentTarget.focus();
