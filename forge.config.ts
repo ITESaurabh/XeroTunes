@@ -95,6 +95,7 @@ const config: ForgeConfig = {
     }),
     new MakerDMG({
       background: './src/assets/dmg-bg/background.tiff',
+      icon: './src/assets/dmg-bg/volume.icns',
       additionalDMGOptions: {
         window: {
           size: { width: 480, height: 320 },
