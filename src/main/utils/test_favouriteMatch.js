@@ -9,7 +9,7 @@ const { buildTrackIndex, matchFavourite } = require('./favouriteMatch');
 const library = [
   { Id: 1, Uri: 'C:\\Music\\Rock\\Song A.mp3', FileHash: 'aaa' },
   { Id: 2, Uri: 'C:\\Music\\Pop\\Song B.mp3', FileHash: 'bbb' },
-  // Same filename as track 1 in another folder — only reachable by hash.
+  // Same filename as track 1 in another folder; only reachable by hash.
   { Id: 3, Uri: 'C:\\Music\\Live\\Song A.mp3', FileHash: 'ccc' },
   // Pre-hash rows exist in older libraries.
   { Id: 4, Uri: 'C:\\Music\\Old\\Song D.mp3', FileHash: null },

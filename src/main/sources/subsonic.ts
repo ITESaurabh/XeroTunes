@@ -4,8 +4,8 @@
 // password is.
 //
 // Both providers live in this file because the difference between them is four
-// fields, listed at the bottom. Split across two files, the thing worth seeing —
-// what actually differs — would be the thing you can't see.
+// fields, listed at the bottom. Split across two files, what actually differs would
+// be the thing you can't see.
 //
 // The credentials travel in the query string, which is the pleasant part: no
 // header injection, so <audio> and <img> hit `stream` and `getCoverArt`

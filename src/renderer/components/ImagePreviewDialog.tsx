@@ -48,7 +48,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
     try {
       await ipcRenderer.invoke('save-image', { src: imageSrc, suggestedName: imageAlt });
     } catch {
-      /* ignore — user-facing failure is non-critical */
+      /* ignore: non-critical for the user */
     }
   };
 

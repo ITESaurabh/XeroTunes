@@ -243,7 +243,7 @@ const Favourites: React.FC = () => {
         action={
           <Stack direction="row" spacing={0.5}>
             {/* A disabled button fires no events, so Tooltip needs the span to
-                hang its listeners on — otherwise the hint vanishes exactly when
+                hang its listeners on; otherwise the hint vanishes exactly when
                 you want to know why the button is dead. */}
             <Tooltip title="Export favourites">
               <span>

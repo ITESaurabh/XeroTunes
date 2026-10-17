@@ -134,7 +134,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
       await invokeEventToMainProcess('force-fetch-artist-profile-image', {
         artistId: Number(artistId),
       });
-      // Then refresh all queries so the UI picks up new data
       await queryClient.invalidateQueries({
         queryKey: [QUERY_KEYS.ARTIST_DETAIL, artistId, showAlbumArtist],
       });
@@ -584,8 +583,6 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                   <Box
                     key={album.Id}
                     sx={{
-                      // borderRadius: 0.5,
-                      // border: '1px solid rgba(255,255,255,0.08)',
                       display: 'flex',
                       flexDirection: {
                         xs: 'column',

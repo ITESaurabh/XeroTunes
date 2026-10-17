@@ -351,7 +351,6 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   const knownUriSet = new Set(knownTracks.map(t => t.Uri));
   const ignored = ignoredUriSet(db);
 
-  // Collect only NEW files (not in DB)
   let newFiles = [];
   for (const folder of folders) {
     const all = getAllSupportedFiles(folder.Uri, supportedFileTypes);
@@ -394,7 +393,7 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
     }
   }
   if (removed > 0) console.log(`[basic-scan] Removed ${removed} deleted track(s).`);
-  // Always run — also handles orphan art files left behind by older scans.
+  // Always runs; it also clears orphan art files left behind by older scans.
   cleanupOrphans(db, config);
 
   console.log(`[basic-scan] Done. Inserted ${scanned} new track(s), removed ${removed}.`);

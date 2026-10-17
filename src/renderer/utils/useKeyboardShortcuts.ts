@@ -15,11 +15,7 @@ export interface ShortcutDeps {
   [key: string]: unknown;
 }
 
-/**
- * Custom hook for managing keyboard shortcuts
- * @param shortcuts - Array of shortcut objects
- * @param deps - Dependencies object (e.g., { dispatch, state })
- */
+/** Re-binds the keydown listener whenever `shortcuts` or `deps` change. */
 export const useKeyboardShortcuts = (
   shortcuts: KeyboardShortcut[],
   deps: ShortcutDeps = {}
@@ -87,11 +83,7 @@ export const shortcutParts = (shortcut: ShortcutKeys): string[] => {
   return parts;
 };
 
-/**
- * Utility function to format keyboard shortcut for display
- * @param shortcut - Shortcut object
- * @returns Formatted shortcut string (e.g., "Ctrl+K")
- */
+/** Display form, e.g. "Ctrl+K". */
 export const formatShortcut = (shortcut: ShortcutKeys): string => shortcutParts(shortcut).join('+');
 
 export interface ShortcutDefinition {
@@ -100,9 +92,6 @@ export interface ShortcutDefinition {
   description: string;
 }
 
-/**
- * Predefined keyboard shortcuts configuration
- */
 export const SHORTCUTS: Record<string, ShortcutDefinition> = {
   SEARCH: {
     key: 'k',

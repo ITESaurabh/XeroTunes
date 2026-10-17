@@ -23,7 +23,7 @@ export const rules: Required<ModuleOptions>['rules'] = [
     resolve: { fullySpecified: false },
   },
   {
-    // Babel handles JS/JSX/TS/TSX — fast transform, no type checking
+    // Babel handles JS/JSX/TS/TSX: fast transform, no type checking
     test: /\.[jt]sx?$/,
     exclude: /node_modules/,
     use: {

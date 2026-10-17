@@ -5,7 +5,7 @@ const { ipcRenderer } = window.require('electron');
 export interface ConfirmOptions {
   /** Dialog title (window/sheet title). */
   title?: string;
-  /** Primary message — the main question, shown in bold on most platforms. */
+  /** Primary message: the main question, shown in bold on most platforms. */
   message: string;
   /** Optional secondary explanatory text shown below the message. */
   detail?: string;

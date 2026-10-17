@@ -6,18 +6,16 @@ export interface NowPlayingData {
   title: string;
   artist: string;
   album: string;
-  /** Whether the track is currently playing (false = paused) */
   isPlaying: boolean;
-  /** Current playback position in seconds */
+  /** Seconds. */
   position: number;
-  /** Total track duration in seconds */
+  /** Seconds. */
   duration: number;
 }
 
 let rpcClient: Client | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let currentActivity: NowPlayingData | null = null;
-/** Whether the user has enabled Discord presence */
 let presenceEnabled = false;
 
 const RECONNECT_DELAY_MS = 15_000;
@@ -84,9 +82,8 @@ function applyActivity(data: NowPlayingData) {
 
   const activity: SetActivity = {
     type: 2, // Listening
-    name: `${data.title ?? 'Music'}`, // Line 0 — fixed string shown above track title
+    name: `${data.title ?? 'Music'}`, // Line 0, shown as "Listening to <name>"
     statusDisplayType: 0,
-    // endTimestamp:
     startTimestamp: new Date(now - data.position * 1000),
     // Line 1: track title
     details: data.title || 'Unknown Track',
@@ -95,7 +92,6 @@ function applyActivity(data: NowPlayingData) {
     // Large image is the app logo; its tooltip carries the album name
     largeImageKey: 'app_icon',
     largeImageText: 'XeroTunes',
-    // Small badge = play / pause indicator
     smallImageKey: data.isPlaying ? 'playing' : 'paused',
     smallImageText: data.isPlaying ? 'Playing' : 'Paused',
     instance: false,
@@ -115,7 +111,7 @@ function applyActivity(data: NowPlayingData) {
 
 // Public API
 
-/** Enable or disable Discord presence. Connects / disconnects as needed. */
+/** Connects or disconnects as needed. */
 export function setPresenceEnabled(enabled: boolean): void {
   presenceEnabled = enabled;
   if (enabled) {
@@ -130,7 +126,7 @@ export function setPresenceEnabled(enabled: boolean): void {
   }
 }
 
-/** Update the currently displayed activity. No-op if presence is disabled. */
+/** No-op while presence is disabled. */
 export function updatePresence(data: NowPlayingData): void {
   if (!presenceEnabled) return;
   currentActivity = data;
@@ -147,7 +143,6 @@ export function updatePresence(data: NowPlayingData): void {
   }
 }
 
-/** Clear the activity (e.g. nothing is playing). */
 export function clearPresence(): void {
   currentActivity = null;
   if (rpcClient?.isConnected && rpcClient.user) {

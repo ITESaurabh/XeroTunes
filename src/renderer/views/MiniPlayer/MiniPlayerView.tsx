@@ -89,7 +89,7 @@ export default function MiniPlayerView(): React.ReactElement {
     if (!path) return;
     const audioElement = audioRef.current;
     if (!audioElement) return;
-    // Without this, play() on a still-playing element races the src swap and rejects with "interrupted by a new load request" - silent until the user toggles play/pause.
+    // Without this, play() on a still-playing element races the src swap and rejects with "interrupted by a new load request", silent until the user toggles play/pause.
     audioElement.pause();
     audioElement.src = toMediaSrc(path);
     setPosition(0);

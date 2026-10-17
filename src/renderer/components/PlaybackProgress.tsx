@@ -144,8 +144,8 @@ interface PlaybackProgressProps {
   onSeekCommit: (_pos: number) => void;
 }
 
-// PlaybackProgress drives the slider via direct DOM mutation — `position` is
-// never React state, so audio `timeupdate` ticks (4 Hz) cause zero re-renders.
+// Drives the slider via direct DOM mutation: `position` is never React state,
+// so audio `timeupdate` ticks (4 Hz) cause no re-renders.
 const PlaybackProgress = React.memo(function PlaybackProgress({
   audioRef,
   duration,
@@ -241,7 +241,7 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     };
   }, [audioRef, trackId, isLive, isRemote]);
 
-  // Subscribe to timeupdate — DOM only, no React render
+  // Subscribe to timeupdate: DOM only, no React render.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;

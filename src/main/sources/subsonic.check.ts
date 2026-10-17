@@ -137,7 +137,7 @@ const server = http.createServer((req, res) => {
 
   // Either scheme, checked the way a real server would: the plain password, or
   // the token that password and the request's salt hash to. Written as a
-  // positive test — `t !== expected` passes a request with neither, both being
+  // positive test: `t !== expected` passes a request with neither, both being
   // null.
   const supplied = params.get('t');
   const expected = params.has('s')

@@ -28,7 +28,7 @@ export interface Track {
 /**
  * Slim playback record stored in the queue / current-track state.
  * Only fields actually consumed by PlayBar / OS metadata / navigation
- * are kept — full Track records (which include genre, year, track number,
+ * are kept; full Track records (which include genre, year, track number,
  * extension, etc.) stay in their respective React Query lists and are
  * not duplicated into the global store.
  */
@@ -169,7 +169,7 @@ export type AppAction =
 export interface StoreContextValue {
   state: AppState;
   dispatch: Dispatch<AppAction>;
-  /** @deprecated use `state` - kept for backward compat */
+  /** @deprecated use `state`; kept for backward compat */
   _state?: AppState;
 }
 
@@ -187,7 +187,7 @@ const initialState: AppState = (() => {
     savedAlwaysShowScrollbar = getAlwaysShowScrollbar();
     savedAppTheme = getActiveTheme();
   } catch {
-    /* settings unavailable — fall back to defaults */
+    /* settings unavailable: fall back to defaults */
   }
   const restoredQueue = toQueueTracks((saved?.queue as Track[]) ?? []);
   const restoredTrack = pickQueueTrack((saved?.track as Track) ?? null);
@@ -431,7 +431,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         return { ...state, isShuffle: true, queue: shuffledQueue, queueIndex: 0 };
       } else {
         // Restore original order by mapping recorded IDs back to QueueTracks held
-        // in the current (shuffled) queue — no full Track[] duplicate kept.
+        // in the current (shuffled) queue; no full Track[] duplicate is kept.
         const byId = new Map<string | number, QueueTrack>();
         for (const t of state.queue) byId.set(t.Id, t);
         const restored: QueueTrack[] = [];

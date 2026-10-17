@@ -52,8 +52,8 @@ const Marquee = React.memo(function Marquee({ text, children }: MarqueeProps) {
     if (!viewport || !segment) return;
 
     const measure = () => {
-      // segment.scrollWidth includes its paddingRight when spaced — clamp by checking
-      // raw content width via the first child's scroll size when present.
+      // segment.scrollWidth includes its paddingRight when spaced, so measure the
+      // first child's raw content width when there is one.
       const inner = segment.firstElementChild as HTMLElement | null;
       const contentWidth = inner ? inner.scrollWidth : segment.scrollWidth;
       setOverflowing(contentWidth > viewport.clientWidth + 1);

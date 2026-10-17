@@ -18,7 +18,6 @@ import {
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
-// Surround (beta)
 import { useSurround } from '../utils/useSurround';
 import SurroundMixerDialog from './SurroundMixerDialog';
 import speakerSettings24Regular from '@iconify/icons-fluent/speaker-settings-24-regular';
@@ -318,8 +317,8 @@ export default function PlayBar() {
   const defaultVol = getVolumeLevel();
   const [songPath, setSongPath] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
-  // Hidden silent loop - keeps MediaSession active across track changes
-  // so SMTC doesn't drop the OS-level entry. See silentSrc below.
+  // Hidden silent loop: keeps MediaSession active across track changes so SMTC
+  // doesn't drop the OS-level entry.
   const silentAudioRef = useRef<HTMLAudioElement>(null);
   const fadeIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const volumeRef = useRef(defaultVol / 100);
@@ -428,7 +427,7 @@ export default function PlayBar() {
 
   const artistNames = React.useMemo(() => {
     // Split only on the comma that GROUP_CONCAT uses to join multiple distinct
-    // artists. Do NOT split on '&' — a single artist name can legitimately
+    // artists. Never split on '&': a single artist name can legitimately
     // contain it (e.g. the "Eminem & Linkin Park" multi-artist exception), and
     // such names are stored as one Artist row.
     const artistText = (state.track?.ArtistName as string) || '';
@@ -620,7 +619,7 @@ export default function PlayBar() {
     });
   }, [lastVolume]);
 
-  // Subscribe to loadedmetadata for duration only — position lives in PlaybackProgress / LyricsPanel.
+  // Subscribe to loadedmetadata for duration only; position lives in PlaybackProgress / LyricsPanel.
   // Depends on songPath so it re-runs when the audio element first receives a src (on first run
   // PlayBar renders null until the first track is set, so audioRef.current is null at mount).
   useEffect(() => {
@@ -705,7 +704,7 @@ export default function PlayBar() {
   // 1s silent WAV looped in a hidden audio element. While it's playing,
   // MediaSession always has at least one active player, so the session
   // doesn't go inactive while the main audio's WebMediaPlayer is destroyed
-  // and re-created on a track change — SMTC keeps the OS tile pinned.
+  // and re-created on a track change; SMTC keeps the OS tile pinned.
   const silentSrc = useMemo(() => {
     const sampleRate = 8000;
     const numSamples = sampleRate; // 1 second
@@ -747,7 +746,7 @@ export default function PlayBar() {
   // while the user has paused makes Chromium override our explicit
   // playbackState='paused' (since it sees an active player), which breaks
   // SMTC's pause toggle. Track changes while paused may briefly drop
-  // SMTC — accepted trade-off, the user isn't listening anyway.
+  // SMTC; an accepted trade-off, since the user isn't listening anyway.
   useEffect(() => {
     const silent = silentAudioRef.current;
     if (!silent) return;
@@ -786,7 +785,7 @@ export default function PlayBar() {
 
     const handleDeviceChange = async (): Promise<void> => {
       if (!getPauseOnAudioOutputChange()) {
-        // Setting may have toggled off — refresh the snapshot anyway so toggling
+        // The setting may have toggled off; refresh the snapshot anyway so toggling
         // back on later doesn't trigger on stale removals.
         const current = await snapshotOutputs();
         knownOutputIds.clear();
@@ -969,7 +968,7 @@ export default function PlayBar() {
     ipcRenderer.send('scrobbler-now-playing', { ...scrobbleMeta, duration });
   }, [scrobbleMeta, paused, duration]);
 
-  // ── Track play count / last-played + OS seek bar — coalesced 1Hz tick ──
+  // ── Track play count / last-played + OS seek bar, coalesced 1Hz tick ──
   const playedCountedRef = useRef(false);
   useEffect(() => {
     playedCountedRef.current = false;
@@ -1478,7 +1477,7 @@ export default function PlayBar() {
     setMenuAnchorEl(e.currentTarget);
   }, []);
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
-    // to prevent event bubbling
+    // Portaled children (the menu itself) bubble here through React; ignore them.
     if (!e.currentTarget.contains(e.target as Node)) return;
     e.preventDefault();
     setMenuAnchorEl(null);
@@ -2157,7 +2156,7 @@ export default function PlayBar() {
         connectedDeviceId={isCasting ? castDeviceId : null}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
-      {/* SMTC keepalive — see silentSrc useMemo. */}
+      {/* SMTC keepalive, fed by silentSrc. */}
       <audio
         ref={silentAudioRef}
         src={silentSrc}

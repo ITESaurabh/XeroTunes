@@ -136,7 +136,6 @@ const AlbumDetail: React.FC = () => {
     if (idx >= 0) listRef.current.scrollToItem(idx, 'center');
   }, [focusTrackId, focusTs, songs]);
 
-  // Derive album metadata from first song
   const albumTitle = songs[0]?.AlbumTitle ?? 'Unknown Album';
   // Prefer the album artist; only fall back to the track artist when the album
   // has no album artist tagged. The distinction matters for navigation: an

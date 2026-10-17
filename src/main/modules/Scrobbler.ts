@@ -140,7 +140,7 @@ function load(): ScrobblerState {
   try {
     parsed = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
   } catch {
-    /* missing or corrupt — start clean */
+    /* missing or corrupt: start clean */
   }
   const next = {} as ScrobblerState;
   for (const p of SCROBBLE_PROVIDERS) {
@@ -330,7 +330,7 @@ export async function flushScrobbles(): Promise<void> {
           save();
           break;
         }
-        // 'ok' and 'drop' both consume the batch — a rejected batch would be
+        // 'ok' and 'drop' both consume the batch; a rejected batch would be
         // rejected forever and block everything queued behind it.
         st.queue.splice(0, batch.length);
         save();
@@ -460,7 +460,7 @@ export function setScrobblerEnabled(provider: ScrobbleProvider, enabled: boolean
   return getScrobblerStatus();
 }
 
-/** Fire-and-forget "listening now" ping. Not queued — it's worthless once stale. */
+/** Fire-and-forget "listening now" ping. Not queued; it's worthless once stale. */
 export function scrobblerNowPlaying(track: ScrobbleTrack): void {
   if (!track?.track || !primaryArtist(track)) return;
   const s = load();

@@ -28,7 +28,7 @@ function extractFileArg(argv: string[]): string | null {
       const resolved = path.resolve(arg);
       if (fs.existsSync(resolved) && fs.statSync(resolved).isFile()) return resolved;
     } catch {
-      /* not a usable path — keep scanning */
+      /* not a usable path; keep scanning */
     }
   }
   return null;
@@ -55,7 +55,7 @@ function handleSquirrelEvent(): boolean {
     }
   };
 
-  // Passed as an argv array, not a shell string - cmd.exe would strip the
+  // Passed as an argv array, not a shell string: cmd.exe would strip the
   // quotes around "%1", breaking any file path that contains a space.
   const reg = (args: string[]) => {
     try {
@@ -85,7 +85,7 @@ function handleSquirrelEvent(): boolean {
     case '--squirrel-updated': {
       run(`"${updateExe}" --createShortcut="${exeName}" --shortcut-locations=Desktop,StartMenu`);
 
-      // app icon for windows installed apps
+      // Icon for the app's entry in Windows' installed-apps list.
       if (fs.existsSync(iconPath)) {
         try {
           fs.copyFileSync(iconPath, path.resolve(exePath, '..', '..', 'app.ico'));
@@ -153,7 +153,7 @@ function handleSquirrelEvent(): boolean {
 }
 
 if (handleSquirrelEvent()) {
-  // Squirrel lifecycle event handled — app will quit, nothing more to do.
+  // Squirrel lifecycle event handled; the app quits, nothing more to do.
 }
 
 // app.setName + setAppUserModelId run in ./config/appIdentity (imported first).
@@ -218,9 +218,8 @@ app.on('second-instance', (_event, commandLine) => {
   focusExistingWindow();
 });
 
-// Settings IPC must exist in both modes — the mini player (--file launch)
-// never calls mainIpcs, which used to leave these handlers unregistered.
-// Registered here (not in createWindow) so macOS 'activate' can't double it.
+// Both modes need settings IPC, and the mini player (--file launch) never calls mainIpcs.
+// Registered here, not in createWindow, so macOS 'activate' can't register it twice.
 registerSettingsIpc();
 
 function createWindow() {
@@ -279,7 +278,7 @@ function createWindow() {
           });
         }
         // Wait for the renderer to mount its play-mini listener before sending
-        // the track — dom-ready fires before React effects run, so sending
+        // the track; dom-ready fires before React effects run, so sending
         // there can drop the message and leave the player empty.
         ipcMain.once('mini-player-ready', () => {
           miniWin!.show();
@@ -357,7 +356,6 @@ function createWindow() {
       loadingWin!.close();
     });
 
-    // relocating all IPC Events to mainProcess file to declutter this file
     mainIpcs(mainWin!, OVERLAY_WEBPACK_ENTRY);
     mainWin!.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   });

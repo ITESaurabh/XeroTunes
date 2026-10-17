@@ -181,7 +181,7 @@ function dropTracksOutsideFolders(): number {
 // Favourites are stored by TrackId, which a wipe or a fresh install invalidates.
 // Both the .xtfav export and the reset stash below carry file hash + filename
 // instead: the sha1 covers the whole file, so it survives a rename but not a tag
-// edit — the filename catches the tracks whose tags changed.
+// edit; the filename catches the tracks whose tags changed.
 
 const PENDING_FAVOURITES_FILE = path.join(APP_CONF_FOLDER, 'pending_favourites.xtfav');
 const FAVOURITES_FILE_VERSION = 1;
@@ -723,7 +723,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // Register after window is shown (setThumbarButtons requires a visible HWND)
   mainWin.on('show', () => updateThumbar(thumbarIsPlaying));
 
-  // Windows clears thumbar on minimize/restore — re-register on restore
+  // Windows clears the thumbar on minimize/restore, so re-register on restore.
   mainWin.on('restore', () => updateThumbar(thumbarIsPlaying));
 
   ipcMain.handle('get-scan-status', () => {
@@ -1062,8 +1062,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
               if (!cachedBefore.get(albumId)) fs.rmSync(albumJpg(albumId), { force: true });
               continue;
             }
-            // when The whole album is in this edit, so every one of its tracks ends up on <albumId>.jpg. Any per-track cover left from an earlier partial
-            // edit is stale, and the scanner would go on preferring it.
+            // The whole album is in this edit, so every one of its tracks ends up on
+            // <albumId>.jpg. Any per-track cover left from an earlier partial edit is
+            // stale, and the scanner would go on preferring it.
             for (const row of rows) {
               if (row.AlbumId === albumId) fs.rmSync(trackJpg(row.Id), { force: true });
             }
@@ -1433,7 +1434,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     ).run();
   }
 
-  // A remote library (Jellyfin) the user has connected. Its tracks live in the
+  // A remote library the user has connected. Its tracks live in the
   // normal Track/Album/Artist tables tagged with SourceId, so everything that
   // reads the library works on them unchanged; SourceId IS NULL means local.
   db.prepare(
@@ -1884,7 +1885,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           fs.unlinkSync(path.join(ALBUM_ART_DIR, file));
         }
       } catch {
-        // Directory may not exist yet — safe to ignore
+        // Directory may not exist yet; safe to ignore
       }
     }
 
@@ -2000,7 +2001,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (!removed) {
       db.prepare('INSERT INTO Favourite (TrackId, AddedAt) VALUES (?, ?)').run(trackId, Date.now());
     }
-    // Reuses the library refresh broadcast — the renderer already rebuilds stats
+    // Reuses the library refresh broadcast; the renderer already rebuilds stats
     // and list caches on it.
     sendMessageToRendererProcess(mainWin, 'library-updated', {});
     return { favourite: !removed };
@@ -3209,7 +3210,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
     activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
     activeScanMode = 'basic';
-    // Use basic/optimistic scan on startup — only process new files, skip known ones
+    // Basic scan on startup: only new files are processed, known ones are skipped.
     activeScanWorker.postMessage({
       folders,
       config,

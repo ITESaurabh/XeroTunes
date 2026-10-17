@@ -5,10 +5,6 @@ import Onboarding from './views/Onboarding';
 import { useNavigate, useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
 import routes from './utils/routes';
-// import '@fontsource/open-sans/300.css';
-// import '@fontsource/open-sans/400.css';
-// import '@fontsource/open-sans/500.css';
-// import '@fontsource/open-sans/600.css';
 import { getBaseTheme } from '../config/theme';
 import { ipcRenderer } from 'electron';
 import Titlebar from './components/Titlebar';
@@ -24,7 +20,7 @@ const queryClient = new QueryClient({
     queries: {
       // Data stays fresh for 1 min → no refetch on quick re-mount
       staleTime: 60 * 1000,
-      // Unused query cache is released after 30 s — keeps RAM tight while
+      // Unused query cache is released after 30 s; that keeps RAM tight while
       // still feeling instant for fast back-and-forth navigation.
       gcTime: 30 * 1000,
     },
@@ -86,9 +82,8 @@ const App = () => {
     };
   }, [dispatch]);
 
-  // Refresh library list queries when the main process reports new/updated files.
-  // Only invalidate the specific list keys — never nuke the whole cache, which
-  // would force every active view to refetch in parallel and flash empty states.
+  // Only the list keys: invalidating the whole cache would make every active view
+  // refetch in parallel and flash empty states.
   useEffect(() => {
     const handler = () => {
       const listKeys = [
@@ -151,7 +146,6 @@ const App = () => {
 
   useMenuCommands();
 
-  // Register keyboard shortcuts
   useKeyboardShortcuts(
     [
       {

@@ -1,10 +1,10 @@
 import React, { useEffect, useRef } from 'react';
 import { Box, BoxProps, useTheme } from '@mui/material';
 
-// Windows-10 style dot loader — dots stream in from the left, gather into a tight
+// Windows-10 style dot loader: dots stream in from the left, gather into a tight
 // evenly-spaced center cluster, hold, then peel off to the right one-by-one.
 // Driven by a single rAF loop (not motion springs) so every dot reads off one
-// shared, deterministic loop phase — see IMPLEMENTATION_PLAN.md for the model.
+// shared, deterministic loop phase.
 //
 // Drop-in like MUI's <LinearProgress />: mount it wherever you need an
 // indeterminate horizontal loader and it fills its container's width. It
@@ -16,8 +16,8 @@ const HOLD = 0.05; // beat the assembled cluster is held (loop fraction)
 const SOUT = 0.045; // exit stagger between dots (loop fraction)
 const EXT = 0.26; // one dot's exit duration, accelerating (loop fraction)
 // Px of travel, right before a dot's parked/waiting position at the track edge,
-// over which it fades to fully invisible. Must reach exactly 0 by the edge — the
-// track's XL/XR *are* the edge now (no off-screen overshoot), so a dot parked
+// over which it fades to fully invisible. Must reach exactly 0 by the edge: the
+// track's XL/XR are the edge (no off-screen overshoot), so a dot parked
 // there with any residual opacity would sit visibly stuck instead of vanishing.
 const FADE_RANGE = 48;
 

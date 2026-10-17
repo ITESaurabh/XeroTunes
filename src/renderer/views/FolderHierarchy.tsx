@@ -588,7 +588,7 @@ const FolderHierarchy: React.FC = () => {
     >
       <PageToolbar title="Folder Hierarchy" action={toolbarAction} />
 
-      {/* Breadcrumb bar — wraps on mobile so the path can scroll without
+      {/* Breadcrumb bar: wraps on mobile so the path can scroll without
           getting clipped by the action buttons. */}
       <Box
         sx={{
@@ -632,7 +632,7 @@ const FolderHierarchy: React.FC = () => {
             minWidth: 0,
             overflowX: 'auto',
             overflowY: 'hidden',
-            // Hide scrollbar for cleaner look but keep scrolling.
+            // Slim scrollbar for a cleaner look; the row still scrolls.
             scrollbarWidth: 'thin',
             '&::-webkit-scrollbar': { height: 4 },
             '&::-webkit-scrollbar-thumb': {

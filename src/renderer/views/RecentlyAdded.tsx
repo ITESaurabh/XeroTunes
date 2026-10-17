@@ -99,8 +99,8 @@ const RecentlyAdded: React.FC = () => {
   }, [dispatch]);
 
   // Re-scan for new/removed files once when entering this view. Store
-  // dispatches (e.g. from scroll) must NOT re-trigger this — hence empty deps
-  // + a ref to the latest `invokeEventToMainProcess`. Local folders only:
+  // dispatches (e.g. from scroll) must not re-trigger this, hence empty deps
+  // and a ref to the latest `invokeEventToMainProcess`. Local folders only:
   // syncing a server costs a request per folder, and nobody asked for one.
   const invokeRef = React.useRef(invokeEventToMainProcess);
   invokeRef.current = invokeEventToMainProcess;
@@ -112,7 +112,7 @@ const RecentlyAdded: React.FC = () => {
       .catch(err => console.log('[RecentlyAdded] scan-media error:', err));
   }, []);
 
-  // Refetch when any scan completes — covers the case where the scan ran but
+  // Refetch when any scan completes. Covers the case where the scan ran but
   // detected no changes (so `library-updated` never fired) and the case where
   // an auto-scan was already running when we entered the view. Also pulls
   // fresh library stats so sidebar counts stay in sync with the list.

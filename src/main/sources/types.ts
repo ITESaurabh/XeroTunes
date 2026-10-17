@@ -1,6 +1,5 @@
 /**
- * The seam every remote library plugs into: Jellyfin today, UPnP and Nextcloud
- * expected next.
+ * The seam every remote library plugs into.
  *
  * A provider's whole job is to turn a server into a flat list of RemoteTrack and
  * to hand back URLs for the bytes. It never touches the database: sync.ts owns

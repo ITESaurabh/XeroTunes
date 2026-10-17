@@ -6,14 +6,14 @@ import { store } from './store';
  * past `threshold` px and reveals it when scrolling back up or near the top.
  *
  * Compatible with both react-window `FixedSizeList` (passes `scrollOffset`)
- * and `FixedSizeGrid` (passes `scrollTop`) — supply the correct field via the
+ * and `FixedSizeGrid` (passes `scrollTop`); supply the correct field via the
  * `field` option (default: `'scrollOffset'`).
  *
- * Usage – FixedSizeList:
+ * FixedSizeList:
  *   const onScroll = useScrollHidePlayerBar();
  *   <FixedSizeList onScroll={onScroll} ... />
  *
- * Usage – FixedSizeGrid:
+ * FixedSizeGrid:
  *   const onScroll = useScrollHidePlayerBar({ field: 'scrollTop' });
  *   <FixedSizeGrid onScroll={onScroll} ... />
  */

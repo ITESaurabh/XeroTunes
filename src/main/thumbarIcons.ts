@@ -1,6 +1,6 @@
 /**
  * Generates NativeImage objects for the Windows thumbnail toolbar
- * using pure Node.js (zlib) - no external deps, no binary asset files.
+ * using pure Node.js (zlib): no external deps, no binary asset files.
  */
 import zlib from 'zlib';
 import { nativeImage, NativeImage } from 'electron';
@@ -22,7 +22,6 @@ function crc32(buf: Buffer): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-// ─── PNG chunk builder ───────────────────────────────────────────────────────
 function pngChunk(type: string, data: Buffer): Buffer {
   const typeBytes = Buffer.from(type, 'ascii');
   const lenBuf = Buffer.allocUnsafe(4);
@@ -32,7 +31,6 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([lenBuf, typeBytes, data, crcBuf]);
 }
 
-// ─── Build a valid RGBA PNG from a flat pixel buffer ─────────────────────────
 function buildPNG(width: number, height: number, pixels: Buffer): Buffer {
   // IHDR
   const ihdr = Buffer.allocUnsafe(13);
@@ -81,7 +79,7 @@ function makeIcon(drawFn: (p: Buffer) => void): NativeImage {
   return nativeImage.createFromBuffer(buildPNG(W, H, pixels));
 }
 
-// ▶ Play  — right-pointing solid triangle
+// ▶ Play: right-pointing solid triangle
 export const playIcon: NativeImage = makeIcon(p => {
   for (let y = 0; y < H; y++) {
     const half = (H - 1) / 2;
@@ -90,13 +88,13 @@ export const playIcon: NativeImage = makeIcon(p => {
   }
 });
 
-// ⏸ Pause — two vertical bars
+// ⏸ Pause: two vertical bars
 export const pauseIcon: NativeImage = makeIcon(p => {
   fillRect(p, W, 3, 2, 7, H - 3);
   fillRect(p, W, 11, 2, 15, H - 3);
 });
 
-// ⏮ Previous — small left triangle + left bar
+// ⏮ Previous: small left triangle + left bar
 export const prevIcon: NativeImage = makeIcon(p => {
   fillRect(p, W, 2, 2, 4, H - 3); // bar
   const tip = 16;
@@ -107,7 +105,7 @@ export const prevIcon: NativeImage = makeIcon(p => {
   }
 });
 
-// ⏭ Next — small right triangle + right bar
+// ⏭ Next: small right triangle + right bar
 export const nextIcon: NativeImage = makeIcon(p => {
   fillRect(p, W, W - 5, 2, W - 3, H - 3); // bar
   const half = (H - 1) / 2;

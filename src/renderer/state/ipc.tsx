@@ -27,7 +27,7 @@ export const useIpc = (): IpcContextValue => {
 interface IpcProviderProps {
   children: ReactNode;
   // The mini player runs without mainIpcs, so scan/library handlers don't
-  // exist there — invoking them just logs "No handler registered" errors.
+  // exist there; invoking them only logs "No handler registered" errors.
   mini?: boolean;
 }
 
@@ -40,7 +40,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     ...new Set([...state.queue.map(t => t.Id), ...(state.track ? [state.track.Id] : [])]),
   ];
 
-  // Sync scan state on mount — the auto-scan may have started before React mounted
+  // Sync scan state on mount: the auto-scan may have started before React mounted.
   useEffect(() => {
     if (mini) return;
     ipcRenderer
@@ -53,7 +53,6 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
         });
       })
       .catch(() => undefined);
-    // Fetch initial library stats
     ipcRenderer
       .invoke('get-library-stats')
       .then((res: unknown) => {
@@ -69,7 +68,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
 
     ipcRenderer.on('play-mini', handleIpcMessage);
     // Tells main the listener is mounted so it can deliver the launch file.
-    // Harmless in the main window — nothing listens for it there.
+    // Harmless in the main window, where nothing listens for it.
     ipcRenderer.send('mini-player-ready');
     return () => {
       ipcRenderer.removeAllListeners('play-mini');
@@ -92,7 +91,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
         artist = meta.common.artist || '';
         album = meta.common.album || '';
       } catch {
-        /* unreadable tags — filename fallback already set above */
+        /* unreadable tags: the filename fallback is already set above */
       }
       // Id doubles as the queue key; the path is unique and won't collide with
       // library rows (numeric ids), so play-count updates simply no-op.

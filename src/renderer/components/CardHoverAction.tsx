@@ -31,7 +31,7 @@ interface CardHoverActionProps {
 /**
  * Icon-button overlay pinned to a corner of a card's artwork, hidden until
  * the card (marked with CARD_HOVER_CLASS) is hovered. The building block for
- * any per-card hover action — a new action is a new icon/corner/onActivate,
+ * any per-card hover action: a new action is a new icon/corner/onActivate,
  * not a new component. Multiple actions sharing one corner is the caller's
  * layout to arrange, not this component's concern.
  */

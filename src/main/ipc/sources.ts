@@ -60,12 +60,6 @@ export function registerSourceIpc(
     return result;
   });
 
-  // Deliberately no 'library-updated' broadcast: it refreshes the queue snapshot
-  // from the DB, and swapping the playing track's Uri between stream and file
-  // would reload the audio element and restart the song. The renderer
-  // invalidates its own list queries instead.
-  // Lyrics and technical details live on the server, not in a local file; the
-  // renderer asks for them by track id and doesn't need to know that.
   // Fired when a track loads in the player; a no-op for anything already
   // tagged, which is every local track and most remote ones.
   ipcMain.handle('ensure-remote-tags', async (_e, { trackId }) => {
@@ -76,11 +70,17 @@ export function registerSourceIpc(
     return result;
   });
 
+  // Lyrics and technical details live on the server, not in a local file; the
+  // renderer asks for them by track id and doesn't need to know that.
   ipcMain.handle('get-remote-lyrics', (_e, { trackId }) => sources.remoteLyrics(trackId));
   ipcMain.handle('get-remote-track-details', (_e, { trackId }) =>
     sources.remoteTrackDetails(trackId)
   );
 
+  // Deliberately no 'library-updated' broadcast: it refreshes the queue snapshot
+  // from the DB, and swapping the playing track's Uri between stream and file
+  // would reload the audio element and restart the song. The renderer
+  // invalidates its own list queries instead.
   ipcMain.handle('download-track', (_e, { trackId }) =>
     sources.downloadTrack(trackId, getDownloadFolder())
   );

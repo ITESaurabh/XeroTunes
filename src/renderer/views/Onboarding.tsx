@@ -110,7 +110,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onFinish }) => {
   );
 
   // Scan when the scan step opens: wait out any running scan, then run one pass
-  // over all folders. `scan-media` resolves on completion — our done signal.
+  // over all folders. `scan-media` resolves on completion, which is our done signal.
   // Deps are `[step]` only; a scan flag in there would let its own setState
   // re-run the effect, whose cleanup cancels the in-flight routine.
   useEffect(() => {

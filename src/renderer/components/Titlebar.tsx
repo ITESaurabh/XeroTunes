@@ -137,7 +137,7 @@ const circleSx = (bgColor: string, hoverFilter: string, size = 12) => ({
 });
 
 interface TitlebarProps {
-  /** Onboarding chrome: window controls only — no nav menu or back button. */
+  /** Onboarding chrome: window controls only, no nav menu or back button. */
   minimal?: boolean;
 }
 
@@ -358,7 +358,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             </NavButtons>
           </Box>
         )}
-        {/* GNOME style controls — dark circles with always-visible icons */}
+        {/* GNOME style controls: dark circles with always-visible icons */}
         {showControls && effectiveStyle === 'linux-gnome' && (
           <Box
             sx={{
@@ -406,7 +406,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             </Box>
           </Box>
         )}
-        {/* KDE Plasma Breeze style — compact flat buttons, chevron icons */}
+        {/* KDE Plasma Breeze style: compact flat buttons, chevron icons */}
         {showControls && effectiveStyle === 'linux-kde' && (
           <Box
             sx={{
