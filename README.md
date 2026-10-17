@@ -111,6 +111,14 @@ Builds are for 64-bit Intel/AMD computers only. You need Ubuntu 20.04, Debian
 10, Fedora 29 or newer. Requirements for every system are on the
 [website](https://xerotunes.com/support#requirements).
 
+Installing the `.deb` or `.rpm` also adds the XeroTunes package repository, so
+new versions arrive with your system updates (`sudo apt update && sudo apt
+upgrade`, or `sudo dnf upgrade`). On openSUSE the `.rpm` installs, but updates
+still mean downloading the new file.
+
+On Arch, install [`xerotunes-bin`](https://aur.archlinux.org/packages/xerotunes-bin)
+from the AUR.
+
 ## Help
 
 - [Help & FAQ](https://xerotunes.com/support): install guides, system

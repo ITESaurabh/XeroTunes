@@ -1,10 +1,11 @@
+import { execFileSync } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerRpm } from '@electron-forge/maker-rpm';
+import { MakerRpm, type MakerRpmConfigOptions } from '@electron-forge/maker-rpm';
 import { MakerDMG } from '@electron-forge/maker-dmg';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { WebpackPlugin } from '@electron-forge/plugin-webpack';
@@ -17,6 +18,7 @@ import { rendererConfig } from './webpack.renderer.config';
 import { CHANNEL, IDENTITY } from './src/config/channel';
 import { OS_FLOOR } from './src/config/osFloor';
 import { checkOsFloor } from './scripts/checkOsFloor';
+import { writeInstallScripts } from './scripts/linux/installScripts';
 
 const AUDIO_MIME_TYPES = [
   'audio/mpeg',
@@ -39,6 +41,8 @@ const AUDIO_MIME_TYPES = [
   'audio/webm',
   // 'audio/x-ms-wma',
 ];
+
+const LINUX_SCRIPTS = path.resolve(__dirname, 'out', 'linux-scripts');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -85,6 +89,10 @@ const config: ForgeConfig = {
         icon: './src/assets/logo/XeroTunesLogo.png',
         // Merged with the maker's default dependencies, which set no glibc minimum.
         depends: [`libc6 (>= ${OS_FLOOR.glibc})`],
+        scripts: {
+          postinst: path.join(LINUX_SCRIPTS, 'postinst'),
+          postrm: path.join(LINUX_SCRIPTS, 'postrm'),
+        },
       },
     }),
     new MakerRpm({
@@ -97,7 +105,12 @@ const config: ForgeConfig = {
         mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
         requires: [`glibc >= ${OS_FLOOR.glibc}`],
-      },
+        // Read by electron-installer-redhat, missing from MakerRpm's types.
+        scripts: {
+          post: path.join(LINUX_SCRIPTS, 'post'),
+          postun: path.join(LINUX_SCRIPTS, 'postun'),
+        },
+      } as MakerRpmConfigOptions,
     }),
     new MakerDMG({
       background: './src/assets/dmg-bg/background.tiff',
@@ -185,10 +198,16 @@ const config: ForgeConfig = {
     async postPackage(_config, { platform, outputPaths }) {
       checkOsFloor(platform, outputPaths, OS_FLOOR);
     },
+    async preMake() {
+      if (process.platform === 'linux') writeInstallScripts(LINUX_SCRIPTS);
+    },
     async postMake(_config, makeResults) {
       for (const result of makeResults) {
         result.artifacts = await Promise.all(
           result.artifacts.map(async artifact => {
+            // The repo sets gpgcheck=1. import-key.sh names the key in ~/.rpmmacros.
+            if (artifact.endsWith('.rpm') && process.env.CI)
+              execFileSync('rpmsign', ['--addsign', artifact], { stdio: 'inherit' });
             if (!artifact.endsWith('.dmg')) return artifact;
             const renamed = path.join(
               path.dirname(artifact),

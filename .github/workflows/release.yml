@@ -64,7 +64,8 @@ jobs:
 
     steps:
       # RPM-based and bare: checkout needs git, MakerDeb needs dpkg and fakeroot
-      # from EPEL, MakerZIP needs zip. gcc 14 is already on PATH. Root, no sudo.
+      # from EPEL, MakerZIP needs zip, forge.config.ts's postMake needs rpmsign.
+      # gcc 14 is already on PATH. Root, no sudo.
       #
       # LDFLAGS matters more than it looks: gcc 14's libstdc++ is newer than
       # anything a glibc 2.28 distro ships, so without folding it in the C++
@@ -73,7 +74,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           dnf install -y epel-release
-          dnf install -y git rpm-build zip dpkg fakeroot binutils
+          dnf install -y git rpm-build rpm-sign zip dpkg fakeroot binutils
           echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
           gcc --version | head -1
           ldd --version | head -1
@@ -111,6 +112,14 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
+      # The .rpm is signed before upload: dnf fetches it from this release.
+      - name: Import Linux repo signing key
+        if: runner.os == 'Linux'
+        run: scripts/linux/import-key.sh
+        env:
+          KEY: ${{ secrets.LINUX_REPO_GPG_KEY }}
+          PASSPHRASE: ${{ secrets.LINUX_REPO_GPG_PASSPHRASE }}
+
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
         # Cross-compile variant; pairs with the macos-latest matrix entry.
@@ -126,6 +135,90 @@ jobs:
           LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}
 
       # The OS floor is enforced by forge.config.ts's postPackage hook; see the Publish log.
+
+  # apt and dnf repos and the AUR package for this release; see RELEASING.md.
+  linux-repos:
+    needs: release
+    environment: ${{ contains(github.ref_name, '-') && 'beta' || 'production' }}
+    runs-on: ubuntu-latest
+    # Beta and stable runs push to the same Pages branch.
+    concurrency: linux-repos
+    env:
+      CHANNEL: ${{ contains(github.ref_name, '-') && 'beta' || 'stable' }}
+      PACKAGES_REPO: ITESaurabh/xerotunes-packages
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install repo tools
+        run: sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c
+
+      # GitHub renamed the assets (~ became .); the indexes must use those names.
+      - name: Download this release's Linux packages
+        run: gh release download "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" -p '*.deb' -p '*.rpm' -D pkgs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Import Linux repo signing key
+        run: scripts/linux/import-key.sh
+        env:
+          KEY: ${{ secrets.LINUX_REPO_GPG_KEY }}
+          PASSPHRASE: ${{ secrets.LINUX_REPO_GPG_PASSPHRASE }}
+
+      - name: Build indexes
+        run: scripts/linux/repo.sh "$CHANNEL" "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" pkgs repo
+
+      # .deb first, index last: a run that fails midway leaves the old index working.
+      - name: Publish apt repo
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_REPO_TOKEN }}
+        run: |
+          gh release view "$CHANNEL" -R "$PACKAGES_REPO" > /dev/null 2>&1 ||
+            gh release create "$CHANNEL" -R "$PACKAGES_REPO" \
+              --title "XeroTunes $CHANNEL apt repository" --notes "Written by the XeroTunes release workflow."
+          deb=$(basename repo/apt/*.deb)
+          gh release upload "$CHANNEL" -R "$PACKAGES_REPO" --clobber "repo/apt/$deb"
+          gh release upload "$CHANNEL" -R "$PACKAGES_REPO" --clobber repo/apt/{Packages,Packages.gz,Release,Release.gpg,InRelease}
+          gh release view "$CHANNEL" -R "$PACKAGES_REPO" --json assets -q '.assets[].name | select(endswith(".deb"))' |
+            { grep -vxF "$deb" || true; } | xargs -r -n1 gh release delete-asset "$CHANNEL" -R "$PACKAGES_REPO" -y
+
+      - name: Publish dnf repo
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_REPO_TOKEN }}
+        run: |
+          git clone --depth 1 "https://x-access-token:$GH_TOKEN@github.com/$PACKAGES_REPO.git" pages
+          rm -rf "pages/rpm/$CHANNEL"
+          mkdir -p "pages/rpm/$CHANNEL"
+          cp -r repo/rpm/repodata "pages/rpm/$CHANNEL/"
+          cp scripts/linux/key.asc pages/key.asc
+          touch pages/.nojekyll
+          cd pages
+          git add -A
+          git -c user.name=github-actions -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit -m "$CHANNEL: $GITHUB_REF_NAME"
+          git push
+
+      - name: Build AUR package
+        run: docker run --rm -v "$PWD:/w" -w /w archlinux:base-devel scripts/linux/aur.sh "$GITHUB_REF_NAME" pkgs/*.deb aur
+
+      - name: Push AUR package
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          # Pinned: SHA256:RFzBCUItH9LZS0cKB5UE6ceAYhBD5C8GeOBip8Z11+4, as listed on aur.archlinux.org.
+          echo 'aur.archlinux.org ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEuBKrPzbawxA/k2g6NcyV5jmqwJ2s+zpgZGZ7tpLIcN' >> ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/aur"
+          pkg=$(sed -n 's/^pkgbase = //p' aur/.SRCINFO)
+          git clone "ssh://aur@aur.archlinux.org/$pkg.git" aur-repo
+          cp aur/PKGBUILD aur/.SRCINFO aur-repo/
+          cd aur-repo
+          git add PKGBUILD .SRCINFO
+          # A re-run of the same tag has nothing new to commit.
+          git diff --cached --quiet ||
+            git -c user.name=ITESaurabh -c user.email=itesaurabh@yahoo.com commit -m "Update to $GITHUB_REF_NAME"
+          git push origin HEAD:master
 
   # Rebuild the site so its download links pick up the new release assets.
   netlify:
