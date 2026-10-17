@@ -3451,9 +3451,31 @@ __metadata:
   languageName: node
   linkType: hard
 
-"appdmg@npm:^0.6.4":
+"appdmg@npm:0.6.6":
   version: 0.6.6
   resolution: "appdmg@npm:0.6.6"
+  dependencies:
+    async: "npm:^1.4.2"
+    ds-store: "npm:^0.1.5"
+    execa: "npm:^1.0.0"
+    fs-temp: "npm:^1.0.0"
+    fs-xattr: "npm:^0.3.0"
+    image-size: "npm:^0.7.4"
+    is-my-json-valid: "npm:^2.20.0"
+    minimist: "npm:^1.1.3"
+    parse-color: "npm:^1.0.0"
+    path-exists: "npm:^4.0.0"
+    repeat-string: "npm:^1.5.4"
+  bin:
+    appdmg: bin/appdmg.js
+  checksum: 10c0/b37ae8a61656229e9bb5b27465f7972013f8b0f410844e9963da738e439bac07c98fac2c4ee8b9622fc091dd5c74f07eb430bad6eceaf20dca10342d09761b25
+  conditions: os=darwin
+  languageName: node
+  linkType: hard
+
+"appdmg@patch:appdmg@npm%3A0.6.6#~/.yarn/patches/appdmg-npm-0.6.6-4054c7e0c9.patch":
+  version: 0.6.6
+  resolution: "appdmg@patch:appdmg@npm%3A0.6.6#~/.yarn/patches/appdmg-npm-0.6.6-4054c7e0c9.patch::version=0.6.6&hash=23eb53"
   dependencies:
     async: "npm:^1.4.2"
     ds-store: "npm:^0.1.5"
