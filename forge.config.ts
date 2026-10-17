@@ -15,6 +15,8 @@ import { PublisherGitHub } from '@electron-forge/publisher-github';
 import { mainConfig } from './webpack.main.config';
 import { rendererConfig } from './webpack.renderer.config';
 import { CHANNEL, IDENTITY } from './src/config/channel';
+import { OS_FLOOR } from './src/config/osFloor';
+import { checkOsFloor } from './scripts/checkOsFloor';
 
 const AUDIO_MIME_TYPES = [
   'audio/mpeg',
@@ -59,6 +61,7 @@ const config: ForgeConfig = {
     // macOS kills an app that opens the mic without this; surround's mic sync does.
     extendInfo: {
       NSMicrophoneUsageDescription: 'XT Ambion surround sync listens to your speakers to line them up.',
+      LSMinimumSystemVersion: OS_FLOOR.macos,
     },
   },
   rebuildConfig: {},
@@ -80,6 +83,8 @@ const config: ForgeConfig = {
         categories: ['AudioVideo', 'Audio'],
         mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
+        // Merged with the maker's default dependencies, which set no glibc minimum.
+        depends: [`libc6 (>= ${OS_FLOOR.glibc})`],
       },
     }),
     new MakerRpm({
@@ -91,6 +96,7 @@ const config: ForgeConfig = {
         categories: ['AudioVideo', 'Audio'],
         mimeType: AUDIO_MIME_TYPES,
         icon: './src/assets/logo/XeroTunesLogo.png',
+        requires: [`glibc >= ${OS_FLOOR.glibc}`],
       },
     }),
     new MakerDMG({
@@ -175,6 +181,10 @@ const config: ForgeConfig = {
     }),
   ],
   hooks: {
+    // Before any installer is made, so a floor rise can't reach a release.
+    async postPackage(_config, { platform, outputPaths }) {
+      checkOsFloor(platform, outputPaths, OS_FLOOR);
+    },
     async postMake(_config, makeResults) {
       for (const result of makeResults) {
         result.artifacts = await Promise.all(

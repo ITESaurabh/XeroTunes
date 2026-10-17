@@ -125,12 +125,7 @@ jobs:
           LIBREFM_API_KEY: ${{ secrets.LIBREFM_API_KEY }}
           LIBREFM_API_SECRET: ${{ secrets.LIBREFM_API_SECRET }}
 
-      - name: Report glibc floor
-        if: runner.os == 'Linux'
-        run: |
-          BIN=$(find out -name better_sqlite3.node | head -1)
-          objdump -T "$BIN" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
-          objdump -T "$BIN" | grep -o 'GLIBCXX_[0-9.]*' | sort -uV || echo "GLIBCXX: none"
+      # The OS floor is enforced by forge.config.ts's postPackage hook; see the Publish log.
 
   # Rebuild the site so its download links pick up the new release assets.
   netlify:

@@ -73,7 +73,8 @@ Pick the file for your computer:
 | Fedora, openSUSE, RHEL | the `.rpm` file |
 
 Not sure which Mac you have? Open the Apple menu and choose **About This Mac**.
-The line called *Chip* or *Processor* tells you.
+The line called *Chip* or *Processor* tells you. Macs need macOS 12 Monterey or
+newer.
 
 ### "Windows protected your PC" or "Apple could not verify" warnings
 
