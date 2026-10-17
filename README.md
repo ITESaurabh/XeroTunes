@@ -53,10 +53,10 @@ You can easily use your local music collection or your Remote servers like (Jell
 - **Duplicate finder** for identical files
 - **Cast** to Chromecast and Google speakers
 - **Scrobbling** to Last.fm, Libre.fm and ListenBrainz
+- **Equalizer**: 10 bands, with presets like Bass boost, Vocal and Rock
+- **Tempo**: speed songs up or slow them down without changing the pitch
 - **Themes**: light, dark, or make your own
 - **Mini player** (Windows): right-click a song and choose *Open with XeroTunes*
-
-> **Coming next:** an equalizer and playback speed control.
 
 ## Download and install
 

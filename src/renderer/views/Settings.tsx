@@ -18,10 +18,8 @@ import {
   ListItemText,
   Box,
   Stack,
-  Switch,
   Select,
   MenuItem,
-  styled,
   Chip,
   Tooltip,
   TextField,
@@ -32,6 +30,7 @@ import {
 import { Icon } from '@iconify/react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import PageToolbar from '../components/PageToolbar';
+import XTSwitch from '../components/XTSwitch';
 import MusicSourcesSection from '../components/MusicSourcesSection';
 import SyncProgressPanel from '../components/SyncProgressPanel';
 import windowPlayIcon from '@iconify/icons-fluent/window-play-20-regular';
@@ -144,54 +143,6 @@ const subheaderSx = {
       ? theme.palette.surfaces.elevated
       : theme.palette.background.paper,
 };
-
-const IOSSwitch = styled<any>(props => (
-  <Switch focusVisibleClassName=".Mui-focusVisible" disableRipple {...props} />
-))(({ theme }) => ({
-  width: 50,
-  height: 30,
-  padding: 0,
-  '& .MuiSwitch-switchBase': {
-    padding: 0,
-    margin: 2,
-    transitionDuration: '300ms',
-    '&.Mui-checked': {
-      transform: 'translateX(20px)',
-      color: theme.palette.common.white,
-      '& + .MuiSwitch-track': {
-        backgroundColor: theme.palette.surfaces.positive,
-        opacity: 1,
-        border: 0,
-      },
-      '&.Mui-disabled + .MuiSwitch-track': {
-        opacity: 0.5,
-      },
-    },
-    '&.Mui-focusVisible .MuiSwitch-thumb': {
-      color: theme.palette.surfaces.positive,
-      border: `6px solid ${theme.palette.common.white}`,
-    },
-    '&.Mui-disabled .MuiSwitch-thumb': {
-      color: theme.palette.mode === 'light' ? theme.palette.grey[100] : theme.palette.grey[600],
-    },
-    '&.Mui-disabled + .MuiSwitch-track': {
-      opacity: theme.palette.mode === 'light' ? 0.7 : 0.3,
-    },
-  },
-  '& .MuiSwitch-thumb': {
-    boxSizing: 'border-box',
-    width: 26,
-    height: 26,
-  },
-  '& .MuiSwitch-track': {
-    borderRadius: 15,
-    backgroundColor: theme.palette.surfaces.trackOff,
-    opacity: 1,
-    transition: theme.transitions.create(['background-color'], {
-      duration: 500,
-    }),
-  },
-}));
 
 interface TitlebarStyleOption {
   value: TitleBarStyle;
@@ -687,7 +638,7 @@ const ScrobblerRow: React.FC<ScrobblerRowProps> = ({
       <Stack direction="row" spacing={1} alignItems="center" sx={{ ml: 'auto', mr: 0.5 }}>
         {status.connected ? (
           <>
-            <IOSSwitch
+            <XTSwitch
               checked={status.enabled}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => onToggle(e.target.checked)}
             />
@@ -1191,7 +1142,7 @@ const Settings: React.FC = () => {
                   Set up
                 </Button>
               )}
-              <IOSSwitch
+              <XTSwitch
                 checked={surroundBeta}
                 onChange={e => {
                   setSurroundBetaState(e.target.checked);
@@ -1212,7 +1163,7 @@ const Settings: React.FC = () => {
                 primary="Pause on audio output change"
                 secondary="Automatically pause when headphones are unplugged or a Bluetooth device disconnects"
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={pauseOnOutputChange}
                 onChange={e => {
                   setPauseOnOutputChangeState(e.target.checked);
@@ -1232,7 +1183,7 @@ const Settings: React.FC = () => {
                 primary="Remember volume per device"
                 secondary="Keep a separate volume for each output device so switching to headphones doesn't blast the last level. Turn off to share one volume across all devices."
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={perDeviceVolume}
                 onChange={e => {
                   setPerDeviceVolumeState(e.target.checked);
@@ -1432,7 +1383,7 @@ const Settings: React.FC = () => {
                 primary="Start in Vinyl Mode"
                 secondary="Open on the turntable instead of the library"
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={startInVinyl}
                 onChange={e => {
                   setStartInVinyl(e.target.checked);
@@ -1482,7 +1433,7 @@ const Settings: React.FC = () => {
                 primary="Always show scrollbars"
                 secondary="Keep the scrollbar on screen and expanded instead of letting it fade out when you stop scrolling"
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={state.alwaysShowScrollbar}
                 onChange={e =>
                   dispatch({ type: 'SET_ALWAYS_SHOW_SCROLLBAR', payload: e.target.checked })
@@ -1650,7 +1601,7 @@ const Settings: React.FC = () => {
                 primary="Now Playing Overlay"
                 secondary="Shows above other apps"
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={overlayEnabled}
                 onChange={e => {
                   setOverlayEnabledState(e.target.checked);
@@ -1670,7 +1621,7 @@ const Settings: React.FC = () => {
                 primary="Fetch artist images"
                 secondary="Automatically load artist profile images in lists"
               />
-              <IOSSwitch
+              <XTSwitch
                 checked={artistImageFetchEnabled}
                 onChange={e => {
                   setArtistImageFetchEnabledState(e.target.checked);

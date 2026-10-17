@@ -74,9 +74,12 @@ let attached: {
   discrete: Discrete | null;
   /** Src already found to have no surround channels; not decoded again. */
   stereoSrc: string | null;
+  /** Discrete channels were passed over because the element wasn't at 1×. */
+  rateSkipped: boolean;
   arm: () => void;
   release: () => void;
   onVolume: () => void;
+  onRate: () => void;
 } | null = null;
 
 if (process.env.NODE_ENV === 'development') {
@@ -378,9 +381,14 @@ const sleep = (ms: number): Promise<void> => new Promise(r => window.setTimeout(
  * The offset that lines the outputs up, measured through the microphone:
  * tone pairs at FRONT_HZ / REAR_HZ with both delays zeroed, so the recording
  * holds the raw gap. Null when the mic did not hear both clearly; rejects when
- * mic access is refused. Expects testBed() to be running.
+ * mic access is refused. Expects testBed() to be running; `quiet` pauses the
+ * music right before the bursts.
  */
-export async function micSync(frontId: string, rearId: string): Promise<number | null> {
+export async function micSync(
+  frontId: string,
+  rearId: string,
+  quiet: () => void
+): Promise<number | null> {
   const front = open('front', frontId);
   const rear = open('rear', rearId);
   const mic = await navigator.mediaDevices.getUserMedia({
@@ -392,6 +400,11 @@ export async function micSync(frontId: string, rearId: string): Promise<number |
     // A ring that re-centres mid-measurement moves the rear by up to ~10 ms.
     for (const end = performance.now() + 8000; !rear.settled && performance.now() < end; ) {
       await sleep(100);
+    }
+    // Music covers the wait: a Bluetooth rear left silent can mute, and 20 ms bursts won't wake it.
+    quiet();
+    for (const end = performance.now() + 2000; isPlaying() && performance.now() < end; ) {
+      await sleep(50);
     }
     await loadWorklets(rec);
     const chunks: Float32Array[] = [];
@@ -551,6 +564,12 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
   // A file with surround channels replaces the matrix path; the muted element stays the clock.
   const loadDiscrete = async (): Promise<void> => {
     if (!attached || !attached.settings.rear || audio.duration > MAX_DISCRETE_S) return;
+    // Buffer sources can't change speed without changing pitch, so off 1× the
+    // matrix path keeps playing; onRate brings the channels back at 1×.
+    if (audio.playbackRate !== 1) {
+      attached.rateSkipped = true;
+      return;
+    }
     const src = audio.src;
     if (src === attached.stereoSrc) return;
     const decoder = open('front', attached.settings.front.deviceId).ctx;
@@ -769,6 +788,14 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     }, 20);
   };
   const onVolume = (): void => setVolume(audio.volume);
+  const onRate = (): void => {
+    if (!attached) return;
+    const atOne = audio.playbackRate === 1;
+    if (attached.discrete ? !atOne : attached.rateSkipped && atOne) {
+      attached.rateSkipped = false;
+      arm();
+    }
+  };
 
   attached = {
     audio,
@@ -780,13 +807,16 @@ export function attach(audio: HTMLAudioElement, settings: SurroundSettings): voi
     watch: null,
     discrete: null,
     stereoSrc: null,
+    rateSkipped: false,
     arm,
     release,
     onVolume,
+    onRate,
   };
   audio.addEventListener('loadedmetadata', arm);
   audio.addEventListener('emptied', release);
   audio.addEventListener('volumechange', onVolume);
+  audio.addEventListener('ratechange', onRate);
   if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) arm();
   onVolume();
 }
@@ -797,6 +827,7 @@ export function detach(): void {
     attached.audio.removeEventListener('loadedmetadata', attached.arm);
     attached.audio.removeEventListener('emptied', attached.release);
     attached.audio.removeEventListener('volumechange', attached.onVolume);
+    attached.audio.removeEventListener('ratechange', attached.onRate);
     attached = null;
   }
   close();

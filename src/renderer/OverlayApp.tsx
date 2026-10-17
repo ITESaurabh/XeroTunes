@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { alpha, createTheme } from '@mui/material';
+import { alpha, createTheme, darken } from '@mui/material';
 import { DEFAULT_AA } from '../config/constants';
 import { getBaseTheme } from '../config/theme';
 import { getActiveTheme, getThemeSettings } from './utils/LocStoreUtil';
@@ -66,6 +66,13 @@ const OverlayApp: React.FC = () => {
   const albumArtSrc = track?.albumArt
     ? `file:///${track.albumArt.replace(/\\/g, '/')}`
     : DEFAULT_AA;
+
+  const badgeBg =
+    track?.status === 'paused'
+      ? alpha(palette.text.primary, 0.15)
+      : track?.status === 'playing'
+        ? darken(palette.surfaces.positive, 0.35)
+        : palette.surfaces.accent;
 
   return (
     <div
@@ -135,17 +142,15 @@ const OverlayApp: React.FC = () => {
             )}
             <span
               style={{
-                background:
-                  track?.status === 'paused'
-                    ? alpha(palette.text.primary, 0.15)
-                    : track?.status === 'playing'
-                      ? palette.surfaces.positive
-                      : palette.surfaces.accent,
+                background: badgeBg,
                 borderRadius: 4,
                 padding: '2px 6px',
                 fontSize: 9,
                 fontWeight: 700,
-                color: track?.status === 'paused' ? palette.text.primary : palette.common.white,
+                color:
+                  track?.status === 'paused'
+                    ? palette.text.primary
+                    : palette.getContrastText(badgeBg),
                 letterSpacing: 0.5,
                 textTransform: 'uppercase',
                 lineHeight: 1,

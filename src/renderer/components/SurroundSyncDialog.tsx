@@ -118,10 +118,12 @@ const SurroundSyncDialog: React.FC<SurroundSyncDialogProps> = ({ open, onClose }
   const syncByMic = async (): Promise<void> => {
     setListening(true);
     setMicNote(null);
-    const resume = surround.isPlaying();
-    if (resume) window.dispatchEvent(new Event(PLAYBACK_TOGGLE_EVENT));
+    let resume = false;
     try {
-      const ms = await surround.micSync(frontId, rearId);
+      const ms = await surround.micSync(frontId, rearId, () => {
+        resume = surround.isPlaying();
+        if (resume) window.dispatchEvent(new Event(PLAYBACK_TOGGLE_EVENT));
+      });
       if (ms === null) {
         setMicNote(
           "Couldn't hear both speakers clearly. Turn them up or bring the mic closer, then try again."

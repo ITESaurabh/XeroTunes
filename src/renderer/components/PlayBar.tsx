@@ -42,7 +42,15 @@ import {
   PLAYBACK_TICK_EVENT,
   PLAYBACK_SCRATCH_EVENT,
   type ScratchDetail,
+  EQUALIZER_EVENT,
+  TEMPO_EVENT,
+  getEqualizerSettings,
+  getTempo,
 } from '../utils/LocStoreUtil';
+import { applyEqualizer, setEqualizerSink } from '../utils/equalizerEngine';
+import type { EqualizerSettings } from '../../config/equalizer';
+import EqualizerDialog from './EqualizerDialog';
+import TempoDialog from './TempoDialog';
 import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/discord-logo.svg';
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
@@ -336,6 +344,10 @@ export default function PlayBar() {
   const [discordEnabled, setDiscordEnabledState] = useState(() => getDiscordEnabled());
   const [songInfoOpen, setSongInfoOpen] = useState(false);
   const [editTrack, setEditTrack] = useState<EditableTrack[] | null>(null);
+  const [eqOpen, setEqOpen] = useState(false);
+  const [tempoOpen, setTempoOpen] = useState(false);
+  const [tempo, setTempoState] = useState(() => getTempo());
+  const tempoRef = useRef(tempo);
 
   // ── Google Cast ────────────────────────────────────────────────────────────
   const [isCasting, setIsCasting] = useState(false);
@@ -445,6 +457,8 @@ export default function PlayBar() {
   // that enqueues a `stream:<id>`, whereas a synced remote track also has an http
   // Uri but is finite and seekable like any other song.
   const isLive = streamIdOf(state?.track?.Id) !== undefined;
+  const isLiveRef = useRef(isLive);
+  isLiveRef.current = isLive;
   // Not backed by a local file: internet radio, or a remote track we haven't
   // downloaded. Gates the features that need real bytes on disk.
   const isRemote = !!trackUri && /^https?:\/\//i.test(trackUri);
@@ -517,6 +531,7 @@ export default function PlayBar() {
     const deviceId = getAudioOutputDeviceId();
     // Surround (beta): the element is muted, so where its sink points is moot.
     if (deviceId === SURROUND_OUTPUT_ID) return;
+    setEqualizerSink(deviceId);
     for (const el of [audioRef.current, silentAudioRef.current]) {
       const sinkable = el as
         | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
@@ -535,6 +550,8 @@ export default function PlayBar() {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
       audio.src = toMediaSrc(songPath);
+      // Radio can't run ahead of the broadcast. defaultPlaybackRate is what a new src starts at.
+      audio.defaultPlaybackRate = audio.playbackRate = isLiveRef.current ? 1 : tempoRef.current;
       audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
       audio.muted = castingRef.current || surroundRef.current || audio.muted;
       void applySinkId();
@@ -810,6 +827,33 @@ export default function PlayBar() {
   // Effects and mixer state live in useSurround. Elsewhere PlayBar only ORs
   // surroundRef into audio.muted and renders the mixer entry points.
   const surround = useSurround(audioRef, songPath, castingRef, muteVolumeRef, surroundRef);
+
+  // Depends on songPath because the element mounts with the first track.
+  useEffect(() => {
+    const apply = (e?: Event): void =>
+      applyEqualizer(
+        audioRef.current,
+        (e as CustomEvent<EqualizerSettings> | undefined)?.detail ?? getEqualizerSettings()
+      );
+    apply();
+    window.addEventListener(EQUALIZER_EVENT, apply);
+    return () => window.removeEventListener(EQUALIZER_EVENT, apply);
+  }, [songPath]);
+
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const rate = (e as CustomEvent<number>).detail;
+      tempoRef.current = rate;
+      setTempoState(rate);
+      const audio = audioRef.current;
+      if (!audio || isLiveRef.current) return;
+      audio.defaultPlaybackRate = audio.playbackRate = rate;
+      // Discord counts down in wall-clock time, so its end time moves with the speed.
+      sendDiscordUpdateRef.current(audio.currentTime);
+    };
+    window.addEventListener(TEMPO_EVENT, handler);
+    return () => window.removeEventListener(TEMPO_EVENT, handler);
+  }, []);
 
   // Re-route live when the output device is changed in Settings.
   useEffect(() => {
@@ -1128,13 +1172,14 @@ export default function PlayBar() {
         ipcRenderer.send('discord-clear');
         return;
       }
+      const rate = audioRef.current?.playbackRate || 1;
       ipcRenderer.send('discord-update', {
         title: (state.track.Title as string) || 'Unknown Track',
         artist: (state.track.ArtistName as string) || '',
         album: (state.track.AlbumTitle as string) || '',
         isPlaying: !paused,
-        position: pos,
-        duration,
+        position: pos / rate,
+        duration: duration / rate,
       });
     },
     [discordEnabled, state.track, paused, duration]
@@ -2027,7 +2072,12 @@ export default function PlayBar() {
           </ListItemIcon>
           <ListItemText>Edit tags</ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleCloseMenu} disabled>
+        <MenuItem
+          onClick={() => {
+            setEqOpen(true);
+            handleCloseMenu();
+          }}
+        >
           <ListItemIcon>
             <Icon icon={options24Regular} width={20} />
           </ListItemIcon>
@@ -2047,11 +2097,17 @@ export default function PlayBar() {
             <ListItemText>Ambion mixer</ListItemText>
           </MenuItem>
         )}
-        <MenuItem onClick={handleCloseMenu} disabled>
+        <MenuItem
+          onClick={() => {
+            setTempoOpen(true);
+            handleCloseMenu();
+          }}
+          disabled={isLive || isCasting}
+        >
           <ListItemIcon>
             <Icon icon={topSpeed24Regular} width={20} />
           </ListItemIcon>
-          <ListItemText>Tempo</ListItemText>
+          <ListItemText secondary={tempo !== 1 ? `${tempo}×` : undefined}>Tempo</ListItemText>
         </MenuItem>
         <MenuItem onClick={handleOpenDeviceMenu}>
           <ListItemIcon>
@@ -2080,6 +2136,18 @@ export default function PlayBar() {
         open={surround.mixerOpen}
         onClose={() => surround.setMixerOpen(false)}
       />
+      <EqualizerDialog
+        open={eqOpen}
+        onClose={() => setEqOpen(false)}
+        notice={
+          isCasting
+            ? 'Not supported while casting.'
+            : surround.on
+              ? 'Not supported on Ambion surround.'
+              : undefined
+        }
+      />
+      <TempoDialog open={tempoOpen} onClose={() => setTempoOpen(false)} duration={duration} />
       <CastDeviceMenu
         anchorEl={castMenuAnchorEl}
         open={Boolean(castMenuAnchorEl)}

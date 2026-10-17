@@ -62,7 +62,7 @@ export interface ThemeSurfaces {
   accent: string;
   /** Selected-row tint. */
   selection: string;
-  /** Switch "on": semantic, not palette-driven. */
+  /** "Playing" green for the overlay badge: semantic, not palette-driven. */
   positive: string;
   /** Placeholder album art, shown behind or instead of a cover. */
   artFrom: string;
@@ -337,6 +337,17 @@ export const getBaseTheme = (mode: PaletteMode, theme: AppTheme = AMETHYST) => {
           root: {
             '&.MuiChip-clickable': {
               cursor: 'default',
+            },
+            // Medium chips are tap targets (EQ presets, tempo speeds); small ones are labels.
+            // 40px plus 2px of slop each side makes 44px without rows' hit areas overlapping.
+            '&.MuiChip-sizeMedium': {
+              height: 40,
+              borderRadius: 20,
+            },
+            '&.MuiChip-clickable.MuiChip-sizeMedium::after': {
+              content: '""',
+              position: 'absolute',
+              inset: -2,
             },
           },
         },

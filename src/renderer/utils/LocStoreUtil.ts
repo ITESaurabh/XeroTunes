@@ -21,6 +21,13 @@ import {
   SurroundDevice,
   SurroundSettings,
 } from '../../config/surround';
+import {
+  DEFAULT_EQUALIZER_SETTINGS,
+  EQ_BANDS,
+  EqualizerSettings,
+  TEMPO_MAX,
+  TEMPO_MIN,
+} from '../../config/equalizer';
 
 const QUEUE_STATE_KEY = 'queueState';
 const { ipcRenderer } = window.require('electron');
@@ -291,6 +298,43 @@ export interface ScratchDetail {
   fraction?: number;
   /** On 'release': the arm was set down on the record (start) or lifted clear of it (stop). */
   play?: boolean;
+}
+
+/** detail: EqualizerSettings. Fired live while a slider drags; saved only by setEqualizerSettings. */
+export const EQUALIZER_EVENT = 'xt-equalizer-change';
+
+export function getEqualizerSettings(): EqualizerSettings {
+  const eq = getPlaybackSettings().equalizer;
+  // Spread over the defaults so settings saved before bass existed still load.
+  return Array.isArray(eq?.gains) && eq.gains.length === EQ_BANDS.length
+    ? { ...DEFAULT_EQUALIZER_SETTINGS, ...eq }
+    : DEFAULT_EQUALIZER_SETTINGS;
+}
+
+export function previewEqualizer(equalizer: EqualizerSettings): void {
+  window.dispatchEvent(new CustomEvent(EQUALIZER_EVENT, { detail: equalizer }));
+}
+
+export function setEqualizerSettings(equalizer: EqualizerSettings): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), equalizer } });
+  previewEqualizer(equalizer);
+}
+
+/** detail: playback rate. Fired live while the slider drags; saved only by setTempo. */
+export const TEMPO_EVENT = 'xt-tempo-change';
+
+export function getTempo(): number {
+  const t = getPlaybackSettings().tempo;
+  return typeof t === 'number' && t >= TEMPO_MIN && t <= TEMPO_MAX ? t : 1;
+}
+
+export function previewTempo(tempo: number): void {
+  window.dispatchEvent(new CustomEvent(TEMPO_EVENT, { detail: tempo }));
+}
+
+export function setTempo(tempo: number): void {
+  updateSettings({ playback: { ...getPlaybackSettings(), tempo } });
+  previewTempo(tempo);
 }
 
 export function getAudioOutputDeviceId(): string {
