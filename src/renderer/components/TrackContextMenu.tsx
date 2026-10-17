@@ -19,10 +19,12 @@ import heartOffIcon from '@iconify/icons-fluent/heart-off-24-regular';
 import albumIcon from '@iconify/icons-fluent/album-24-regular';
 import artistIcon from '@iconify/icons-fluent/mic-24-regular';
 import editIcon from '@iconify/icons-fluent/edit-24-regular';
+import copyIcon from '@iconify/icons-fluent/copy-24-regular';
 import infoIcon from '@iconify/icons-fluent/info-24-regular';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import chevronRightIcon from '@iconify/icons-fluent/chevron-right-20-regular';
 import DownloadMenuItem from './DownloadMenuItem';
+import CopyInfoMenu from './CopyInfoMenu';
 import { useNewPlaylist } from './NewPlaylistItem';
 import SongInfoDialog from './SongInfoDialog';
 import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
@@ -75,6 +77,7 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
   const { state, dispatch } = useContext(store);
 
   const [playlistAnchor, setPlaylistAnchor] = useState<HTMLElement | null>(null);
+  const [copyAnchor, setCopyAnchor] = useState<HTMLElement | null>(null);
   const [infoSong, setInfoSong] = useState<Track | null>(null);
   const [editTracks, setEditTracks] = useState<EditableTrack[] | null>(null);
   const [isFavourite, setIsFavourite] = useState(false);
@@ -106,6 +109,7 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
 
   const close = useCallback(() => {
     setPlaylistAnchor(null);
+    setCopyAnchor(null);
     onClose();
   }, [onClose]);
 
@@ -245,6 +249,13 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
           </ListItemIcon>
           <ListItemText>Edit tags</ListItemText>
         </MenuItem>
+        <MenuItem onClick={e => setCopyAnchor(e.currentTarget)}>
+          <ListItemIcon>
+            <Icon icon={copyIcon} width={20} />
+          </ListItemIcon>
+          <ListItemText>Copy info as</ListItemText>
+          <Icon icon={chevronRightIcon} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
+        </MenuItem>
         <MenuItem
           disabled={isRemote || typeof uri !== 'string'}
           onClick={() => {
@@ -286,6 +297,13 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
           </MenuItem>
         ))}
       </Menu>
+
+      <CopyInfoMenu
+        track={song}
+        anchorEl={copyAnchor}
+        onClose={close}
+        onCopied={text => setToast(`Copied “${text}”`)}
+      />
 
       {newPlaylistDialog}
 

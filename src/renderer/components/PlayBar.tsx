@@ -14,6 +14,9 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText,
+  Snackbar,
+  Alert,
+  Portal,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import { store, RepeatMode } from '../utils/store';
@@ -65,6 +68,7 @@ import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
 import info24Regular from '@iconify/icons-fluent/info-24-regular';
 import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
+import copy24Regular from '@iconify/icons-fluent/copy-24-regular';
 import moreHorizontal24Regular from '@iconify/icons-fluent/more-horizontal-24-regular';
 import moreHorizontal24Filled from '@iconify/icons-fluent/more-horizontal-24-filled';
 import options24Regular from '@iconify/icons-fluent/options-24-regular';
@@ -90,6 +94,7 @@ import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
 import { isTaggable } from '../../config/constants';
 import AudioOutputMenu from './AudioOutputMenu';
 import CastDeviceMenu from './CastDeviceMenu';
+import CopyInfoMenu from './CopyInfoMenu';
 import type { CastDevice, CastLoadPayload, CastStatus } from '../../main/modules/Cast';
 import Marquee from './Marquee';
 import PlaybackProgress from './PlaybackProgress';
@@ -1471,6 +1476,8 @@ export default function PlayBar() {
   const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
   const menuOpen = Boolean(menuAnchorEl) || Boolean(menuPosition);
   const [deviceMenuAnchorEl, setDeviceMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [copyMenuAnchorEl, setCopyMenuAnchorEl] = useState<HTMLElement | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   const handleOpenMenuButton = useCallback((e: React.MouseEvent<HTMLElement>) => {
     setMenuPosition(null);
@@ -1488,6 +1495,7 @@ export default function PlayBar() {
     setMenuPosition(null);
     setDeviceMenuAnchorEl(null);
     setCastMenuAnchorEl(null);
+    setCopyMenuAnchorEl(null);
   }, []);
   const runMenuAction = useCallback(
     (action: () => void) => () => {
@@ -2071,6 +2079,13 @@ export default function PlayBar() {
           </ListItemIcon>
           <ListItemText>Edit tags</ListItemText>
         </MenuItem>
+        <MenuItem onClick={e => setCopyMenuAnchorEl(e.currentTarget)}>
+          <ListItemIcon>
+            <Icon icon={copy24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>Copy info as</ListItemText>
+          <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
+        </MenuItem>
         <MenuItem
           onClick={() => {
             setEqOpen(true);
@@ -2125,6 +2140,25 @@ export default function PlayBar() {
           <Icon icon={chevronRight20Regular} width={18} style={{ marginLeft: 8, opacity: 0.6 }} />
         </MenuItem>
       </Menu>
+      <CopyInfoMenu
+        track={state.track}
+        anchorEl={copyMenuAnchorEl}
+        onClose={handleCloseMenu}
+        onCopied={setCopiedText}
+      />
+      {/* The playbar's motion wrapper is transformed, which would pin a fixed Snackbar to it. */}
+      <Portal>
+        <Snackbar
+          open={!!copiedText}
+          autoHideDuration={2500}
+          onClose={() => setCopiedText(null)}
+          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+          <Alert severity="success" variant="filled" onClose={() => setCopiedText(null)}>
+            Copied “{copiedText}”
+          </Alert>
+        </Snackbar>
+      </Portal>
       <AudioOutputMenu
         anchorEl={deviceMenuAnchorEl}
         open={Boolean(deviceMenuAnchorEl)}
