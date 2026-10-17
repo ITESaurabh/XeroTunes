@@ -85,10 +85,10 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ github.ref_name }}" == *-* ]]; then
-            echo "script=publish" >> "$GITHUB_OUTPUT"
+            echo "script=release" >> "$GITHUB_OUTPUT"
             echo "app_env=beta" >> "$GITHUB_OUTPUT"
           else
-            echo "script=publish:prod" >> "$GITHUB_OUTPUT"
+            echo "script=release:prod" >> "$GITHUB_OUTPUT"
             echo "app_env=stable" >> "$GITHUB_OUTPUT"
           fi
 

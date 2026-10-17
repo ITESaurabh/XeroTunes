@@ -14,7 +14,7 @@ export const mainConfig: Configuration = {
     musicScanWorker: './src/main/utils/musicScanWorker.js',
   },
   output: {
-    // Emit one file per entry instead of the forge plugin's hardcoded index.js.
+    // Emit one file per entry instead of the forge plugin's hardcoded index.cjs.
     filename: '[name].js',
   },
   // Terser can't parse music-metadata's modern ESM once bundled.
