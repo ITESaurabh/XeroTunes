@@ -371,6 +371,11 @@ export default function MiniPlayerView(): React.ReactElement {
                 onChangeCommitted={(event, newValue) => {
                   setVolumeLevel(newValue as number);
                 }}
+                onWheel={e => {
+                  const next = Math.max(0, Math.min(100, volume + (e.deltaY < 0 ? 1 : -1)));
+                  setVolume(next);
+                  setVolumeLevel(next);
+                }}
                 sx={{
                   color: volume >= 60 ? theme.palette.error.main : theme.palette.text.primary,
                   '& .MuiSlider-track': {

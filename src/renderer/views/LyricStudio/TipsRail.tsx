@@ -8,7 +8,6 @@ import pause32Filled from '@iconify/icons-fluent/pause-32-filled';
 import play32Filled from '@iconify/icons-fluent/play-32-filled';
 import fastForward32Filled from '@iconify/icons-fluent/fast-forward-28-filled';
 import speaker132Regular from '@iconify/icons-fluent/speaker-1-32-regular';
-import speaker232Regular from '@iconify/icons-fluent/speaker-2-32-regular';
 import speakerMute32Filled from '@iconify/icons-fluent/speaker-mute-32-filled';
 import { toMediaSrc } from '../../utils/misc';
 import { DEFAULT_AA } from '../../../config/constants';
@@ -226,9 +225,15 @@ export default function TipsRail({
           min={0}
           max={100}
           onChange={(_e, v) => onVolume(v as number)}
+          onWheel={e => onVolume(Math.max(0, Math.min(100, volume + (e.deltaY < 0 ? 1 : -1))))}
           aria-label="Volume"
         />
-        <Icon icon={speaker232Regular} width={20} />
+        <Typography
+          className="no-select no-drag"
+          sx={{ fontSize: '0.75rem', minWidth: '4ch', textAlign: 'right' }}
+        >
+          {`${volume}%`}
+        </Typography>
       </Stack>
 
       <Stack

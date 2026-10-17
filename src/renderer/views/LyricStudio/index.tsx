@@ -157,7 +157,7 @@ export default function LyricStudio() {
   /** Null when the track had no lyrics anywhere. */
   const [source, setSource] = useState<LyricsSource | null>(null);
 
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState(false);
   const [duration, setDuration] = useState(0);
   // 0-100, the scale the play bar's volume control uses. Seeded from, and
@@ -214,11 +214,15 @@ export default function LyricStudio() {
   // no <audio> mounted. An effect would fire there against a null ref and never
   // run again, leaving the element with no source.
 
-  // `loading` is a dep for the same reason: the element does not exist yet on
-  // the render where the volume is first known.
-  useEffect(() => {
-    if (audioRef.current) audioRef.current.volume = volume / 100;
-  }, [volume, loading]);
+  // Ref callback, not an effect: AnimatePresence mounts the body only after the
+  // spinner's exit animation. The `volume` dep re-runs it on every change.
+  const attachAudio = useCallback(
+    (el: HTMLAudioElement | null) => {
+      audioRef.current = el;
+      if (el) el.volume = volume / 100;
+    },
+    [volume]
+  );
 
   /**
    * The desktop rail is `permanent` and ignores this flag, so here it only ever
@@ -632,7 +636,7 @@ export default function LyricStudio() {
         </Main>
 
         <audio
-          ref={audioRef}
+          ref={attachAudio}
           src={toMediaSrc(uri)}
           preload="auto"
           onError={() => setToast({ ok: false, msg: `Could not play this file: ${uri}` })}
