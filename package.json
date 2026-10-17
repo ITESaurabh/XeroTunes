@@ -106,6 +106,12 @@
     },
     "electron-winstaller": {
       "built": true
+    },
+    "fs-xattr": {
+      "built": true
+    },
+    "macos-alias": {
+      "built": true
     }
   },
   "resolutions": {

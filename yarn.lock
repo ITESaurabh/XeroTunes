@@ -11189,6 +11189,10 @@ __metadata:
       built: true
     electron-winstaller:
       built: true
+    fs-xattr:
+      built: true
+    macos-alias:
+      built: true
   languageName: unknown
   linkType: soft
 
