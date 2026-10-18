@@ -1,4 +1,3 @@
-import { execFileSync } from 'child_process';
 import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
@@ -205,9 +204,6 @@ const config: ForgeConfig = {
       for (const result of makeResults) {
         result.artifacts = await Promise.all(
           result.artifacts.map(async artifact => {
-            // The repo sets gpgcheck=1. import-key.sh names the key in ~/.rpmmacros.
-            if (artifact.endsWith('.rpm') && process.env.CI)
-              execFileSync('rpmsign', ['--addsign', artifact], { stdio: 'inherit' });
             if (!artifact.endsWith('.dmg')) return artifact;
             const renamed = path.join(
               path.dirname(artifact),

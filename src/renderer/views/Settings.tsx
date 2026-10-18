@@ -109,6 +109,7 @@ import DuplicateTracksDialog from '../components/DuplicateTracksDialog';
 import SurroundSyncDialog from '../components/SurroundSyncDialog';
 import AmbionHelp from '../components/AmbionHelp';
 import XeroLogoMark from '../components/XeroLogoMark';
+import { checkForUpdate, useUpdateStatus } from '../utils/useUpdateStatus';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
 import { APP_DISPLAY_NAME, OS_MAC, SITE_URL } from '../../config/constants';
@@ -739,6 +740,7 @@ const Settings: React.FC = () => {
   const [surroundOpen, setSurroundOpen] = React.useState(false);
   const [surroundBeta, setSurroundBetaState] = React.useState(getSurroundBeta);
   const [appInfo, setAppInfo] = React.useState<AppInfo | null>(null);
+  const update = useUpdateStatus();
   const [themeMessage, setThemeMessage] = React.useState<{ text: string; error?: boolean } | null>(
     null
   );
@@ -1832,7 +1834,7 @@ const Settings: React.FC = () => {
                       An open source cross-platform music player, licensed{' '}
                       {appInfo?.license ?? 'GPL-3.0'}.
                     </Typography>
-                    <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
+                    <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ pt: 0.5 }}>
                       <Button
                         size="small"
                         variant="outlined"
@@ -1865,6 +1867,15 @@ const Settings: React.FC = () => {
                         }
                       >
                         Data folder
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        // During an update the title bar pill is the control.
+                        disabled={['checking', 'downloading', 'ready'].includes(update.state)}
+                        onClick={checkForUpdate}
+                      >
+                        {update.state === 'checking' ? 'Checking…' : 'Check for updates'}
                       </Button>
                     </Stack>
                   </Stack>

@@ -27,12 +27,16 @@ import castFilledIcon from '@iconify/icons-fluent/cast-24-filled';
 import chevronDownIcon from '@iconify/icons-fluent/chevron-down-16-regular';
 import chevronUpIcon from '@iconify/icons-fluent/chevron-up-16-regular';
 import menuIcon from '@iconify/icons-fluent/line-horizontal-3-20-filled';
+import downloadIcon from '@iconify/icons-fluent/arrow-download-16-filled';
+import restartIcon from '@iconify/icons-fluent/arrow-clockwise-16-filled';
 import AppIcon from 'svg-react-loader?name=AppIcon!../../assets/logo.svg';
 import { Icon } from '@iconify/react';
 import { store } from '../utils/store';
 import { CAST_STOP_EVENT } from '../utils/LocStoreUtil';
 import { confirmNavigation } from '../utils/navGuard';
 import MainDrawer from './MainDrawer';
+import { runUpdate, useUpdateStatus } from '../utils/useUpdateStatus';
+import type { UpdateStatus } from '../../main/modules/updateCheck';
 import { TitleBarStyle } from '../../config/app_settings';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
@@ -79,7 +83,7 @@ const castBlink = keyframes`
   50% { opacity: 0.45; }
 `;
 
-const CastPill = styled(ButtonBase)(({ theme }) => {
+const TitlePill = styled(ButtonBase)(({ theme }) => {
   const accent = theme.palette.primary.main;
   return {
     height: 22,
@@ -99,7 +103,7 @@ const CastPill = styled(ButtonBase)(({ theme }) => {
     transition: 'background-color 0.1s ease-in-out',
     '&:hover': { backgroundColor: alpha(accent, 0.26) },
     '& .cast-pill-icon': { animation: `${castBlink} 2s ease-in-out infinite` },
-    '& .cast-pill-label': {
+    '& .pill-label': {
       maxWidth: 140,
       overflow: 'hidden',
       textOverflow: 'ellipsis',
@@ -107,6 +111,12 @@ const CastPill = styled(ButtonBase)(({ theme }) => {
     },
   };
 });
+
+const UPDATE_LABELS: Partial<Record<UpdateStatus['state'], string>> = {
+  available: 'Update',
+  downloading: 'Updating…',
+  ready: 'Restart to update',
+};
 
 function resolveEffectiveStyle(style: TitleBarStyle, currOs: string): TitleBarStyle {
   if (style === 'default') {
@@ -149,6 +159,8 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const navigationType = useNavigationType();
+  const update = useUpdateStatus();
+  const updateLabel = minimal ? undefined : UPDATE_LABELS[update.state];
 
   const effectiveStyle = useMemo(
     () => resolveEffectiveStyle(state.titleBarStyle, currOs),
@@ -325,22 +337,43 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
 
         <Box flexGrow={1} />
 
+        {/* Update notice, shared across all titlebar styles. */}
+        {updateLabel && (
+          <Tooltip
+            arrow
+            title={
+              update.state === 'ready'
+                ? `Restart ${APP_NAME} on version ${update.version}`
+                : update.state === 'downloading'
+                  ? `Downloading version ${update.version}`
+                  : `Version ${update.version} is available`
+            }
+          >
+            <TitlePill
+              aria-label={updateLabel}
+              onClick={runUpdate}
+              sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+            >
+              <Icon icon={update.state === 'ready' ? restartIcon : downloadIcon} width={14} />
+              {!isPhone && <span className="pill-label">{updateLabel}</span>}
+            </TitlePill>
+          </Tooltip>
+        )}
+
         {/* Casting indicator, shared across all titlebar styles; click to stop. */}
         {state.isCasting && (
           <Tooltip
             arrow
             title={`Casting${state.castDeviceName ? ` to ${state.castDeviceName}` : ''} — click to stop`}
           >
-            <CastPill
+            <TitlePill
               aria-label="Stop casting"
               onClick={() => window.dispatchEvent(new CustomEvent(CAST_STOP_EVENT))}
               sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
             >
               <Icon icon={castFilledIcon} width={14} className="cast-pill-icon" />
-              {!isPhone && (
-                <span className="cast-pill-label">{state.castDeviceName || 'Casting'}</span>
-              )}
-            </CastPill>
+              {!isPhone && <span className="pill-label">{state.castDeviceName || 'Casting'}</span>}
+            </TitlePill>
           </Tooltip>
         )}
 
