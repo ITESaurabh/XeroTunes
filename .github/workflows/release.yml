@@ -250,7 +250,10 @@ jobs:
 
   # Rebuild the site so its download links pick up the new release assets.
   netlify:
-    needs: release
+    # After linux-repos, which swaps in the signed .rpm: a site build during
+    # the swap misses it. Still runs when linux-repos fails.
+    needs: [release, linux-repos]
+    if: ${{ !cancelled() && needs.release.result == 'success' }}
     # The hook is an environment secret like the rest, so this job has to
     # select an environment too -- without one it resolves to an empty string
     # and curl fails with a malformed-URL error.
