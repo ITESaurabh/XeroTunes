@@ -95,7 +95,8 @@ function macNeeds(files: string[], outputPaths: string[], floor: string): Need[]
     const magic = head(file, 4).readUInt32BE(0);
     // 64-bit Mach-O (little-endian on disk) or a universal binary.
     if (magic !== 0xcffaedfe && magic !== 0xcafebabe) continue;
-    const out = run('otool', ['-l', file]);
+    // Not otool: it reads "Helper (GPU)" as member "GPU" of an archive "Helper ".
+    const out = run('vtool', ['-show-build', file]);
     if (out === null) return null;
     const v = highest([
       ...[...out.matchAll(/\bminos (\d+(?:\.\d+)*)/g)].map(m => m[1]),
@@ -130,7 +131,7 @@ export function checkOsFloor(platform: string, outputPaths: string[], floor: Flo
         : ['Windows', floor.windows, windowsNeeds(files)];
 
   if (needs === null) {
-    warn(`OS floor not checked: ${platform === 'linux' ? 'objdump' : 'otool'} isn't installed.`);
+    warn(`OS floor not checked: ${platform === 'linux' ? 'objdump' : 'vtool'} isn't installed.`);
     return;
   }
   const top = needs.reduce<Need | null>((a, b) => (!a || compare(b.version, a.version) > 0 ? b : a), null);
