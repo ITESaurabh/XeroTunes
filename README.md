@@ -136,9 +136,6 @@ sudo dnf install xerotunes
 
 dnf asks to import the XeroTunes key, twice; answer `y` both times.
 
-**Arch:** install [`xerotunes-bin`](https://aur.archlinux.org/packages/xerotunes-bin)
-from the AUR, for example with `yay -S xerotunes-bin`.
-
 **openSUSE:** download the `.rpm`. It installs, but updates mean downloading
 the new file.
 
@@ -164,9 +161,6 @@ printf '%s\n' '[xerotunes-beta]' 'name=XeroTunes Beta' 'baseurl=https://xerotune
   'gpgcheck=1' 'repo_gpgcheck=1' 'gpgkey=https://xerotunes.com/linux/key.asc' | sudo tee /etc/yum.repos.d/xerotunes-beta.repo > /dev/null
 sudo dnf install xerotunes-beta
 ```
-
-Arch: [`xerotunes-beta-bin`](https://aur.archlinux.org/packages/xerotunes-beta-bin)
-on the AUR.
 </details>
 
 ## Help

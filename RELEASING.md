@@ -57,9 +57,10 @@ resolves to a different value per channel:
 
 `GITHUB_TOKEN` is provided automatically by Actions and is not per-channel.
 
-The Linux repos add `LINUX_REPO_GPG_KEY`, `LINUX_REPO_GPG_PASSPHRASE`,
-`PACKAGES_REPO_TOKEN` and `AUR_SSH_KEY`, set to the same values in both
-environments; see [Linux one-time setup](#linux-one-time-setup).
+The Linux repos add `LINUX_REPO_GPG_KEY`, `LINUX_REPO_GPG_PASSPHRASE` and
+`PACKAGES_REPO_TOKEN`, set to the same values in both environments; see
+[Linux one-time setup](#linux-one-time-setup). `AUR_SSH_KEY` is optional
+until the [AUR is switched on](#aur-on-hold).
 
 ## Updates
 
@@ -90,16 +91,16 @@ than `beta9` and refuses that update; the app then offers the download
 instead.
 
 Linux: installing the `.deb` or `.rpm` adds the channel's apt or dnf repo, so
-new versions arrive with system updates. Arch has `xerotunes-bin` and
-`xerotunes-beta-bin` on the AUR. The `linux-repos` job publishes all three
-after the `release` job has uploaded the installers.
+new versions arrive with system updates. The `linux-repos` job publishes
+both after the `release` job has uploaded the installers. AUR packages for
+Arch are built but [on hold](#aur-on-hold).
 
 ### Linux repo layout
 
 | Channel | apt | dnf | AUR |
 | ------- | --- | --- | --- |
-| stable | `https://xerotunes.com/apt/stable/` | `https://xerotunes.com/rpm/stable/` | `xerotunes-bin` |
-| beta | `https://xerotunes.com/apt/beta/` | `https://xerotunes.com/rpm/beta/` | `xerotunes-beta-bin` |
+| stable | `https://xerotunes.com/apt/stable/` | `https://xerotunes.com/rpm/stable/` | `xerotunes-bin` (on hold) |
+| beta | `https://xerotunes.com/apt/beta/` | `https://xerotunes.com/rpm/beta/` | `xerotunes-beta-bin` (on hold) |
 
 xerotunes.com stores nothing. Netlify answers `/apt/*` and `/rpm/*` with a 302
 to [ITESaurabh/xerotunes-packages](https://github.com/ITESaurabh/xerotunes-packages),
@@ -146,8 +147,11 @@ openSUSE installs the `.rpm` but gets no repo: zypper reads
 ### Signing
 
 One RSA 4096 key signs the apt `InRelease` and `Release.gpg`, dnf's
-`repomd.xml.asc`, and every `.rpm` (rpmsign in `forge.config.ts`'s `postMake`,
-CI only). RSA was tested against RHEL 8's rpm 4.14; EdDSA was not. The public
+`repomd.xml.asc`, and every `.rpm`. Only the `linux-repos` job holds the key:
+the release build runs npm code, so it uploads the `.rpm` unsigned, and
+`linux-repos` signs it and replaces the release's copy before the dnf index
+goes up. For those few minutes the `.rpm` on the release page is unsigned.
+RSA was tested against RHEL 8's rpm 4.14; EdDSA was not. The public
 half is [scripts/linux/key.asc](scripts/linux/key.asc), built into the install
 scripts and copied to `https://itesaurabh.github.io/xerotunes-packages/key.asc`,
 where the README's install commands fetch it through
@@ -177,9 +181,7 @@ if the old key is lost, every user has to reinstall by hand.
    with **Contents: Read and write**, and add it to both environments as
    `PACKAGES_REPO_TOKEN`. The workflow's `GITHUB_TOKEN` can't write to another
    repo.
-3. Create an AUR account, add an SSH public key under **My Account**, and add
-   the private key to both environments as `AUR_SSH_KEY`. The first release on
-   each channel creates its AUR package.
+3. AUR: on hold; see [below](#aur-on-hold).
 4. Add to the site's `_redirects`:
 
    ```
@@ -192,8 +194,46 @@ if the old key is lost, every user has to reinstall by hand.
    The README's install commands fetch the key through the last line.
 
 Until steps 1 to 3 are done, Linux releases fail: `yarn make` on Linux reads
-`scripts/linux/key.asc`, and the Linux build and `linux-repos` job read the
-secrets.
+`scripts/linux/key.asc`, and the `linux-repos` job reads the secrets.
+
+### AUR (on hold)
+
+AUR account registration has been closed since Arch's "Active AUR malicious
+packages incident" notice of 2026-06-12. Everything for `xerotunes-bin` and
+`xerotunes-beta-bin` is in place ([scripts/linux/aur.sh](scripts/linux/aur.sh),
+[scripts/linux/PKGBUILD](scripts/linux/PKGBUILD), the AUR steps of
+`linux-repos`), but those steps are skipped while `AUR_SSH_KEY` isn't set.
+Releases stay green meanwhile.
+
+To switch it on:
+
+1. Create an AUR account at <https://aur.archlinux.org/register>.
+2. Make a key without a passphrase:
+   `ssh-keygen -t ed25519 -f ~/.ssh/aur -C 'XeroTunes AUR CI' -N ''`. Add
+   `~/.ssh/aur.pub` under **My Account > SSH Public Key**, then check it:
+   `ssh -i ~/.ssh/aur aur@aur.archlinux.org help` lists commands.
+3. Add the contents of `~/.ssh/aur` as `AUR_SSH_KEY` to `beta`, and to
+   `production` once stable releases exist.
+4. Publish without waiting for a release: on the Actions page, open the
+   latest release run for each channel and re-run its `linux-repos` job.
+   That creates the package at that version; later releases update it.
+5. Put the Arch lines back in the README. After the openSUSE paragraph:
+
+   ```
+   **Arch:** install [`xerotunes-bin`](https://aur.archlinux.org/packages/xerotunes-bin)
+   from the AUR, for example with `yay -S xerotunes-bin`.
+   ```
+
+   And at the end of "Commands for the beta":
+
+   ```
+   Arch: [`xerotunes-beta-bin`](https://aur.archlinux.org/packages/xerotunes-beta-bin)
+   on the AUR.
+   ```
+
+`xerotunes-bin` may be taken by someone else before you get an account; AUR
+names can't be reserved. If so, change the `@PKGNAME@` line in `aur.sh`,
+which names the package after the `.deb` plus `-bin`, and the README lines.
 
 ### Testing a repo change
 

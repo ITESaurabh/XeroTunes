@@ -8,4 +8,5 @@ printf '%s' "${PASSPHRASE:-}" > ~/.gnupg/passphrase
 printf 'pinentry-mode loopback\npassphrase-file %s\n' ~/.gnupg/passphrase > ~/.gnupg/gpg.conf
 gpg --batch --import <<< "$KEY"
 fpr=$(gpg --list-secret-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }')
-printf '%%_gpg_name %s\n%%_gpg_digest_algo sha256\n' "$fpr" > ~/.rpmmacros
+# Ubuntu's rpm looks for gpg2, which Ubuntu doesn't ship.
+printf '%%_gpg_name %s\n%%_gpg_digest_algo sha256\n%%__gpg %s\n' "$fpr" "$(command -v gpg)" > ~/.rpmmacros

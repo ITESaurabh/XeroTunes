@@ -64,8 +64,7 @@ jobs:
 
     steps:
       # RPM-based and bare: checkout needs git, MakerDeb needs dpkg and fakeroot
-      # from EPEL, MakerZIP needs zip, forge.config.ts's postMake needs rpmsign.
-      # gcc 14 is already on PATH. Root, no sudo.
+      # from EPEL, MakerZIP needs zip. gcc 14 is already on PATH. Root, no sudo.
       #
       # LDFLAGS matters more than it looks: gcc 14's libstdc++ is newer than
       # anything a glibc 2.28 distro ships, so without folding it in the C++
@@ -74,7 +73,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           dnf install -y epel-release
-          dnf install -y git rpm-build rpm-sign zip dpkg fakeroot binutils
+          dnf install -y git rpm-build zip dpkg fakeroot binutils
           echo "LDFLAGS=-static-libstdc++ -static-libgcc" >> "$GITHUB_ENV"
           gcc --version | head -1
           ldd --version | head -1
@@ -112,14 +111,6 @@ jobs:
       - name: Install dependencies
         run: yarn install --immutable
 
-      # The .rpm is signed before upload: dnf fetches it from this release.
-      - name: Import Linux repo signing key
-        if: runner.os == 'Linux'
-        run: scripts/linux/import-key.sh
-        env:
-          KEY: ${{ secrets.LINUX_REPO_GPG_KEY }}
-          PASSPHRASE: ${{ secrets.LINUX_REPO_GPG_PASSPHRASE }}
-
       - name: Publish
         run: yarn ${{ steps.channel.outputs.script }}
         # Cross-compile variant; pairs with the macos-latest matrix entry.
@@ -150,7 +141,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install repo tools
-        run: sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c
+        run: sudo apt-get update && sudo apt-get install -y apt-utils createrepo-c rpm
 
       # GitHub renamed the assets (~ became .); the indexes must use those names.
       - name: Download this release's Linux packages
@@ -163,6 +154,15 @@ jobs:
         env:
           KEY: ${{ secrets.LINUX_REPO_GPG_KEY }}
           PASSPHRASE: ${{ secrets.LINUX_REPO_GPG_PASSPHRASE }}
+
+      # Signed here, not in the build, so the key never meets npm code. Replaced
+      # on the release before the dnf index that names it goes up.
+      - name: Sign the .rpm and replace the release's copy
+        run: |
+          rpmsign --addsign pkgs/*.rpm
+          gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber pkgs/*.rpm
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build indexes
         run: scripts/linux/repo.sh "$CHANNEL" "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" pkgs repo
@@ -197,10 +197,18 @@ jobs:
             commit -m "$CHANNEL: $GITHUB_REF_NAME"
           git push
 
+      # AUR on hold (RELEASING.md): adding the AUR_SSH_KEY secret switches both
+      # steps on. Only whether it's set is exposed, never the value.
+      - name: Check for an AUR key
+        id: aur
+        run: echo "enabled=${{ secrets.AUR_SSH_KEY != '' }}" >> "$GITHUB_OUTPUT"
+
       - name: Build AUR package
+        if: steps.aur.outputs.enabled == 'true'
         run: docker run --rm -v "$PWD:/w" -w /w archlinux:base-devel scripts/linux/aur.sh "$GITHUB_REF_NAME" pkgs/*.deb aur
 
       - name: Push AUR package
+        if: steps.aur.outputs.enabled == 'true'
         env:
           AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
         run: |
