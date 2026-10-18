@@ -63,8 +63,31 @@ environments; see [Linux one-time setup](#linux-one-time-setup).
 
 ## Updates
 
-Windows and macOS: not wired up yet. Users download the latest installer from
-the GitHub Release.
+The app checks GitHub for a newer release on its channel 10 seconds after
+launch, every 6 hours, and from **Check for updates** in Settings > About
+([src/main/modules/Updater.ts](src/main/modules/Updater.ts)). Stable looks at
+the latest full release, beta at the newest prerelease. When it finds one, an
+**Update** button appears in the title bar. Only a manual check answers with a
+dialog: **Check for updates**, or the Update button on a Linux repo install,
+where the command to run is the only action. The timed checks stay silent.
+
+| Platform | What Update does |
+| -------- | ---------------- |
+| Windows (installed with `Setup.exe`) | Squirrel downloads the release's `-full.nupkg` in the background; the button then reads **Restart to update** |
+| Windows (portable zip) | Opens the release page |
+| macOS | Opens the DMG for this Mac (`-intel.dmg` on Intel). Updating in place needs a signed app; Squirrel.Mac refuses unsigned ones |
+| Linux with the apt or dnf repo, or the AUR package | Opens a dialog with the command to run (`sudo apt update && sudo apt upgrade`, `sudo dnf upgrade` or `yay -Syu`) and a **Copy command** button |
+| Linux without a repo | Opens the release page |
+
+A release is offered only once the `os-floor` job has attached
+`os-floor.json`, which happens after every platform's build has succeeded.
+The app skips a release whose floor is above the running system, since
+Squirrel would install it anyway. On Linux it also waits an hour after
+publishing, for the `linux-repos` job to update the apt and dnf indexes.
+
+Squirrel compares prerelease labels as text, so it thinks `beta10` is older
+than `beta9` and refuses that update; the app then offers the download
+instead.
 
 Linux: installing the `.deb` or `.rpm` adds the channel's apt or dnf repo, so
 new versions arrive with system updates. Arch has `xerotunes-bin` and

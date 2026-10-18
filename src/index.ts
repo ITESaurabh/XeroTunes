@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import mainIpcs, { registerSettingsIpc } from './main/utils/mainProcess';
 import { installAppMenu } from './main/utils/appMenu';
+import { initUpdater } from './main/modules/Updater';
 import { OS_WINDOWS } from './config/constants';
 import os from 'os';
 const currOS = os.type();
@@ -364,6 +365,7 @@ function createWindow() {
 app.on('ready', () => {
   // A getter, not a window: the menu is up before the first window exists.
   installAppMenu(() => mainWin);
+  initUpdater(() => mainWin);
   createWindow();
 });
 
