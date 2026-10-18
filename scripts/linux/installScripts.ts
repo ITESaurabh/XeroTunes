@@ -19,21 +19,15 @@ const RPM_MIRRORS = [
 
 export function writeInstallScripts(dir: string): void {
   const name = IDENTITY.installName;
-  const armored = fs.readFileSync(path.join(__dirname, 'key.asc'), 'utf8').trim();
-  // Signed-By wants a binary keyring and gpg may be missing, so the postinst
-  // base64-decodes the armor body: the only lines that are pure base64.
-  const binary = armored
-    .split(/\r?\n/)
-    .filter(l => /^[A-Za-z0-9+/]+={0,2}$/.test(l))
-    .join('\n');
+  const key = fs.readFileSync(path.join(__dirname, 'key.asc'), 'utf8').trim();
 
   const scripts = {
     // Runs on upgrades too, so a release can move systems to a new repo address.
     postinst: `#!/bin/sh
 set -e
 if [ "$1" = configure ]; then
-  base64 -d > /usr/share/keyrings/${name}.gpg <<'EOF'
-${binary}
+  cat > /usr/share/keyrings/${name}.asc <<'EOF'
+${key}
 EOF
   cat > /etc/apt/${name}-mirrors.list <<'EOF'
 ${APT_MIRRORS.map((url, i) => `${url}\tpriority:${i + 1}`).join('\n')}
@@ -42,14 +36,14 @@ EOF
 Types: deb
 URIs: mirror+file:/etc/apt/${name}-mirrors.list
 Suites: ./
-Signed-By: /usr/share/keyrings/${name}.gpg
+Signed-By: /usr/share/keyrings/${name}.asc
 EOF
 fi
 `,
     postrm: `#!/bin/sh
 set -e
 if [ "$1" = purge ]; then
-  rm -f /etc/apt/sources.list.d/${name}.sources /etc/apt/${name}-mirrors.list /usr/share/keyrings/${name}.gpg
+  rm -f /etc/apt/sources.list.d/${name}.sources /etc/apt/${name}-mirrors.list /usr/share/keyrings/${name}.asc
 fi
 `,
     // No /etc/yum.repos.d means zypper (openSUSE): skip rather than fail.
@@ -57,7 +51,7 @@ fi
     post: `if [ -d /etc/yum.repos.d ]; then
   mkdir -p /etc/pki/rpm-gpg
   cat > /etc/pki/rpm-gpg/RPM-GPG-KEY-${name} <<'EOF'
-${armored}
+${key}
 EOF
   cat > /etc/yum.repos.d/${name}.repo <<'EOF'
 [${name}]

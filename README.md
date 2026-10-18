@@ -111,13 +111,63 @@ Builds are for 64-bit Intel/AMD computers only. You need Ubuntu 20.04, Debian
 10, Fedora 29 or newer. Requirements for every system are on the
 [website](https://xerotunes.com/support#requirements).
 
-Installing the `.deb` or `.rpm` also adds the XeroTunes package repository, so
-new versions arrive with your system updates (`sudo apt update && sudo apt
-upgrade`, or `sudo dnf upgrade`). On openSUSE the `.rpm` installs, but updates
-still mean downloading the new file.
+You can also install from the terminal by pasting the commands for your
+system. Either way, installing adds the XeroTunes package repository, so new
+versions arrive with your system updates (`sudo apt upgrade` or
+`sudo dnf upgrade`).
 
-On Arch, install [`xerotunes-bin`](https://aur.archlinux.org/packages/xerotunes-bin)
-from the AUR.
+**Ubuntu, Debian, Linux Mint, Pop!_OS**
+
+```sh
+sudo apt update && sudo apt install -y curl
+sudo curl -fsSLo /usr/share/keyrings/xerotunes.asc https://xerotunes.com/linux/key.asc
+printf '%s\n' 'Types: deb' 'URIs: https://xerotunes.com/apt/stable/' 'Suites: ./' \
+  'Signed-By: /usr/share/keyrings/xerotunes.asc' | sudo tee /etc/apt/sources.list.d/xerotunes.sources > /dev/null
+sudo apt update && sudo apt install -y xerotunes
+```
+
+**Fedora, RHEL**
+
+```sh
+printf '%s\n' '[xerotunes]' 'name=XeroTunes' 'baseurl=https://xerotunes.com/rpm/stable/' 'skip_if_unavailable=1' \
+  'gpgcheck=1' 'repo_gpgcheck=1' 'gpgkey=https://xerotunes.com/linux/key.asc' | sudo tee /etc/yum.repos.d/xerotunes.repo > /dev/null
+sudo dnf install xerotunes
+```
+
+dnf asks to import the XeroTunes key, twice; answer `y` both times.
+
+**Arch:** install [`xerotunes-bin`](https://aur.archlinux.org/packages/xerotunes-bin)
+from the AUR, for example with `yay -S xerotunes-bin`.
+
+**openSUSE:** download the `.rpm`. It installs, but updates mean downloading
+the new file.
+
+<details>
+<summary>Commands for the beta</summary>
+
+The beta installs alongside the regular version.
+
+Ubuntu, Debian, Linux Mint, Pop!_OS:
+
+```sh
+sudo apt update && sudo apt install -y curl
+sudo curl -fsSLo /usr/share/keyrings/xerotunes-beta.asc https://xerotunes.com/linux/key.asc
+printf '%s\n' 'Types: deb' 'URIs: https://xerotunes.com/apt/beta/' 'Suites: ./' \
+  'Signed-By: /usr/share/keyrings/xerotunes-beta.asc' | sudo tee /etc/apt/sources.list.d/xerotunes-beta.sources > /dev/null
+sudo apt update && sudo apt install -y xerotunes-beta
+```
+
+Fedora, RHEL:
+
+```sh
+printf '%s\n' '[xerotunes-beta]' 'name=XeroTunes Beta' 'baseurl=https://xerotunes.com/rpm/beta/' 'skip_if_unavailable=1' \
+  'gpgcheck=1' 'repo_gpgcheck=1' 'gpgkey=https://xerotunes.com/linux/key.asc' | sudo tee /etc/yum.repos.d/xerotunes-beta.repo > /dev/null
+sudo dnf install xerotunes-beta
+```
+
+Arch: [`xerotunes-beta-bin`](https://aur.archlinux.org/packages/xerotunes-beta-bin)
+on the AUR.
+</details>
 
 ## Help
 

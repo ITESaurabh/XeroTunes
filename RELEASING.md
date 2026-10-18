@@ -104,11 +104,13 @@ serving bad ones.
 
 [scripts/linux/installScripts.ts](scripts/linux/installScripts.ts) writes the
 key, repo file and mirror list on every install and upgrade, not only the
-first. To move systems to a new address, release a version with the new URLs
-there; systems upgrade to it from the old address and use the new one from
-then on. Purging
-the `.deb` or removing the `.rpm` deletes those files. The key dnf imported
-into the rpm database stays (`rpm -q gpg-pubkey`).
+first. The README's terminal install commands write the same files with only
+the xerotunes.com address; the package replaces them when it installs. To move
+systems to a new address, release a version with the new URLs there and change
+the README commands to match. Systems upgrade to it from the old address and
+use the new one from then on. Purging the `.deb` or removing the `.rpm` deletes
+those files. The key dnf imported into the rpm database stays
+(`rpm -q gpg-pubkey`).
 
 The packages declare the glibc floor from
 [src/config/osFloor.ts](src/config/osFloor.ts). When a release raises it, apt
@@ -124,7 +126,9 @@ One RSA 4096 key signs the apt `InRelease` and `Release.gpg`, dnf's
 `repomd.xml.asc`, and every `.rpm` (rpmsign in `forge.config.ts`'s `postMake`,
 CI only). RSA was tested against RHEL 8's rpm 4.14; EdDSA was not. The public
 half is [scripts/linux/key.asc](scripts/linux/key.asc), built into the install
-scripts and copied to `https://itesaurabh.github.io/xerotunes-packages/key.asc`.
+scripts and copied to `https://itesaurabh.github.io/xerotunes-packages/key.asc`,
+where the README's install commands fetch it through
+`https://xerotunes.com/linux/key.asc`.
 
 Keep the private key backed up offline. Systems trust only the key their
 package installed. A release signed with the old key can ship a new one, but
@@ -162,7 +166,7 @@ if the old key is lost, every user has to reinstall by hand.
    /linux/key.asc  https://itesaurabh.github.io/xerotunes-packages/key.asc                            302
    ```
 
-   The last line is only for a download page that shows manual setup commands.
+   The README's install commands fetch the key through the last line.
 
 Until steps 1 to 3 are done, Linux releases fail: `yarn make` on Linux reads
 `scripts/linux/key.asc`, and the Linux build and `linux-repos` job read the
