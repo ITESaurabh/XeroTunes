@@ -34,7 +34,7 @@ async function readBytes(uriOrPath: string): Promise<ArrayBuffer> {
   if (src.startsWith('file:///')) {
     const fs = window.require('fs') as typeof import('fs');
     const buf = await fs.promises.readFile(uriOrPath);
-    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   }
   const res = await fetch(src);
   if (!res.ok) throw new Error(`scratch: ${res.status} for ${src}`);

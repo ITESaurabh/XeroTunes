@@ -402,7 +402,7 @@ export async function finishWebAuth(provider: ScrobbleProvider): Promise<Scrobbl
   const token = pendingTokens.get(provider);
   if (!token) throw new Error('Start the connection first.');
   const json = await audioscrobblerRequest(provider, { method: 'auth.getSession', token });
-  const key = json.session?.key as string | undefined;
+  const key = json.session?.key;
   if (!key) throw new Error('The server did not return a session.');
   pendingTokens.delete(provider);
   const st = load()[provider];

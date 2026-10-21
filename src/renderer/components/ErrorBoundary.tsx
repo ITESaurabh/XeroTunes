@@ -55,10 +55,13 @@ function CrashScreen({ details, onRetry }: { details: string; onRetry: () => voi
             component="div"
             onClick={e => {
               e.stopPropagation();
-              navigator.clipboard.writeText(details).then(() => {
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              });
+              navigator.clipboard
+                .writeText(details)
+                .then(() => {
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                })
+                .catch(() => undefined);
             }}
           >
             {copied ? 'Copied' : 'Copy'}

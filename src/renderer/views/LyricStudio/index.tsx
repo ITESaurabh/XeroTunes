@@ -199,7 +199,10 @@ export default function LyricStudio() {
         setSavedLrc(toLrc(parsed.lines, parsed.endMs));
       }
       setLoading(false);
-    })();
+    })().catch(err => {
+      console.error('[lyric-studio] Load failed:', err);
+      if (!cancelled) setLoading(false);
+    });
     return () => {
       cancelled = true;
     };
@@ -627,7 +630,7 @@ export default function LyricStudio() {
             <PlaybackProgress
               audioRef={audioRef}
               duration={duration}
-              trackId={track.Id as string | number}
+              trackId={track.Id}
               paused={!playing}
               inline
               onSeekCommit={noop}

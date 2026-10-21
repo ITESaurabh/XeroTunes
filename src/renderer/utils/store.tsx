@@ -56,7 +56,7 @@ const PLAYBACK_FIELDS: readonly (keyof QueueTrack)[] = [
 
 export function pickQueueTrack(track: Track | QueueTrack | null | undefined): QueueTrack | null {
   if (!track || track.Id == null) return null;
-  const slim: QueueTrack = { Id: track.Id as string | number };
+  const slim: QueueTrack = { Id: track.Id };
   for (const k of PLAYBACK_FIELDS) {
     if (k === 'Id') continue;
     const v = (track as Record<string, unknown>)[k];

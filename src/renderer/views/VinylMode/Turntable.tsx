@@ -342,7 +342,7 @@ export default function Turntable() {
     window.dispatchEvent(new CustomEvent(PLAYBACK_SCRATCH_EVENT, { detail: d }));
 
   // Decoding takes a moment, so it starts as soon as a record is on.
-  const uri = state.track?.Uri as string | undefined;
+  const uri = state.track?.Uri;
   useEffect(() => {
     if (uri) deck({ phase: 'prime', uri });
   }, [uri]);
@@ -451,7 +451,7 @@ export default function Turntable() {
 
   // A record with no art wears the app's default label; an empty deck shows none.
   const cover = state.track?.AlbumArt
-    ? `file:///${(state.track.AlbumArt as string).replace(/\\/g, '/')}`
+    ? `file:///${state.track.AlbumArt.replace(/\\/g, '/')}`
     : trackId != null
       ? DEFAULT_AA
       : null;

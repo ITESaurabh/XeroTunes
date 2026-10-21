@@ -267,7 +267,7 @@ const reopenRear = (chain: Chain): void => {
 // headset went missing from one enumeration with no devicechange after it came
 // back, and the mute stuck.
 let deviceScan = 0;
-const onDeviceChange = async (): Promise<void> => {
+const checkRearDevice = async (): Promise<void> => {
   const scan = ++deviceScan;
   const list = await navigator.mediaDevices.enumerateDevices().catch(() => null);
   const rear = chains.get('rear');
@@ -275,6 +275,7 @@ const onDeviceChange = async (): Promise<void> => {
   if (!list.some(d => d.kind === 'audiooutput' && d.deviceId === rear.deviceId)) rear.lost = true;
   else if (rear.lost) reopenRear(rear);
 };
+const onDeviceChange = () => void checkRearDevice();
 
 export function open(role: Role, deviceId: string): Chain {
   let chain = chains.get(role);
@@ -502,7 +503,7 @@ async function readLocalFile(src: string): Promise<ArrayBuffer | null> {
   const fs = window.require('fs') as typeof import('fs');
   const path = decodeURIComponent(new URL(src).pathname).replace(/^\/([A-Za-z]:)/, '$1');
   const buf = await fs.promises.readFile(path);
-  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
 }
 
 /** Apply devices, delays and levels without touching the capture. */

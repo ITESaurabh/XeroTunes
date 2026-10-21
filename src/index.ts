@@ -239,7 +239,9 @@ function createWindow() {
     icon: './assets/logo/XeroTunesLogo.png',
   });
 
-  loadingWin.loadFile(path.join(__dirname, 'loader.html'));
+  loadingWin
+    .loadFile(path.join(__dirname, 'loader.html'))
+    .catch(err => console.error('[loader] Load failed:', err));
 
   loadingWin.once('ready-to-show', () => {
     loadingWin!.show();
@@ -273,7 +275,7 @@ function createWindow() {
           },
         });
         if (currOS === OS_WINDOWS) {
-          miniWin!.setAppDetails({
+          miniWin.setAppDetails({
             appId: IDENTITY.appId,
             relaunchDisplayName: `${IDENTITY.productName} Mini`,
           });
@@ -287,7 +289,7 @@ function createWindow() {
           loadingWin!.hide();
           loadingWin!.close();
         });
-        miniWin!.webContents.on('before-input-event', (event, input) => {
+        miniWin.webContents.on('before-input-event', (event, input) => {
           if (
             (input.control && input.shift && input.key.toLowerCase() === 'i') ||
             input.key === 'F12'
@@ -311,7 +313,9 @@ function createWindow() {
         ipcMain.on('add-track', (_e, message) => {
           miniWin!.webContents.send('play-mini', message);
         });
-        miniWin!.loadURL(MINI_PLAYER_WEBPACK_ENTRY);
+        miniWin
+          .loadURL(MINI_PLAYER_WEBPACK_ENTRY)
+          .catch(err => console.error('[mini-player] Load failed:', err));
       });
     } else {
       miniWin.show();
@@ -344,21 +348,23 @@ function createWindow() {
         scrollBounce: true,
       },
     });
-    mainWin!.setMenu(null);
+    mainWin.setMenu(null);
     if (currOS === OS_WINDOWS) {
-      mainWin!.setAppDetails({
+      mainWin.setAppDetails({
         appId: IDENTITY.appId,
         relaunchDisplayName: IDENTITY.productName,
       });
     }
-    mainWin!.once('ready-to-show', () => {
+    mainWin.once('ready-to-show', () => {
       mainWin!.show();
       loadingWin!.hide();
       loadingWin!.close();
     });
 
-    mainIpcs(mainWin!, OVERLAY_WEBPACK_ENTRY);
-    mainWin!.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+    mainIpcs(mainWin, OVERLAY_WEBPACK_ENTRY);
+    mainWin
+      .loadURL(MAIN_WINDOW_WEBPACK_ENTRY)
+      .catch(err => console.error('[main-window] Load failed:', err));
   });
 }
 

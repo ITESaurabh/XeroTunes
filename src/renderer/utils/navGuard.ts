@@ -30,7 +30,9 @@ export function setNavGuard(fn: Guard): () => void {
 
 // Main cancels the close and asks here. Registered once, at import, so it is
 // listening before any screen has had a chance to register a guard.
-ipcRenderer.on('confirm-close', async () => {
+ipcRenderer.on('confirm-close', () => void answerClose());
+
+async function answerClose(): Promise<void> {
   let approved = true;
   try {
     approved = await confirmNavigation();
@@ -38,7 +40,7 @@ ipcRenderer.on('confirm-close', async () => {
     // A guard that throws must not wedge the window shut.
   }
   ipcRenderer.send('confirm-close-reply', approved);
-});
+}
 
 /** True when it is safe to leave. Unguarded screens always say yes. */
 export async function confirmNavigation(): Promise<boolean> {

@@ -391,7 +391,7 @@ export default function PlayBar() {
       return;
     }
     let cancelled = false;
-    resolveLyrics(songPath, state.track?.Id).then(found => {
+    void resolveLyrics(songPath, state.track?.Id).then(found => {
       if (cancelled) return;
       setLrcContent(found?.content ?? null);
       setLyricsSource(found?.source ?? null);
@@ -459,7 +459,7 @@ export default function PlayBar() {
     [navigate]
   );
 
-  const trackUri = state?.track?.Uri as string | undefined;
+  const trackUri = state?.track?.Uri;
   // Internet radio: no duration, no seeking, and the bar shows Live instead of times.
   // Keyed on the queue id, not the URL scheme: the Streams view is the only thing
   // that enqueues a `stream:<id>`, whereas a synced remote track also has an http
@@ -541,9 +541,7 @@ export default function PlayBar() {
     if (deviceId === SURROUND_OUTPUT_ID) return;
     setEqualizerSink(deviceId);
     for (const el of [audioRef.current, silentAudioRef.current]) {
-      const sinkable = el as
-        | (HTMLAudioElement & { setSinkId?: (_id: string) => Promise<void>; sinkId?: string })
-        | null;
+      const sinkable = el;
       if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
       try {
         await sinkable.setSinkId(deviceId);
@@ -813,10 +811,11 @@ export default function PlayBar() {
       }
     };
 
-    navigator.mediaDevices.addEventListener('devicechange', handleDeviceChange);
+    const onDeviceChange = () => void handleDeviceChange();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
     return () => {
       cancelled = true;
-      navigator.mediaDevices.removeEventListener('devicechange', handleDeviceChange);
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
     };
   }, []);
 
@@ -932,7 +931,7 @@ export default function PlayBar() {
   }, [paused, songPath]);
 
   const albumArtSrc = state.track?.AlbumArt
-    ? `file:///${(state.track.AlbumArt as string).replace(/\\/g, '/')}`
+    ? `file:///${state.track.AlbumArt.replace(/\\/g, '/')}`
     : DEFAULT_AA;
 
   // ── Always-on-top overlay notification ─────────────────────────────────
@@ -965,7 +964,7 @@ export default function PlayBar() {
       trackId: track.Id as number,
       artist,
       track: title,
-      album: (track.AlbumTitle as string) || undefined,
+      album: track.AlbumTitle || undefined,
     };
     // Keyed on the id: a new object on every row refresh would resend now-playing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1091,9 +1090,9 @@ export default function PlayBar() {
 
     const reqId = ++metadataReqRef.current;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       try {
-        const fileUrl = `file:///${(track.AlbumArt as string).replace(/\\/g, '/')}`;
+        const fileUrl =`file:///${(track.AlbumArt as string).replace(/\\/g, '/')}`;
         const response = await fetch(fileUrl);
         const blob = await response.blob();
         const base64 = await new Promise<string>(resolve => {
@@ -1545,11 +1544,11 @@ export default function PlayBar() {
     const next = state.queue[state.queueIndex + 1];
     const ext = String(track.Uri).split('.').pop()?.toUpperCase() ?? '';
     const payload: CastLoadPayload = {
-      filePath: track.Uri as string,
+      filePath: track.Uri,
       title: (track.Title as string) || 'Unknown Title',
       artist: artistNames.join(', ') || 'Unknown Artist',
       album: (track.AlbumTitle as string) || '',
-      artPath: (track.AlbumArt as string) || null,
+      artPath: track.AlbumArt || null,
       currentTime: startTime,
       autoplay,
       customData: {
@@ -1846,7 +1845,7 @@ export default function PlayBar() {
             <PlaybackProgress
               audioRef={audioRef}
               duration={duration}
-              trackId={state.track.Id as string | number | null}
+              trackId={state.track.Id}
               isLive={isLive}
               isRemote={isRemote}
               paused={paused}

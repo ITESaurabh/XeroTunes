@@ -452,7 +452,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     win.setAlwaysOnTop(true, 'screen-saver');
     win.setIgnoreMouseEvents(true);
     win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
-    win.loadURL(overlayEntry);
+    win.loadURL(overlayEntry).catch(err => console.error('[overlay] Load failed:', err));
     win.on('closed', () => {
       overlayWin = null;
     });
@@ -678,7 +678,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
   ipcMain.on('show-dialog', (e, payload) => {
     const { title } = payload;
-    dialog.showMessageBox({
+    void dialog.showMessageBox({
       title: title,
       buttons: ['Dismiss'],
       type: 'warning',
@@ -2899,7 +2899,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (!fs.existsSync(targetPath)) {
       fs.mkdirSync(targetPath, { recursive: true });
     }
-    shell.openPath(targetPath);
+    void shell.openPath(targetPath);
     return { success: true };
   });
 
@@ -3284,12 +3284,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // handlers, and this URL comes from renderer-side data.
   ipcMain.on('open-external', (_, { url }: { url: string }) => {
     if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
-    shell.openExternal(url);
+    shell.openExternal(url).catch(err => console.warn('[open-external]', err));
   });
 
   ipcMain.on('reveal-folder', (_, { folderPath }: { folderPath: string }) => {
     if (!folderPath) return;
-    shell.openPath(folderPath);
+    void shell.openPath(folderPath);
   });
 
   // ── Discord Rich Presence IPC ─────────────────────────────────────────────

@@ -776,10 +776,11 @@ const Settings: React.FC = () => {
 
   React.useEffect(() => {
     // Submissions fail in the background with no event to listen for.
-    const refresh = () =>
+    const refresh = () => {
       invokeEventToMainProcess('scrobbler-status')
         .then((s: unknown) => setScrobbler(s as ScrobblerStatus))
         .catch(() => undefined);
+    };
     refresh();
     const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
@@ -818,10 +819,11 @@ const Settings: React.FC = () => {
       }
     };
     void refresh();
-    navigator.mediaDevices.addEventListener('devicechange', refresh);
+    const onDeviceChange = () => void refresh();
+    navigator.mediaDevices.addEventListener('devicechange', onDeviceChange);
     return () => {
       cancelled = true;
-      navigator.mediaDevices.removeEventListener('devicechange', refresh);
+      navigator.mediaDevices.removeEventListener('devicechange', onDeviceChange);
     };
   }, []);
 

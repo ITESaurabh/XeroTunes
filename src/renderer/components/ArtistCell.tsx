@@ -52,7 +52,7 @@ const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2', albumAr
       e.stopPropagation();
       if (!artistNames.length) return;
       if (artistNames.length === 1) {
-        navigateToArtist(artistNames[0]);
+        void navigateToArtist(artistNames[0]);
       } else {
         setAnchorEl(e.currentTarget);
       }
@@ -65,7 +65,7 @@ const ArtistCell: React.FC<Props> = ({ artistNameRaw, variant = 'body2', albumAr
   const handleMenuItemClick = useCallback(
     (name: string) => {
       setAnchorEl(null);
-      navigateToArtist(name);
+      void navigateToArtist(name);
     },
     [navigateToArtist]
   );

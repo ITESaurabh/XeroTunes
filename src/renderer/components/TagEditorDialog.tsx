@@ -315,7 +315,7 @@ export default function TagEditorDialog({ open, onClose, mode, tracks }: TagEdit
       const metas = await Promise.all(tracks.map(t => parseFile(t.Uri).catch(() => null)));
       if (cancelled) return;
 
-      const parsed = metas.filter(m => m !== null) as NonNullable<(typeof metas)[number]>[];
+      const parsed = metas.filter(m => m !== null);
       if (!parsed.length) {
         setError('Could not read tags from these files.');
         setValues(EMPTY_VALUES);

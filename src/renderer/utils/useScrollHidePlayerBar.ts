@@ -20,7 +20,7 @@ import { store } from './store';
 export function useScrollHidePlayerBar<T extends Record<string, number>>(
   options: { threshold?: number; field?: keyof T } = {}
 ): (_args: T) => void {
-  const { threshold = 250, field = 'scrollOffset' as keyof T } = options;
+  const { threshold = 250, field = 'scrollOffset' } = options;
   const { state, dispatch } = useContext(store);
   const lastPos = useRef<number | null>(null);
 

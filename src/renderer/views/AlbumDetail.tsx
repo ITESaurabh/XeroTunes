@@ -215,7 +215,7 @@ const AlbumDetail: React.FC = () => {
 
   const Row = useCallback(
     ({ index, style }: ListChildComponentProps) => {
-      const song = songs[index] as AlbumSong;
+      const song = songs[index];
       return (
         <div style={style}>
           <TrackRow

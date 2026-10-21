@@ -313,8 +313,7 @@ export function connect(deviceId: string): void {
 
   const onPlayer = (p: unknown) => {
     player = p;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pl = player as any;
+    const pl = player;
     pl.on('status', handleStatus);
     // A castv2 request the device never answers leaves its 'message' listener on
     // the media controller forever; lift the 10-listener cap so an orphan can't

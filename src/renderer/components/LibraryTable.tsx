@@ -463,7 +463,7 @@ export default function LibraryTable<T>({
           rowHeight={rowHeight}
           columnHeaderHeight={40}
           columnVisibilityModel={visibility}
-          onColumnVisibilityModelChange={model => setVisibility(model as Record<string, boolean>)}
+          onColumnVisibilityModelChange={model => setVisibility(model)}
           sortingMode="server"
           sortModel={sortModel}
           onSortModelChange={model => {

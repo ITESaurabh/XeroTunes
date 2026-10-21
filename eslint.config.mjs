@@ -37,5 +37,33 @@ export default defineConfig(
     // CommonJS on purpose: the scan worker, and helpers the node self-checks require.
     files: ['**/*.js'],
     rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
+    // The self-checks sit outside tsconfig, so they get no type information.
+    files: ['src/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    ignores: ['**/*.check.ts'],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': [
+        'error',
+        {
+          // navigate only returns a promise under a data router; this app uses HashRouter.
+          // These two never reject without throwOnError, which nothing here passes.
+          allowForKnownSafeCalls: [
+            { from: 'package', name: 'NavigateFunction', package: 'react-router' },
+            {
+              from: 'package',
+              name: ['invalidateQueries', 'prefetchQuery'],
+              package: '@tanstack/query-core',
+            },
+          ],
+        },
+      ],
+      // An async onClick is fine: React ignores what a handler returns.
+      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: { attributes: false } }],
+      '@typescript-eslint/no-unnecessary-type-assertion': 'error',
+    },
   }
 );

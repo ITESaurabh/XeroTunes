@@ -69,8 +69,13 @@ const StreamDetail: React.FC = () => {
 
   const { data: stream, isLoading } = useQuery({
     queryKey: [QUERY_KEYS.STREAMS, id],
-    queryFn: () =>
-      invokeEventToMainProcess('get-stream', { streamId: id }) as Promise<StreamRow | undefined>,
+    queryFn: async () => {
+      const row = (await invokeEventToMainProcess('get-stream', { streamId: id })) as
+        | StreamRow
+        | undefined;
+      // React Query treats undefined data as an error, so a deleted stream returns null.
+      return row ?? null;
+    },
   });
 
   const { data: tracks = [] as StreamTrackRow[] } = useQuery({

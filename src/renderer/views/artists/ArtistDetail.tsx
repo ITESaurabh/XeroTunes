@@ -519,7 +519,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
                   disabled={isSyncing}
                   onClick={() => {
                     setMenuAnchorEl(null);
-                    handleSync();
+                    handleSync().catch(err => console.error('[artist] Sync failed:', err));
                   }}
                 >
                   Refresh Artist Info

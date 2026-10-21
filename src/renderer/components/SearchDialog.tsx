@@ -277,7 +277,7 @@ export default function SearchDialog() {
     }
 
     setIsSearching(true);
-    const timeoutId = setTimeout(async () => {
+    const search = async () => {
       try {
         const results = await invokeEventToMainProcess('search-library', { query: searchQuery });
         setSearchResults(results as SearchResults);
@@ -296,7 +296,8 @@ export default function SearchDialog() {
       } finally {
         setIsSearching(false);
       }
-    }, 600);
+    };
+    const timeoutId = setTimeout(() => void search(), 600);
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery, invokeEventToMainProcess]);

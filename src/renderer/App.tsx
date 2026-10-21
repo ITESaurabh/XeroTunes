@@ -59,9 +59,12 @@ const App = () => {
   }, [themePref, state.appTheme]);
 
   useEffect(() => {
-    ipcRenderer.invoke('get-dark-mode').then(darkMode => {
-      setSystemIsDark(darkMode);
-    });
+    ipcRenderer
+      .invoke('get-dark-mode')
+      .then(darkMode => {
+        setSystemIsDark(darkMode);
+      })
+      .catch(() => undefined);
     // Follow OS light/dark changes at runtime for the Auto theme.
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = (e: MediaQueryListEvent) => setSystemIsDark(e.matches);
@@ -140,7 +143,7 @@ const App = () => {
 
   useEffect(() => {
     const title = state.track?.Title;
-    const artist = state.track?.ArtistName as string | undefined;
+    const artist = state.track?.ArtistName;
     document.title = title
       ? `${state.queueIndex + 1}. ${title}${artist ? ` - ${artist}` : ''} - ${APP_DISPLAY_NAME}`
       : APP_DISPLAY_NAME;

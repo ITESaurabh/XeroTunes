@@ -210,6 +210,7 @@ export function initUpdater(windowGetter: () => BrowserWindow | null): void {
   }
 
   // Squirrel locks the install right after the first run, and checks fail until it lets go.
-  if (!process.argv.includes('--squirrel-firstrun')) setTimeout(checkForUpdate, FIRST_CHECK_MS);
-  setInterval(checkForUpdate, CHECK_EVERY_MS);
+  if (!process.argv.includes('--squirrel-firstrun'))
+    setTimeout(() => void checkForUpdate(), FIRST_CHECK_MS);
+  setInterval(() => void checkForUpdate(), CHECK_EVERY_MS);
 }

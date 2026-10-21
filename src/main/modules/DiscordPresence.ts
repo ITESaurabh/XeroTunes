@@ -30,7 +30,7 @@ function clearReconnectTimer() {
 function scheduleReconnect() {
   clearReconnectTimer();
   reconnectTimer = setTimeout(() => {
-    if (presenceEnabled) connect();
+    if (presenceEnabled) void connect();
   }, RECONNECT_DELAY_MS);
 }
 
@@ -61,7 +61,7 @@ async function connect() {
   });
 
   rpcClient.on('disconnected', () => {
-    destroyClient();
+    void destroyClient();
     if (presenceEnabled) scheduleReconnect();
   });
 
@@ -104,7 +104,7 @@ function applyActivity(data: NowPlayingData) {
   }
 
   rpcClient.user.setActivity(activity).catch(() => {
-    destroyClient();
+    void destroyClient();
     if (presenceEnabled) scheduleReconnect();
   });
 }
@@ -115,13 +115,13 @@ function applyActivity(data: NowPlayingData) {
 export function setPresenceEnabled(enabled: boolean): void {
   presenceEnabled = enabled;
   if (enabled) {
-    connect();
+    void connect();
   } else {
     clearReconnectTimer();
     if (rpcClient?.isConnected && rpcClient.user) {
       rpcClient.user.clearActivity().catch(() => undefined);
     }
-    destroyClient();
+    void destroyClient();
     currentActivity = null;
   }
 }
@@ -139,7 +139,7 @@ export function updatePresence(data: NowPlayingData): void {
   if (rpcClient?.isConnected) {
     applyActivity(data);
   } else {
-    connect();
+    void connect();
   }
 }
 
@@ -153,7 +153,7 @@ export function clearPresence(): void {
 /** Call on app quit to cleanly tear down the RPC client. */
 export function destroyPresence(): void {
   clearReconnectTimer();
-  destroyClient();
+  void destroyClient();
   currentActivity = null;
   presenceEnabled = false;
 }

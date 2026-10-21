@@ -518,7 +518,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onFinish }) => {
           <Button
             startIcon={<ArrowBackRounded />}
             color="inherit"
-            onClick={() => setStep(backTarget[step as 'theme' | 'folders' | 'scan'])}
+            onClick={() => setStep(backTarget[step])}
           >
             Back
           </Button>

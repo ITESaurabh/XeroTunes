@@ -114,7 +114,7 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
   }, [onClose]);
 
   const { newPlaylistItem, newPlaylistDialog } = useNewPlaylist(
-    useCallback(() => (song?.Id != null ? [song.Id as string | number] : []), [song]),
+    useCallback(() => (song?.Id != null ? [song.Id] : []), [song]),
     close,
     useCallback((name: string) => setToast(`Added to ${name}`), [])
   );
@@ -238,7 +238,7 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
           onClick={() => {
             if (song?.Id != null && typeof uri === 'string') {
               setEditTracks([
-                { Id: song.Id as number | string, Uri: uri, Title: song.Title as string },
+                { Id: song.Id, Uri: uri, Title: song.Title as string },
               ]);
             }
             close();

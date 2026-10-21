@@ -16,9 +16,8 @@ export function debounce<T extends (...args: any[]) => void>(
 ): (...args: Parameters<T>) => void {
   let debounceTimer: ReturnType<typeof setTimeout>;
   return function (this: unknown, ...args: Parameters<T>) {
-    const context = this as unknown;
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => func.apply(context, args), delay);
+    debounceTimer = setTimeout(() => func.apply(this, args), delay);
   };
 }
 

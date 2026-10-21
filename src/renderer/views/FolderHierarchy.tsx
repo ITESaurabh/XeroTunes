@@ -373,7 +373,7 @@ const FolderHierarchy: React.FC = () => {
   });
 
   const subfolders = useMemo(() => children?.subfolders ?? [], [children]);
-  const songs = useMemo(() => (children?.songs ?? []) as Track[], [children]);
+  const songs = useMemo(() => (children?.songs ?? []), [children]);
 
   const breadcrumb = useMemo(() => buildBreadcrumb(currentPath, roots), [currentPath, roots]);
 
@@ -497,7 +497,9 @@ const FolderHierarchy: React.FC = () => {
   }, [focusTrackId, focusTs, rows]);
 
   const handleOpenAlbum = useCallback(
-    (albumId: string | number) => navigate(`/main_window/albums/${albumId}`),
+    (albumId: string | number) => {
+      navigate(`/main_window/albums/${albumId}`);
+    },
     [navigate]
   );
 
