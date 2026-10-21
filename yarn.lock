@@ -5052,9 +5052,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"electron@npm:43.1.0":
-  version: 43.1.0
-  resolution: "electron@npm:43.1.0"
+"electron@npm:43.8.0":
+  version: 43.8.0
+  resolution: "electron@npm:43.8.0"
   dependencies:
     "@electron-internal/extract-zip": "npm:^1.0.1"
     "@electron/get": "npm:^5.0.0"
@@ -5062,7 +5062,7 @@ __metadata:
   bin:
     electron: cli.js
     install-electron: install.js
-  checksum: 10c0/f5543ce1114ddf84f4872f4c214fb4f0a3990bc2634bbdb60ebbc49b155c46cfde71efb7852863da27ed0592cac1db074424868009495de07ea07f12a8dcfd9d
+  checksum: 10c0/14b4f059b94579ea71bd24adcea03a5eb7de443bee8479e13eb6e022cb9ffb789c010fc1583da828f933a8c225939d5ff4605d328726128a29b3b3f1a7e4a33d
   languageName: node
   linkType: hard
 
@@ -10340,7 +10340,7 @@ __metadata:
     cross-env: "npm:^10.1.0"
     css-loader: "npm:^6.0.0"
     dotenv-webpack: "npm:^9.0.0"
-    electron: "npm:43.1.0"
+    electron: "npm:43.8.0"
     eslint: "npm:^10.13.0"
     eslint-plugin-react-hooks: "npm:^7.1.1"
     fork-ts-checker-webpack-plugin: "npm:^7.2.13"

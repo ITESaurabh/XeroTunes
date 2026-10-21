@@ -865,6 +865,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       activeScanWorker = null;
       activeScanMode = null;
     };
+    let reported = false;
 
     activeScanWorker.on('message', rawMsg => {
       const msg = rawMsg as {
@@ -876,6 +877,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         processed?: number;
         error?: string;
       };
+      if (msg.type !== 'progress') reported = true;
       if (msg.type === 'progress') {
         sendMessageToRendererProcess(mainWin, 'scan-progress', {
           scanned: msg.scanned,
@@ -906,7 +908,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       console.log(`[${mode}-scan] Worker exited with code ${code}`);
       clearWorker();
       if (emitLifecycle) sendMessageToRendererProcess(mainWin, 'scan-end', null);
-      if (code !== 0) rejectPromise('Worker exited with code ' + code);
+      if (code !== 0) {
+        rejectPromise('Worker exited with code ' + code);
+      } else if (!reported) {
+        // Exit 0 implies success was posted; Electron before 43.8.0 can drop a
+        // message sent right before exit. Counts are lost, so always refresh.
+        restorePendingFavourites();
+        sendMessageToRendererProcess(mainWin, 'library-updated', {});
+        resolvePromise({ success: true, scanned: 0, removed: 0 });
+      }
     });
 
     return scanPromise;
@@ -3180,71 +3190,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       console.warn('Failed to apply window scale on load:', err);
     }
 
-    if (activeScanWorker) return;
-
-    const folders = db.prepare('SELECT * FROM MusicFolder').all();
-    if (!folders.length) return;
-
-    const config = {
-      APP_CONF_FOLDER,
-      MUSIC_DIR,
-      ALBUM_ART_DIR,
-      ARTIST_ART_DIR,
-    };
-
-    const settings = readSettingsFile();
-
-    activeScanWorker = utilityProcess.fork(path.join(__dirname, 'musicScanWorker.js'));
-    activeScanMode = 'basic';
     // Basic scan on startup: only new files are processed, known ones are skipped.
-    activeScanWorker.postMessage({
-      folders,
-      config,
-      mode: 'basic',
-      librarySettings: settings.library,
-    });
-    sendMessageToRendererProcess(mainWin, 'scan-start', 'basic');
-
-    activeScanWorker.on('message', rawMsg => {
-      const msg = rawMsg as {
-        type?: string;
-        success?: boolean;
-        scanned?: number;
-        removed?: number;
-        total?: number;
-        processed?: number;
-        error?: string;
-      };
-      if (msg.type === 'progress') {
-        sendMessageToRendererProcess(mainWin, 'scan-progress', {
-          scanned: msg.scanned,
-          total: msg.total,
-          processed: msg.processed,
-        });
-      } else if (msg.success) {
-        const scanned = msg.scanned ?? 0;
-        const removed = msg.removed ?? 0;
-        console.log(`[Auto-scan] +${scanned} new, -${removed} removed.`);
-        const restored = restorePendingFavourites();
-        if (scanned > 0 || removed > 0 || restored > 0) {
-          sendMessageToRendererProcess(mainWin, 'library-updated', { scanned, removed });
-        }
-        activeScanWorker = null;
-        activeScanMode = null;
-      }
-    });
-    activeScanWorker.on('exit', (code: number) => {
-      console.log(`[Auto-scan] Worker exited with code ${code}`);
-      activeScanWorker = null;
-      activeScanMode = null;
-      sendMessageToRendererProcess(mainWin, 'scan-end', null);
-    });
-    activeScanWorker.on('error', err => {
-      console.error('[Auto-scan] Worker error:', err);
-      activeScanWorker = null;
-      activeScanMode = null;
-      sendMessageToRendererProcess(mainWin, 'scan-end', null);
-    });
+    spawnScanWorker('basic').catch(err => console.error('[Auto-scan] Scan error:', err));
   });
 
   // ── Track DB info for Info/Tags dialog ───────────────────────────────────

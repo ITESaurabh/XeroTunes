@@ -375,7 +375,11 @@ function reducer(state: AppState, action: AppAction): AppState {
       // useScrollHidePlayerBar fires this on every scroll tick, usually with the
       // value already set; without this guard each tick re-renders every consumer.
       if (state.isPlayerBarVisible === action.payload) return state;
-      return { ...state, isPlayerBarVisible: action.payload };
+      return {
+        ...state,
+        isPlayerBarVisible: action.payload,
+        isLyricsExpanded: action.payload && state.isLyricsExpanded,
+      };
     }
     case 'SET_LYRICS_EXPANDED': {
       return { ...state, isLyricsExpanded: action.payload };
