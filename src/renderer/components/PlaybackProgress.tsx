@@ -131,7 +131,7 @@ const LiveMark = styled(Box, {
 }));
 
 interface PlaybackProgressProps {
-  audioRef: React.RefObject<HTMLAudioElement>;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
   duration: number;
   trackId?: string | number | null;
   /** Internet radio: no seeking, no end to count down to. */

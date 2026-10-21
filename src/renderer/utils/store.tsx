@@ -15,7 +15,7 @@ import {
   setActiveTheme,
 } from './LocStoreUtil';
 import { AMETHYST, AppTheme } from '../../config/theme';
-import { ThemeMode, TitleBarStyle } from 'src/config/app_settings';
+import { ThemeMode, TitleBarStyle } from '../../config/app_settings';
 import { ScanMode } from '../../config/constants';
 
 export type RepeatMode = 'off' | 'all' | 'one';
@@ -31,8 +31,10 @@ export interface Track {
  * are kept; full Track records (which include genre, year, track number,
  * extension, etc.) stay in their respective React Query lists and are
  * not duplicated into the global store.
+ *
+ * A type alias on purpose: an interface isn't assignable to Track's index signature.
  */
-export interface QueueTrack {
+export type QueueTrack = {
   Id: string | number;
   Title?: string;
   Uri?: string;
@@ -40,7 +42,7 @@ export interface QueueTrack {
   AlbumId?: string | number;
   AlbumTitle?: string;
   ArtistName?: string;
-}
+};
 
 const PLAYBACK_FIELDS: readonly (keyof QueueTrack)[] = [
   'Id',

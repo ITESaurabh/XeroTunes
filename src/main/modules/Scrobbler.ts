@@ -210,11 +210,19 @@ interface ScrobblerApiError extends Error {
   code?: number;
 }
 
+/** The fields read here; Last.fm and Libre.fm send more. */
+interface AudioscrobblerResponse {
+  error?: number | string;
+  message?: string;
+  token?: string;
+  session?: { key?: string; name?: string };
+}
+
 /** Throws with `.code` set for API-level errors, without it for transport failures. */
 async function audioscrobblerRequest(
   provider: ScrobbleProvider,
   params: Record<string, string>
-): Promise<Record<string, any>> {
+): Promise<AudioscrobblerResponse> {
   const root = apiRoot(provider);
   if (!root) throw new Error('Set this server’s address first.');
   const { key, secret } = apiCredentials(provider);
@@ -225,7 +233,7 @@ async function audioscrobblerRequest(
     format: 'json',
   });
   const res = await fetch(root, { method: 'POST', body });
-  const json = (await res.json().catch(() => null)) as Record<string, any> | null;
+  const json = (await res.json().catch(() => null)) as AudioscrobblerResponse | null;
   if (!json) throw new Error(`${PROVIDER_CONFIG[provider].label} returned HTTP ${res.status}`);
   if (json.error) {
     const err: ScrobblerApiError = new Error(json.message || `Error ${json.error}`);
@@ -429,7 +437,11 @@ export async function connectWithToken(
   const res = await fetch(`${root}/validate-token`, {
     headers: { Authorization: `Token ${trimmed}` },
   });
-  const json = (await res.json().catch(() => null)) as Record<string, any> | null;
+  const json = (await res.json().catch(() => null)) as {
+    valid?: boolean;
+    message?: string;
+    user_name?: string;
+  } | null;
   if (!res.ok || !json?.valid) throw new Error(json?.message || 'The server rejected that token.');
   const st = load()[provider];
   st.credential = trimmed;

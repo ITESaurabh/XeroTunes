@@ -187,7 +187,7 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
     return () => {
       cancelled = true;
     };
-  }, [open, songPath, isRemote]);
+  }, [open, songPath, isRemote, track?.Id]);
 
   const handleRevealFile = () => {
     if (songPath && !isRemote) ipcRenderer.invoke('reveal-file', { filePath: songPath });

@@ -10,8 +10,8 @@ The tag shape picks the channel:
 
 | Tag              | Channel | Result                              |
 | ---------------- | ------- | ----------------------------------- |
-| `v0.10.0`        | stable  | full release, `yarn publish:prod`   |
-| `v0.10.0-beta.1` | beta    | prerelease, `yarn publish`          |
+| `v0.10.0`        | stable  | full release, `yarn release:prod`   |
+| `v0.10.0-beta.1` | beta    | prerelease, `yarn release`          |
 
 A tag containing a hyphen is treated as a prerelease.
 
@@ -51,9 +51,20 @@ Channel-specific values live in two GitHub **Environments**, `beta` and
 `production`. The release job selects one from the tag, so the same secret name
 resolves to a different value per channel:
 
-- `DISCORD_CLIENT_ID` — set once in each environment. Injected at build time via
+- `DISCORD_CLIENT_ID`, `LASTFM_API_KEY`, `LASTFM_API_SECRET`, `LIBREFM_API_KEY`,
+  `LIBREFM_API_SECRET` and `GCAST_APP_ID`. Injected at build time via
   `dotenv-webpack` (`systemvars: true`), replacing the gitignored `.env.*` files
-  that supply it locally.
+  that supply them locally; [.env.example](.env.example) lists them. A missing
+  one doesn't fail the build. The feature degrades instead: Discord presence
+  never connects, Last.fm sign-in fails, Libre.fm uses the all-zero key in
+  [src/config/constants.ts](src/config/constants.ts), and casting falls back to
+  Google's default receiver. Check `production` has every one before the first
+  stable tag; no stable release has run yet.
+- `NETLIFY_BUILD_HOOK`. The `netlify` job posts to it so the site's download
+  links pick up the new release, and fails the run if it's empty.
+
+A repository secret of the same name also works for both channels; an
+environment secret overrides it.
 
 `GITHUB_TOKEN` is provided automatically by Actions and is not per-channel.
 
@@ -247,6 +258,6 @@ the next mirror too, which makes the fallback look broken when it isn't.
 
 ## Local publishing
 
-Publishing locally instead of via CI works too — `yarn publish` / `yarn
-publish:prod` — but requires a `GITHUB_TOKEN` in your environment and only
-builds for your current OS.
+Publishing locally instead of via CI works too, with `yarn release` (beta) or
+`yarn release:prod` (stable). It needs a `GITHUB_TOKEN` in your environment and
+only builds for your current OS.

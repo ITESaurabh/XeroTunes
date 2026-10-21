@@ -1,0 +1,40 @@
+name: CI
+
+# Blocks merges only once "checks" is a required status check on main and development.
+on:
+  pull_request:
+  push:
+    branches: [main, development]
+
+# Fork PRs run this code: keep the token read-only and add no secrets.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Lint
+        run: yarn lint
+
+      - name: Typecheck
+        run: yarn typecheck
+
+      - name: Self-checks
+        run: yarn test

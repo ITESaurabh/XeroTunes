@@ -115,7 +115,7 @@ const lrcInlineStyle: React.CSSProperties = {
 };
 
 interface LyricsPanelProps {
-  audioRef: React.RefObject<HTMLAudioElement>;
+  audioRef: React.RefObject<HTMLAudioElement | null>;
   lrcContent: string | null;
   lyricsType: 'synced' | 'unsynced' | null;
   lyricsSource: 'LRC file' | 'Embedded' | 'Server' | null;

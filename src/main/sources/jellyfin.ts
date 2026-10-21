@@ -113,7 +113,7 @@ let cachedVersion: string | null = null;
 function clientVersion(): string {
   if (cachedVersion === null) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       cachedVersion = (require('electron') as typeof import('electron')).app.getVersion();
     } catch {
       cachedVersion = '0.0.0';
@@ -225,7 +225,7 @@ export async function pingServer(
   userId?: string
 ): Promise<{ reachable: boolean; authValid: boolean }> {
   const baseUrl = trimTrailingSlash(rawBaseUrl);
-  let reachable = false;
+  let reachable: boolean;
   let authValid = false;
 
   try {
@@ -297,7 +297,6 @@ export async function listAudioItems(
   const PAGE_SIZE = 500;
   const items: JellyfinAudioItem[] = [];
   let startIndex = 0;
-  let total = 0;
   let done = false;
 
   while (!done) {
@@ -323,7 +322,7 @@ export async function listAudioItems(
       Items: JellyfinAudioItem[];
       TotalRecordCount: number;
     };
-    total = data.TotalRecordCount ?? data.Items.length;
+    const total = data.TotalRecordCount ?? data.Items.length;
     items.push(...data.Items);
     if (onProgress) onProgress(items.length, total);
 

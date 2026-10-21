@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // Writes tags back to audio files. music-metadata, used for every read in the
 // app, is read-only, so this is the one place that mutates files on disk.
 // Plain JS so the main process and test_tagWriter.js can both load it.

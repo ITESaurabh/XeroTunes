@@ -19,9 +19,9 @@ interface DiscoveredService {
 import { inherits } from 'util';
 
 // castv2-client ships no types; it's a callback-based CommonJS module.
-/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-disable @typescript-eslint/no-require-imports */
 const castv2 = require('castv2-client');
-/* eslint-enable @typescript-eslint/no-var-requires */
+/* eslint-enable @typescript-eslint/no-require-imports */
 const Client = castv2.Client;
 const DefaultMediaReceiver = castv2.DefaultMediaReceiver;
 

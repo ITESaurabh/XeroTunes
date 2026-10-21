@@ -1,14 +1,19 @@
 /** Self-check: run with `node src/config/theme.check.ts`. */
 import assert from 'node:assert';
-import { getContrastRatio } from '@mui/material/styles';
-import {
-  AMETHYST,
-  THEME_FIELDS,
-  getBaseTheme,
-  parseTheme,
-  surfacesFor,
-  themeFromSeed,
-} from './theme.ts';
+import { registerHooks } from 'node:module';
+
+// Node's ESM resolver refuses the directory import of '@mui/material/styles' that
+// webpack accepts, and theme.ts uses it; point Node at the CommonJS build.
+registerHooks({
+  resolve: (specifier, context, next) =>
+    next(
+      specifier === '@mui/material/styles' ? '@mui/material/node/styles/index.js' : specifier,
+      context
+    ),
+});
+const { getContrastRatio } = await import('@mui/material/styles');
+const { AMETHYST, THEME_FIELDS, getBaseTheme, parseTheme, surfacesFor, themeFromSeed } =
+  await import('./theme.ts');
 
 /** The palette the app shipped before themes were editable, copied from git history. */
 const ORIGINAL = {
@@ -46,7 +51,7 @@ for (const [key, want] of Object.entries({
   control: 'rgb(1, 1, 2)', // was black behind the transport buttons
   well: 'rgb(1, 1, 2)', // was #000000 on the slider rails
   glass: 'rgba(1, 1, 2, 0.6)', // was rgba(0,0,0,0.6) on the play bar
-  glassBorder: 'rgba(1, 1, 2, 0.25)', // was rgba(0,0,0,0.25)
+  glassBorder: 'rgba(244, 244, 244, 0.16)', // light hairline since 58b01b0; was rgba(0,0,0,0.25)
   scrim: 'rgba(1, 1, 2, 0.5)', // was rgba(0,0,0,0.5) behind modals
   positive: '#2ECA45', // the iOS-style switch green
   folder: '#facc6b',

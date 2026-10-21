@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // Rules that decide what the library contains: how an artist tag splits into
 // artists, and whether a file still belongs to a music folder. Plain JS with no
 // deps so the scan worker, the main process and test_libraryRules.js can all load it.

@@ -235,7 +235,17 @@ const AlbumDetail: React.FC = () => {
         </div>
       );
     },
-    [songs, state.track?.Id, state.isPlaying, isPhone, handlePlayAll, selectedIds, toggleAt]
+    [
+      songs,
+      state.track?.Id,
+      state.isPlaying,
+      isPhone,
+      handlePlayAll,
+      selectedIds,
+      toggleAt,
+      ROW_HEIGHT,
+      openTrackMenu,
+    ]
   );
 
   return (

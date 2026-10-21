@@ -97,7 +97,7 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
         <Avatar
           sx={{ width: '100%', height: '100%' }}
           alt={artist.Name}
-          src={imageSrc}
+          src={imageSrc ?? undefined}
           variant="circular"
         />
       </Box>

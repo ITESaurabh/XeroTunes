@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // Last.fm keys its artist namespace on the literal string it receives, so a
 // joined credit ("A, B, C") mints a new artist with no mbid and nothing rolls
 // up. These assert on the serialized body; the intermediate object was always

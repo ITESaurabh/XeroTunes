@@ -6,7 +6,6 @@
  * the play bar is showing, and a second copy of this order would drift from it.
  */
 import { ipcRenderer } from 'electron';
-// eslint-disable-next-line import/no-unresolved -- ESM-only package; same gap mainProcess.ts has
 import { parseFile } from 'music-metadata';
 import { toLrc } from './lrc';
 

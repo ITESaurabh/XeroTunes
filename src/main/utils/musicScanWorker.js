@@ -1,5 +1,3 @@
-/* eslint-disable import/no-unresolved */
-/* eslint-disable @typescript-eslint/no-var-requires */
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
@@ -89,22 +87,24 @@ function getOrCreate(db, table, column, value, extra = {}) {
   return info.lastInsertRowid;
 }
 
-function getOrCreateAlbum(db, title, artistId, extra = {}) {
+// Scoped to one source: Artist rows are shared with servers by name, so title and
+// artist alone match a server's album, which goes when that server is removed.
+function getOrCreateAlbum(db, title, artistId, extra = {}, sourceId = null) {
   if (!title) return null;
   const selectCols = extra.ReleaseYear != null ? 'Id, ReleaseYear' : 'Id';
   const row = db
     .prepare(
-      `SELECT ${selectCols} FROM Album WHERE Title = ? COLLATE NOCASE AND ((ArtistId = ?) OR (ArtistId IS NULL AND ? IS NULL))`
+      `SELECT ${selectCols} FROM Album WHERE Title = ? COLLATE NOCASE AND ((ArtistId = ?) OR (ArtistId IS NULL AND ? IS NULL)) AND SourceId IS ?`
     )
-    .get(title, artistId, artistId);
+    .get(title, artistId, artistId, sourceId);
   if (row) {
     if (extra.ReleaseYear != null && row.ReleaseYear == null) {
       db.prepare('UPDATE Album SET ReleaseYear = ? WHERE Id = ?').run(extra.ReleaseYear, row.Id);
     }
     return row.Id;
   }
-  const cols = ['Title', ...Object.keys(extra)].join(', ');
-  const vals = [title, ...Object.values(extra)];
+  const cols = ['Title', 'SourceId', ...Object.keys(extra)].join(', ');
+  const vals = [title, sourceId, ...Object.values(extra)];
   const placeholders = vals.map(() => '?').join(', ');
   const stmt = db.prepare(`INSERT INTO Album (${cols}) VALUES (${placeholders})`);
   const info = stmt.run(...vals);
@@ -282,12 +282,17 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
     musicInfo.tags.albumArtist
   );
 
+  // A downloaded server track is re-read like any file but stays on its server's album.
+  const { SourceId: sourceId } = db.prepare('SELECT SourceId FROM Track WHERE Id = ?').get(trackId);
   let albumId = null;
   if (musicInfo.tags.album) {
-    albumId = getOrCreateAlbum(db, musicInfo.tags.album, primaryAlbumArtistId, {
-      ArtistId: primaryAlbumArtistId,
-      GenreId: genreId,
-    });
+    albumId = getOrCreateAlbum(
+      db,
+      musicInfo.tags.album,
+      primaryAlbumArtistId,
+      { ArtistId: primaryAlbumArtistId, GenreId: genreId },
+      sourceId
+    );
   }
   let albumArt = '';
   if (albumId && musicInfo.tags.picture) {
@@ -406,7 +411,10 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
 async function runFullScan(db, folders, config, supportedFileTypes) {
   // Rebuild album artist relationships from current file metadata.
   // This clears stale associations that may have been created by older scan logic.
-  db.prepare('DELETE FROM AlbumArtist').run();
+  // Local albums only: WebDAV's sync skips unchanged files, so cleared server links never return.
+  db.prepare(
+    'DELETE FROM AlbumArtist WHERE AlbumId IN (SELECT Id FROM Album WHERE SourceId IS NULL)'
+  ).run();
 
   const ignored = ignoredUriSet(db);
   const filesByFolder = new Map(

@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 /**
  * Wire payloads for the two scrobble protocols, kept out of Scrobbler.ts so the
  * serialized body can be asserted on without an Electron runtime.

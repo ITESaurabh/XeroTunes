@@ -46,7 +46,7 @@ async function destroyClient() {
 }
 
 async function connect() {
-  if (!presenceEnabled) return;
+  if (!presenceEnabled || !DISCORD_CLIENT_ID) return;
   if (rpcClient?.isConnected) return;
 
   await destroyClient();

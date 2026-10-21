@@ -19,6 +19,9 @@ import {
   Portal,
 } from '@mui/material';
 import Grid from '@mui/material/Unstable_Grid2/Grid2';
+import type { Grid2TypeMap } from '@mui/material/Unstable_Grid2';
+import type { OverridableComponent } from '@mui/material/OverridableComponent';
+import type { IconButtonTypeMap } from '@mui/material/IconButton';
 import { store, RepeatMode } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
 import { useSurround } from '../utils/useSurround';
@@ -84,14 +87,13 @@ import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
 import bookmark24Regular from '@iconify/icons-fluent/bookmark-24-regular';
 import bookmark24Filled from '@iconify/icons-fluent/bookmark-24-filled';
 import { Image } from 'mui-image';
-import { DEFAULT_AA } from '../../config/constants';
+import { DEFAULT_AA, isTaggable } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
 import ImagePreviewDialog from './ImagePreviewDialog';
 import SongInfoDialog from './SongInfoDialog';
 import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
-import { isTaggable } from '../../config/constants';
 import AudioOutputMenu from './AudioOutputMenu';
 import CastDeviceMenu from './CastDeviceMenu';
 import CopyInfoMenu from './CopyInfoMenu';
@@ -163,7 +165,6 @@ const PlayerCard = styled(Grid, {
   backdropFilter: 'blur(80px)',
   width: '100%',
   border: `${theme.palette.surfaces.glassBorder} 1px solid`,
-  // eslint-disable-next-line @typescript-eslint/naming-convention
   '-electron-corner-smoothing': '100%',
   backgroundColor: theme.palette.surfaces.glass,
   // The border alone is too faint in light mode to separate the bar from the page.
@@ -174,7 +175,8 @@ const PlayerCard = styled(Grid, {
     borderRadius: `${theme.shape.borderRadius}px ${theme.shape.borderRadius}px 0 0`,
     borderBottom: 'none',
   }),
-}));
+  // styled() drops the `component` prop from the types; this renders as a Card.
+})) as OverridableComponent<Grid2TypeMap<{ isPhone: boolean }>>;
 
 const LyricsCollapse = styled(Collapse)({
   width: '100%',
@@ -240,9 +242,10 @@ const TransportRow = styled(Box)({
   gap: '0.625rem',
 });
 
+// styled() drops the `component` prop from the types; these render as motion.div.
 const ControlButton = styled(IconButton)(({ theme }) => ({
   backgroundColor: theme.palette.surfaces.control,
-}));
+})) as OverridableComponent<IconButtonTypeMap>;
 
 const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
 const PlayPauseIconStyle: React.CSSProperties = { margin: '0.3rem' };
@@ -407,6 +410,7 @@ export default function PlayBar() {
     if (isLyricsExpanded) {
       dispatch({ type: 'SET_LYRICS_EXPANDED', payload: false });
     }
+    // Route changes only: listing isLyricsExpanded would close the panel as it opens.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
   // ── End Lyrics ───────────────────────────────────────────────────────────
@@ -944,6 +948,7 @@ export default function PlayBar() {
       queueTotal: state.queue.length,
       status: 'new-track',
     });
+    // One overlay per new track; the other fields would re-show it on every queue edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id]);
 
@@ -962,6 +967,7 @@ export default function PlayBar() {
       track: title,
       album: (track.AlbumTitle as string) || undefined,
     };
+    // Keyed on the id: a new object on every row refresh would resend now-playing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id, artistNames, isLive]);
   const scrobbleMetaRef = useRef(scrobbleMeta);
@@ -1049,6 +1055,7 @@ export default function PlayBar() {
       queueTotal: state.queue.length,
       status: paused ? 'paused' : 'playing',
     });
+    // Fires on the play/pause toggle only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paused]);
 
@@ -1107,7 +1114,7 @@ export default function PlayBar() {
     return () => {
       cancelled = true;
     };
-  }, [state.track]);
+  }, [state.track, artistNames]);
 
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
@@ -1166,6 +1173,7 @@ export default function PlayBar() {
   // ── Discord Rich Presence sync ───────────────────────────────────────
   useEffect(() => {
     ipcRenderer.send('discord-set-enabled', { enabled: discordEnabled });
+    // Startup sync only; handleDiscordToggle sends every later change itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -1199,7 +1207,9 @@ export default function PlayBar() {
 
   useEffect(() => {
     sendDiscordUpdate(audioRef.current?.currentTime ?? 0);
-    // Title is a dep because a stream keeps one track id across songs.
+    // Title is a dep because a stream keeps one track id across songs. sendDiscordUpdate
+    // isn't: it's rebuilt with every track object and would resend presence on row refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.track?.Id, state.track?.Title, paused, discordEnabled, duration]);
   // ── End Discord Rich Presence sync ──────────────────────────────────
 
@@ -1666,7 +1676,7 @@ export default function PlayBar() {
       ipcRenderer.removeListener('cast-ended', onEnded);
       ipcRenderer.removeListener('cast-error', onError);
     };
-  }, []);
+  }, [anchorCastClock]);
 
   // Track changes start at 0; connect-time resume is handled in onConnected.
   useEffect(() => {
@@ -1788,7 +1798,6 @@ export default function PlayBar() {
               <Marquee text={trackTitle}>
                 <TitleText
                   variant="h6"
-                  component="h6"
                   navigable={navigable}
                   title={navigable ? `${trackTitle} — click to reveal in source` : trackTitle}
                   className="no-select no-drag"

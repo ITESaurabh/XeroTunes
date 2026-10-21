@@ -112,11 +112,9 @@ export const surfacesFor = (c: ThemeColors, mode: PaletteMode): ThemeSurfaces =>
 };
 
 declare module '@mui/material/styles' {
-  // eslint-disable-next-line no-unused-vars
   interface Palette {
     surfaces: ThemeSurfaces;
   }
-  // eslint-disable-next-line no-unused-vars
   interface PaletteOptions {
     surfaces?: ThemeSurfaces;
   }

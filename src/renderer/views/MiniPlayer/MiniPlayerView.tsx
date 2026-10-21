@@ -106,7 +106,7 @@ export default function MiniPlayerView(): React.ReactElement {
       })
       .catch(() => setSongMeta(initialMeta));
     dispatch({ type: 'SET_IS_PLAYING', payload: true });
-  }, [path]);
+  }, [path, dispatch]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -153,6 +153,7 @@ export default function MiniPlayerView(): React.ReactElement {
 
   useEffect(() => {
     const audioElement = audioRef.current;
+    if (!audioElement) return;
 
     const handleTimeUpdate = (): void => {
       if (!isSeeking) {
@@ -169,7 +170,7 @@ export default function MiniPlayerView(): React.ReactElement {
     return () => {
       audioElement.removeEventListener('timeupdate', handleTimeUpdate);
     };
-  }, [isSeeking, audioRef]);
+  }, [isSeeking, audioRef, dispatch]);
 
   const handleSliderChange = (_event: Event, newValue: number | number[]): void => {
     setPosition(newValue as number);
@@ -184,7 +185,7 @@ export default function MiniPlayerView(): React.ReactElement {
     newValue: number | number[]
   ): void => {
     const audioElement = audioRef.current;
-    audioElement.currentTime = newValue as number;
+    if (audioElement) audioElement.currentTime = newValue as number;
     setIsSeeking(false);
   };
 
@@ -326,7 +327,7 @@ export default function MiniPlayerView(): React.ReactElement {
                 sx={{ backgroundColor: theme.palette.surfaces.control }}
                 onClick={() => {
                   const audioElement = audioRef.current;
-                  audioElement.currentTime = audioElement.currentTime - 15;
+                  if (audioElement) audioElement.currentTime = audioElement.currentTime - 15;
                   setIsSeeking(false);
                 }}
               >
@@ -341,7 +342,7 @@ export default function MiniPlayerView(): React.ReactElement {
               <IconButton
                 onClick={() => {
                   const audioElement = audioRef.current;
-                  audioElement.currentTime = audioElement.currentTime + 15;
+                  if (audioElement) audioElement.currentTime = audioElement.currentTime + 15;
                   setIsSeeking(false);
                 }}
                 aria-label="next song"

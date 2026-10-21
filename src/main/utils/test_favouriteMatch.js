@@ -1,18 +1,20 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // A wrong answer here silently favourites the wrong song, so the fallback order
 // (hash, then filename) gets its own check.
 // Run: node src/main/utils/test_favouriteMatch.js
 const assert = require('assert');
+const path = require('path');
 
 const { buildTrackIndex, matchFavourite } = require('./favouriteMatch');
 
+// Native paths: path.basename on Linux and macOS doesn't split on backslashes.
+const music = (...parts) => path.join(path.resolve('/Music'), ...parts);
 const library = [
-  { Id: 1, Uri: 'C:\\Music\\Rock\\Song A.mp3', FileHash: 'aaa' },
-  { Id: 2, Uri: 'C:\\Music\\Pop\\Song B.mp3', FileHash: 'bbb' },
+  { Id: 1, Uri: music('Rock', 'Song A.mp3'), FileHash: 'aaa' },
+  { Id: 2, Uri: music('Pop', 'Song B.mp3'), FileHash: 'bbb' },
   // Same filename as track 1 in another folder; only reachable by hash.
-  { Id: 3, Uri: 'C:\\Music\\Live\\Song A.mp3', FileHash: 'ccc' },
+  { Id: 3, Uri: music('Live', 'Song A.mp3'), FileHash: 'ccc' },
   // Pre-hash rows exist in older libraries.
-  { Id: 4, Uri: 'C:\\Music\\Old\\Song D.mp3', FileHash: null },
+  { Id: 4, Uri: music('Old', 'Song D.mp3'), FileHash: null },
 ];
 const index = buildTrackIndex(library);
 

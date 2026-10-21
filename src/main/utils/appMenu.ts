@@ -153,7 +153,6 @@ export function installAppMenu(getWin: WinGetter): void {
     copyright: `© 2021–${new Date().getFullYear()} ITESaurabh\nLicensed under the GNU GPL v3`,
     authors: ['ITESaurabh'],
     website: SITE_URL,
-    // @TODO: Test on Linux
     iconPath: app.isPackaged
       ? path.join(process.resourcesPath, 'XeroTunesLogo.png')
       : path.join(app.getAppPath(), 'src', 'assets', 'logo', 'XeroTunesLogo.png'),

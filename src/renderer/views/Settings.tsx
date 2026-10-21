@@ -766,13 +766,13 @@ const Settings: React.FC = () => {
     invokeEventToMainProcess('get-missed-artist-count')
       .then((count: unknown) => setMissedArtists(Number(count) || 0))
       .catch(() => undefined);
-  }, []);
+  }, [invokeEventToMainProcess]);
 
   React.useEffect(() => {
     invokeEventToMainProcess('get-app-info')
       .then((info: unknown) => setAppInfo(info as AppInfo))
       .catch(() => undefined);
-  }, []);
+  }, [invokeEventToMainProcess]);
 
   React.useEffect(() => {
     // Submissions fail in the background with no event to listen for.
@@ -783,7 +783,7 @@ const Settings: React.FC = () => {
     refresh();
     const id = setInterval(refresh, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [invokeEventToMainProcess]);
 
   const runScrobblerAction = React.useCallback(
     async (provider: ScrobbleProvider, action: () => Promise<unknown>) => {

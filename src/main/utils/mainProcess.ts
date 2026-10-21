@@ -75,7 +75,6 @@ import { isUnderAnyRoot } from './libraryRules';
 import { buildTrackIndex, matchFavourite } from './favouriteMatch';
 import { parsePlaylistFile, writePlaylistFile } from './playlistFormats';
 import { writeTags, TagFields } from './tagWriter';
-// eslint-disable-next-line import/no-unresolved -- ESM-only package; same gap ipc.tsx already has
 import { parseFile as parseAudioFile } from 'music-metadata';
 import os from 'os';
 
@@ -160,19 +159,26 @@ const emptyDir = (dir: string) => {
   fs.mkdirSync(dir, { recursive: true });
 };
 
+// Local rows only: a server track's Uri is a URL, never under a folder, and its
+// sync owns it. With no folders left this empties the local library.
 function dropTracksOutsideFolders(): number {
   const roots = (db.prepare('SELECT Uri FROM MusicFolder').all() as { Uri: string }[]).map(
     r => r.Uri
   );
-  const tracks = db.prepare('SELECT Id, Uri FROM Track').all() as { Id: number; Uri: string }[];
+  const tracks = db.prepare('SELECT Id, Uri FROM Track WHERE SourceId IS NULL').all() as {
+    Id: number;
+    Uri: string;
+  }[];
   const del = db.prepare('DELETE FROM Track WHERE Id = ?');
 
   let removed = 0;
-  for (const track of tracks) {
-    if (isUnderAnyRoot(track.Uri, roots)) continue;
-    del.run(track.Id);
-    removed++;
-  }
+  db.transaction(() => {
+    for (const track of tracks) {
+      if (isUnderAnyRoot(track.Uri, roots)) continue;
+      del.run(track.Id);
+      removed++;
+    }
+  })();
   if (removed > 0) cleanupOrphans(db, { ALBUM_ART_DIR, ARTIST_ART_DIR });
   return removed;
 }
@@ -1867,38 +1873,18 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.handle('remove-music-folder', (e, { Id }) => {
     db.prepare('DELETE FROM MusicFolder WHERE Id = ?').run(Id);
 
-    const remaining = db.prepare('SELECT COUNT(*) AS cnt FROM MusicFolder').get() as {
-      cnt: number;
-    };
-    const wiped = remaining.cnt === 0;
-    if (wiped) {
-      db.prepare('DELETE FROM Track').run();
-      db.prepare('DELETE FROM Album').run();
-      db.prepare('DELETE FROM Artist').run();
-      db.prepare('DELETE FROM Genre').run();
-      // The artist / album-artist stats count these join tables directly.
-      db.prepare('DELETE FROM TrackArtist').run();
-      db.prepare('DELETE FROM AlbumArtist').run();
-      try {
-        const files = fs.readdirSync(ALBUM_ART_DIR);
-        for (const file of files) {
-          fs.unlinkSync(path.join(ALBUM_ART_DIR, file));
-        }
-      } catch {
-        // Directory may not exist yet; safe to ignore
-      }
-    }
-
     // Dropped by "not under any root" rather than by the removed path: library
     // folders can nest, so a broader root may still cover these files.
-    const removed = wiped ? 0 : dropTracksOutsideFolders();
+    const removed = dropTracksOutsideFolders();
+
+    const count = (table: string) =>
+      (db.prepare(`SELECT COUNT(*) AS cnt FROM ${table}`).get() as { cnt: number }).cnt;
+    // Server tracks outlive the last folder; the queue only dangles once nothing is left.
+    const wiped = count('MusicFolder') === 0 && count('Track') === 0;
 
     // Removal runs no scan, so tell the renderer to refresh caches/stats itself;
     // `wiped` also signals it to drop the now-dangling playback queue.
-    sendMessageToRendererProcess(mainWin, 'library-updated', {
-      removed: wiped ? 1 : removed,
-      wiped,
-    });
+    sendMessageToRendererProcess(mainWin, 'library-updated', { removed, wiped });
 
     return { success: true, wiped, removed };
   });
@@ -3105,7 +3091,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         )
         .all(searchPattern, exactQuery);
 
-      const normalizeTrackNumber = (trackNumber: any) => {
+      const normalizeTrackNumber = (trackNumber: unknown) => {
         if (trackNumber === null || trackNumber === undefined || trackNumber === '') return null;
         const str = String(trackNumber);
         const num = parseInt(str.split('/')[0], 10);
@@ -3170,7 +3156,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       };
 
       return results;
-    } catch (error) {
+    } catch {
       return {
         songs: [],
         albums: [],

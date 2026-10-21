@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // Round-trip check: writeTags puts a tag on disk, music-metadata (what the rest
 // of the app reads with) gets the same values back.
 // Run: node src/main/utils/test_tagWriter.js
@@ -29,7 +28,6 @@ async function main() {
   makeSilentMp3(mp3);
   fs.writeFileSync(art, PNG_1PX);
 
-  // eslint-disable-next-line import/no-unresolved -- ESM-only package; same gap mainProcess.ts has
   const { parseFile } = await import('music-metadata');
 
   writeTags(mp3, {

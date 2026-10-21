@@ -35,7 +35,8 @@ export async function fetchArtistProfileImage(
   const response = await fetch(`https://www.theaudiodb.com/api/v1/json/123/search.php?s=${encoded}`);
   if (!response.ok) throw new Error(`TheAudioDB search failed: ${response.status}`);
 
-  const json = (await response.json()) as any;
+  type Images = { strArtistThumb?: string; strArtistFanart?: string; strArtistLogo?: string };
+  const json = (await response.json()) as { artists?: Images[] | null } | null;
   const artistData = json?.artists?.[0];
 
   if (!artistId) {

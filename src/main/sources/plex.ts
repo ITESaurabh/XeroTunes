@@ -337,7 +337,8 @@ export const plexProvider: SourceProvider = {
       // unauthenticated, which is worth asking before blaming the token.
       if ((err as { status?: number }).status === 401 && (await identity(baseUrl))?.claimed === false) {
         throw new Error(
-          'That server has not been claimed by a Plex account yet, so it refuses every token. Open it at its own address, sign in there to claim it, then connect here.'
+          'That server has not been claimed by a Plex account yet, so it refuses every token. Open it at its own address, sign in there to claim it, then connect here.',
+          { cause: err }
         );
       }
       throw err;

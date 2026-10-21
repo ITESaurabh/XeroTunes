@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // Reads and writes playlists in the four formats real players actually produce:
 // M3U/M3U8 (Winamp/VLC/foobar2000), PLS (Winamp/Shoutcast), and XSPF (VLC, XML).
 // No XeroTunes-specific fields go in these files, only what each spec defines,

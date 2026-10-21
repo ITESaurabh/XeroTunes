@@ -1,4 +1,4 @@
-export const formatTime = (time: number): string => {
+export const formatTime = (time: number | undefined): string => {
   if (time && !isNaN(time)) {
     const minutes = Math.floor(time / 60);
     const formatMinutes = minutes < 10 ? `0${minutes}` : `${minutes}`;

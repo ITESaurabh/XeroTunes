@@ -124,7 +124,7 @@ const TrackRow: React.FC<TrackRowProps> = ({
           <Box sx={{ display: 'flex', flexShrink: 1, minWidth: 0, overflow: 'hidden' }}>
             <ArtistCell artistNameRaw={song.ArtistName as string | undefined} variant="caption" />
           </Box>
-          {onOpenAlbum && song.AlbumTitle && (
+          {onOpenAlbum && !!song.AlbumTitle && (
             <>
               <Typography variant="caption" sx={{ flexShrink: 0 }}>
                 &nbsp;·&nbsp;

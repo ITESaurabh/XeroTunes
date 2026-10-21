@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // How an exported favourite finds its track again. TrackIds don't survive a
 // database wipe or a different install, so a .xtfav entry carries the file's sha1
 // and its filename instead: the hash covers the whole file, so it survives a

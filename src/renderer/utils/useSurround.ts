@@ -12,7 +12,7 @@ import {
 
 /** Sets `activeRef` while surroundEngine plays the element, which PlayBar then keeps muted. */
 export function useSurround(
-  audioRef: RefObject<HTMLAudioElement>,
+  audioRef: RefObject<HTMLAudioElement | null>,
   songPath: string | null,
   castingRef: MutableRefObject<boolean>,
   muteVolumeRef: MutableRefObject<boolean>,
@@ -57,7 +57,7 @@ export function useSurround(
       window.removeEventListener(SURROUND_EVENT, apply);
       window.removeEventListener(AUDIO_OUTPUT_DEVICE_EVENT, apply);
     };
-  }, [songPath]);
+  }, [songPath, audioRef, castingRef, muteVolumeRef, activeRef]);
 
   return { on, mixerOpen, setMixerOpen };
 }

@@ -1,10 +1,10 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // A wrong answer here writes a playlist another player can't read, or fails to
 // re-match a track on import. Run: node src/main/utils/test_playlistFormats.js
 const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pathToFileURL } = require('url');
 
 const {
   detectPlaylistFormat,
@@ -24,12 +24,13 @@ assert.strictEqual(detectPlaylistFormat('a/b.pls'), 'pls');
 assert.strictEqual(detectPlaylistFormat('a/b.txt'), null);
 
 // ── resolveLocation ──────────────────────────────────────────────────────
-const base = path.join('D:', 'Music', 'Meteora');
+// Absolute on every OS: a drive letter is just a folder name on Linux and macOS.
+const base = path.resolve('/Music/Meteora');
 assert.strictEqual(resolveLocation('01. Foreword.flac', base), path.join(base, '01. Foreword.flac'));
 assert.strictEqual(resolveLocation('http://stream.example/live.mp3', base), 'http://stream.example/live.mp3');
 assert.strictEqual(
-  resolveLocation('file:///D:/Music/Meteora/02.%20Don%27t%20Stay.flac', base),
-  "D:\\Music\\Meteora\\02. Don't Stay.flac"
+  resolveLocation(`${pathToFileURL(base).href}/02.%20Don%27t%20Stay.flac`, base),
+  path.join(base, "02. Don't Stay.flac")
 );
 
 // ── M3U: the real shape shipped alongside ripped FLAC albums ────────────

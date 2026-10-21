@@ -49,6 +49,8 @@ const App = () => {
     if (!onboardingComplete || !getStartInVinylMode()) return;
     navigate('/main_window', { replace: true });
     navigate('/main_window/vinyl');
+    // A launch preference: once at startup, not again when onboarding finishes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const theme = useMemo(() => {

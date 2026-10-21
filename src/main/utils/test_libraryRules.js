@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // The two rules a wrong answer silently corrupts the library with: how an artist
 // tag is split, and which tracks survive removing a folder.
 // Run: node src/main/utils/test_libraryRules.js

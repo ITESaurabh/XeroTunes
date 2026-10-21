@@ -140,7 +140,7 @@ const Onboarding: React.FC<OnboardingProps> = ({ onFinish }) => {
     return () => {
       cancelled = true;
     };
-  }, [step]);
+  }, [step, invokeEventToMainProcess]);
 
   const finish = useCallback(
     (wasSkipped: boolean) => {

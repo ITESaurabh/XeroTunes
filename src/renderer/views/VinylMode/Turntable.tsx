@@ -39,7 +39,7 @@ function Tonearm({
   lifted: boolean;
   /** Follows the pointer directly: no easing. */
   dragging: boolean;
-  pivotRef: React.RefObject<HTMLDivElement>;
+  pivotRef: React.RefObject<HTMLDivElement | null>;
   onGrab: (_e: React.PointerEvent) => void;
 }) {
   return (

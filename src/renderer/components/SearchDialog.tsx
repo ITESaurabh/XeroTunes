@@ -453,6 +453,9 @@ export default function SearchDialog() {
         </Box>
       );
     });
+    // The helpers read only searchResults and the stable dispatch and navigate;
+    // listing them would rebuild the grid every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchResults, selectedResultIndex]);
 
   return (

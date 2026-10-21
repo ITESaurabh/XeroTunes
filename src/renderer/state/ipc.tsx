@@ -59,10 +59,10 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
         dispatch({ type: 'SET_LIBRARY_STATS', payload: res as LibraryStats });
       })
       .catch(() => undefined);
-  }, []);
+  }, [mini, dispatch]);
 
   useEffect(() => {
-    const handleIpcMessage = (_event: Electron.IpcRendererEvent, arg: string) => {
+    const handleIpcMessage =(_event: Electron.IpcRendererEvent, arg: string) => {
       dispatch({ type: 'SET_PATH', payload: arg });
     };
 
@@ -73,7 +73,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
     return () => {
       ipcRenderer.removeAllListeners('play-mini');
     };
-  }, []);
+  }, [dispatch]);
 
   // "Open with" while the full player is running: play here instead of
   // spawning a mini player. The file may be outside the library, so build a
@@ -203,7 +203,7 @@ export const IpcProvider = ({ children, mini = false }: IpcProviderProps) => {
       ipcRenderer.removeListener('scan-end', handleScanEnd);
       ipcRenderer.removeListener('library-updated', handleLibraryUpdated);
     };
-  }, []);
+  }, [mini, dispatch]);
 
   // Memoize so consumers using these as effect deps don't re-fire on every
   // store dispatch (provider re-renders → new fn refs → cascading effect runs).

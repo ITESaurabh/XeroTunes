@@ -340,8 +340,6 @@ async function readTags(
       size = Number(res.headers.get('content-length'));
     }
     const buffer = await readHead(res, maxBytes, progress);
-    // Bundled by webpack like the scan worker's copy; eslint can't resolve ESM.
-    // eslint-disable-next-line import/no-unresolved
     const mm = await import('music-metadata');
     // The size hint is the whole file's, not the buffer's: it is what lets the
     // MP3 parser work out a duration without reading to the end.

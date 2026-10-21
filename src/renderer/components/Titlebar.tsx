@@ -193,7 +193,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
     } else if (navigationType === 'POP') {
       setNavDepth(d => Math.max(0, d - 1));
     }
-  }, [location.key]);
+  }, [location.key, navigationType]);
 
   const canGoBack = navDepth > 0;
 

@@ -49,7 +49,7 @@ function Layout() {
     } else {
       dispatch({ type: 'SET_MENU_EXPANDED', payload: true });
     }
-  }, [isPhone]);
+  }, [isPhone, dispatch]);
 
   // Clipped so the deck's lift-off, scaled past the edges, never scrolls the window.
   return (

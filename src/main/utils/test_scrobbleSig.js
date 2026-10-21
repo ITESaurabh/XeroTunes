@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
 // A wrong signature fails every Last.fm call with "invalid method signature",
 // so the sort, the excluded params and the trailing secret each get a check.
 // Run: node src/main/utils/test_scrobbleSig.js
