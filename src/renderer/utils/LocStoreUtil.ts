@@ -453,6 +453,14 @@ export function setStartInVinylMode(enabled: boolean): void {
   updateSettings({ startInVinylMode: enabled });
 }
 
+export function getQueueShowPlayed(): boolean {
+  return getSettings().queueShowPlayed;
+}
+
+export function setQueueShowPlayed(enabled: boolean): void {
+  updateSettings({ queueShowPlayed: enabled });
+}
+
 export function getDiscordEnabled(): boolean {
   return getSettings().discordPresenceEnabled;
 }

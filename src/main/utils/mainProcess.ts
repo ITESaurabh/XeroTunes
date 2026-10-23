@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  type BrowserWindowConstructorOptions,
   dialog,
   ipcMain,
   nativeTheme,
@@ -423,6 +424,56 @@ function registerCastIpc(mainWin: BrowserWindow) {
   ipcMain.on('cast-disconnect', () => castDisconnect());
 }
 
+// Acrylic needs Windows 11 22H2 (build 22621). A material fills the whole window, so with
+// one the window is the card, sized per song; elsewhere a transparent window holds the card.
+const OVERLAY_MATERIAL: BrowserWindowConstructorOptions | null =
+  process.platform === 'win32' && Number(os.release().split('.')[2]) >= 22621
+    ? { backgroundMaterial: 'acrylic' }
+    : process.platform === 'darwin'
+      ? // Unverified on a Mac: check the blur, the rounded corners and the fade. 'active'
+        // keeps the material lit with the app in the background, when the overlay shows.
+        { vibrancy: 'hud', visualEffectState: 'active' }
+      : null;
+// Widest card: 8 + 64px art + 10 + 200px text + 14, matching OverlayApp's layout.
+const OVERLAY_W = 296;
+const OVERLAY_H = 80;
+const OVERLAY_SLIDE = 24;
+
+function overlayHome(width: number) {
+  const { x, y, width: areaW, height } = screen.getPrimaryDisplay().workArea;
+  return { x: x + areaW - width - 10, y: y + height - OVERLAY_H - 26 };
+}
+
+// Window opacity, not CSS, since the material belongs to the window. On Windows 11 it
+// shows through unblurred while faded and blurs again at full opacity.
+let overlayAnim: ReturnType<typeof setInterval> | null = null;
+function animateOverlay(win: BrowserWindow, show: boolean, done?: () => void) {
+  if (overlayAnim) clearInterval(overlayAnim);
+  const home = overlayHome(win.getSize()[0]);
+  const fromX = win.getPosition()[0];
+  const fromO = win.getOpacity();
+  const toX = show ? home.x : home.x + OVERLAY_SLIDE;
+  const toO = show ? 1 : 0;
+  const duration = show ? 260 : 200;
+  const start = Date.now();
+  overlayAnim = setInterval(() => {
+    if (win.isDestroyed()) {
+      clearInterval(overlayAnim!);
+      overlayAnim = null;
+      return;
+    }
+    const t = Math.min(1, (Date.now() - start) / duration);
+    const k = 1 - (1 - t) ** 3;
+    win.setPosition(Math.round(fromX + (toX - fromX) * k), home.y);
+    win.setOpacity(fromO + (toO - fromO) * k);
+    if (t === 1) {
+      clearInterval(overlayAnim!);
+      overlayAnim = null;
+      done?.();
+    }
+  }, 16);
+}
+
 export default function mainIpcs(mainWin, overlayEntry: string) {
   // ── Always-on-top overlay window ────────────────────────────────────────────
   let overlayWin: BrowserWindow | null = null;
@@ -430,11 +481,16 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   function createOverlayWin(): BrowserWindow {
     const { x, y, width, height } = screen.getPrimaryDisplay().workArea;
     const win = new BrowserWindow({
-      width: 326,
-      height: 108,
-      x: x + width - 326,
-      y: y + height - 124,
-      transparent: true,
+      ...(OVERLAY_MATERIAL
+        ? {
+            ...overlayHome(OVERLAY_W),
+            width: OVERLAY_W,
+            height: OVERLAY_H,
+            // Not transparent: that loses Windows 11's rounded corners and border.
+            backgroundColor: '#00000000',
+            ...OVERLAY_MATERIAL,
+          }
+        : { width: 326, height: 108, x: x + width - 326, y: y + height - 124, transparent: true }),
       frame: false,
       alwaysOnTop: true,
       skipTaskbar: true,
@@ -561,8 +617,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     if (mainWin.isFocused()) return;
     if (!overlayWin || overlayWin.isDestroyed()) overlayWin = createOverlayWin();
     const send = () => {
-      overlayWin!.webContents.send('show-overlay', data);
-      overlayWin!.showInactive();
+      const win = overlayWin!;
+      win.webContents.send('show-overlay', { ...data, backdrop: !!OVERLAY_MATERIAL });
+      // With a material it shows on overlay-width, never at the last song's size.
+      if (!OVERLAY_MATERIAL) win.showInactive();
     };
     if (overlayWin.webContents.isLoading()) {
       overlayWin.webContents.once('did-finish-load', send);
@@ -571,8 +629,27 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   });
 
+  ipcMain.on('overlay-width', (_, measured: number) => {
+    const win = overlayWin;
+    if (!win || win.isDestroyed()) return;
+    const width = Math.min(OVERLAY_W, Math.ceil(measured));
+    const home = overlayHome(width);
+    // Already up: resize in place. Animating in also cancels a slide-out in progress.
+    if (win.isVisible()) {
+      win.setBounds({ ...win.getBounds(), x: home.x, width });
+    } else {
+      win.setOpacity(0);
+      win.setBounds({ x: home.x + OVERLAY_SLIDE, y: home.y, width, height: OVERLAY_H });
+      win.showInactive();
+    }
+    animateOverlay(win, true);
+  });
+
   ipcMain.on('hide-overlay', () => {
-    if (overlayWin && !overlayWin.isDestroyed()) overlayWin.hide();
+    const win = overlayWin;
+    if (!win || win.isDestroyed()) return;
+    if (!OVERLAY_MATERIAL) return win.hide();
+    animateOverlay(win, false, () => win.hide());
   });
 
   // ── Played-times tracking ────────────────────────────────────────────────────

@@ -1,6 +1,8 @@
 import { useRef, useContext, useCallback } from 'react';
 import { store } from './store';
 
+export const SCROLL_HIDE_THRESHOLD = 250;
+
 /**
  * Returns an `onScroll` handler that hides the player bar when scrolling down
  * past `threshold` px and reveals it when scrolling back up or near the top.
@@ -20,7 +22,7 @@ import { store } from './store';
 export function useScrollHidePlayerBar<T extends Record<string, number>>(
   options: { threshold?: number; field?: keyof T } = {}
 ): (_args: T) => void {
-  const { threshold = 250, field = 'scrollOffset' } = options;
+  const { threshold = SCROLL_HIDE_THRESHOLD, field = 'scrollOffset' } = options;
   const { state, dispatch } = useContext(store);
   const lastPos = useRef<number | null>(null);
 

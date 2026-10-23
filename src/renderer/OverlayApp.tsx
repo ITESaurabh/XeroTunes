@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { alpha, createTheme, darken } from '@mui/material';
 import { DEFAULT_AA } from '../config/constants';
 import { getBaseTheme } from '../config/theme';
@@ -14,6 +14,8 @@ interface TrackData {
   queueIndex: number;
   queueTotal: number;
   status: 'new-track' | 'playing' | 'paused';
+  /** The OS draws the blur behind this window; main sizes and slides it. */
+  backdrop?: boolean;
 }
 
 /**
@@ -41,8 +43,13 @@ const OverlayApp: React.FC = () => {
 
   useEffect(() => {
     const handler = (_: Electron.IpcRendererEvent, data: TrackData) => {
-      // First paint in hidden state, then transition in on the next two frames
       setTrack(data);
+      if (data.backdrop) {
+        if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+        hideTimerRef.current = setTimeout(() => ipcRenderer.send('hide-overlay'), 3200);
+        return;
+      }
+      // First paint in hidden state, then transition in on the next two frames
       setVisible(false);
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
@@ -62,6 +69,12 @@ const OverlayApp: React.FC = () => {
       ipcRenderer.removeListener('show-overlay', handler);
     };
   }, []);
+
+  const cardRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!track?.backdrop || !cardRef.current) return;
+    ipcRenderer.send('overlay-width', cardRef.current.getBoundingClientRect().width);
+  }, [track]);
 
   const albumArtSrc = track?.albumArt
     ? `file:///${track.albumArt.replace(/\\/g, '/')}`
@@ -84,24 +97,37 @@ const OverlayApp: React.FC = () => {
       }}
     >
       <div
+        ref={cardRef}
         style={{
           position: 'absolute',
-          bottom: 10,
-          right: 10,
           display: 'flex',
           alignItems: 'center',
           gap: 10,
-          background: alpha(palette.background.default, 0.9),
-          border: `1px solid ${alpha(palette.text.primary, 0.1)}`,
-          borderRadius: 12,
-          boxShadow: '0 2px 10px rgba(0,0,0,0.85)',
           padding: '8px 14px 8px 8px',
-          /* Slide-in from the right edge */
-          transform: visible ? 'translateX(0)' : 'translateX(calc(100% + 20px))',
-          opacity: visible ? 1 : 0,
-          transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease',
-          backdropFilter: 'blur(40px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+          ...(track?.backdrop
+            ? // The player bar's glass tint; the OS draws blur, corners and border. max-content
+              // so the measured width is the card's own, not the window's.
+              {
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: 'max-content',
+                background: palette.surfaces.glass,
+              }
+            : {
+                bottom: 10,
+                right: 10,
+                background: alpha(palette.background.default, 0.9),
+                border: `1px solid ${alpha(palette.text.primary, 0.1)}`,
+                borderRadius: 12,
+                boxShadow: '0 2px 10px rgba(0,0,0,0.85)',
+                /* Slide-in from the right edge */
+                transform: visible ? 'translateX(0)' : 'translateX(calc(100% + 20px))',
+                opacity: visible ? 1 : 0,
+                transition: 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease',
+                backdropFilter: 'blur(40px) saturate(180%)',
+                WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+              }),
         }}
       >
         {/* Album Art */}
@@ -109,8 +135,9 @@ const OverlayApp: React.FC = () => {
           src={albumArtSrc}
           alt="album"
           style={{
-            width: 52,
-            height: 52,
+            // As tall as the four text lines beside it.
+            width: 64,
+            height: 64,
             borderRadius: 8,
             objectFit: 'cover',
             flexShrink: 0,

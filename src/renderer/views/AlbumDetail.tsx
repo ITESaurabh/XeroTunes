@@ -21,6 +21,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import FloatingScrollbar from '../components/FloatingScrollbar';
+import PlaybarListInner from '../components/PlaybarListInner';
 import { Icon } from '@iconify/react';
 import edit24Regular from '@iconify/icons-fluent/edit-24-regular';
 import ImagePreviewDialog from '../components/ImagePreviewDialog';
@@ -56,18 +57,6 @@ function formatTrackNumber(trackNumber?: string | number | null): number | null 
   if (Number.isNaN(num)) return null;
   return Math.trunc(num);
 }
-
-const PLAYBAR_SPACE = 220;
-const ListInner = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ style, ...rest }, ref) => (
-    <div
-      ref={ref}
-      style={{ ...style, height: Number(style?.height ?? 0) + PLAYBAR_SPACE }}
-      {...rest}
-    />
-  )
-);
-ListInner.displayName = 'ListInner';
 
 const AlbumDetail: React.FC = () => {
   const { albumId } = useParams<{ albumId: string }>();
@@ -471,7 +460,7 @@ const AlbumDetail: React.FC = () => {
                 itemSize={ROW_HEIGHT}
                 initialScrollOffset={initialScrollOffset}
                 overscanCount={20}
-                innerElementType={ListInner}
+                innerElementType={PlaybarListInner}
                 onScroll={handleScroll}
               >
                 {Row}

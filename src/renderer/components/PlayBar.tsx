@@ -4,6 +4,7 @@ import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Slider from '@mui/material/Slider';
 import IconButton from '@mui/material/IconButton';
+import ButtonBase from '@mui/material/ButtonBase';
 import Stack from '@mui/material/Stack';
 
 import {
@@ -86,6 +87,7 @@ import heart24Regular from '@iconify/icons-fluent/heart-24-regular';
 import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
 import bookmark24Regular from '@iconify/icons-fluent/bookmark-24-regular';
 import bookmark24Filled from '@iconify/icons-fluent/bookmark-24-filled';
+import queue24Regular from '@iconify/icons-fluent/apps-list-24-regular';
 import { Image } from 'mui-image';
 import { DEFAULT_AA, isTaggable } from '../../config/constants';
 const { ipcRenderer } = window.require('electron');
@@ -138,17 +140,22 @@ const FavouriteButton = styled(IconButton, {
   '&:hover': { backgroundColor: alpha(theme.palette.common.black, 0.65) },
 }));
 
-const TinyText = styled(Typography)({
+const QueueCounter = styled(ButtonBase, {
+  shouldForwardProp: prop => prop !== 'active',
+})<{ active: boolean }>(({ theme, active }) => ({
+  display: 'flex',
+  width: 'fit-content',
+  gap: 4,
+  marginBottom: 2,
+  paddingBlock: 2,
+  paddingRight: 8,
   fontSize: '0.75rem',
-  opacity: 0.38,
   fontWeight: 500,
   letterSpacing: 0.2,
-});
-
-const QueueCounter = styled(TinyText)({
-  display: 'block',
-  marginBottom: 2,
-});
+  borderRadius: theme.shape.borderRadius,
+  color: active ? theme.palette.primary.main : alpha(theme.palette.text.primary, 0.38),
+  '&:hover': { color: active ? theme.palette.primary.main : theme.palette.text.primary },
+}));
 
 const PlayBarRoot = styled(Box, {
   shouldForwardProp: prop => prop !== 'isPhone',
@@ -1468,6 +1475,12 @@ export default function PlayBar() {
     });
   }, [navigate, state.queueSource, state.track?.Id]);
 
+  const onQueuePage = location.pathname === '/main_window/queue';
+  const handleQueueClick = useCallback(() => {
+    if (onQueuePage) navigate(-1);
+    else navigate('/main_window/queue');
+  }, [navigate, onQueuePage]);
+
   const handleAlbumClick = useCallback(() => {
     const navPath =
       state.track?.AlbumId != null ? `/main_window/albums/${state.track.AlbumId}` : null;
@@ -1790,7 +1803,14 @@ export default function PlayBar() {
             />
             <TrackTextWrap>
               {state.queue.length > 0 && (
-                <QueueCounter>
+                <QueueCounter
+                  active={onQueuePage}
+                  onClick={handleQueueClick}
+                  aria-label={onQueuePage ? 'close queue' : 'open queue'}
+                  title={onQueuePage ? 'Close queue' : 'Open queue'}
+                  className="no-select no-drag"
+                >
+                  <Icon icon={queue24Regular} width={14} />
                   {state.queueIndex + 1} / {state.queue.length}
                 </QueueCounter>
               )}
@@ -2072,6 +2092,12 @@ export default function PlayBar() {
         anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
         transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
+        <MenuItem onClick={runMenuAction(handleQueueClick)}>
+          <ListItemIcon>
+            <Icon icon={queue24Regular} width={20} />
+          </ListItemIcon>
+          <ListItemText>{onQueuePage ? 'Close queue' : 'Queue'}</ListItemText>
+        </MenuItem>
         <MenuItem onClick={runMenuAction(handleOpenSongInfo)} disabled={isLive}>
           <ListItemIcon>
             <Icon icon={info24Regular} width={20} />

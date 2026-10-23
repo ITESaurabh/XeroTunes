@@ -123,15 +123,9 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
     (next: boolean) => {
       if (!song) return;
       close();
-      // Nothing playing yet, so there is no queue to slot into; start it instead.
-      if (!state.track) {
-        dispatch({ type: 'SET_QUEUE', payload: { queue: [song], index: 0 } });
-        dispatch({ type: 'SET_CURR_TRACK', payload: song });
-        dispatch({ type: 'SET_IS_PLAYING', payload: true });
-        return;
-      }
       dispatch({ type: 'ENQUEUE', payload: { tracks: [song], next } });
-      setToast(next ? 'Playing next' : 'Added to queue');
+      // With nothing playing the song starts instead, so no toast.
+      if (state.track) setToast(next ? 'Playing next' : 'Added to queue');
     },
     [song, state.track, dispatch, close]
   );

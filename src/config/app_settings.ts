@@ -85,6 +85,7 @@ export interface AppSettings {
   streamHistoryDays: number;
   windowScale: number;
   startInVinylMode: boolean;
+  queueShowPlayed: boolean;
 }
 
 export const STREAM_HISTORY_DAY_OPTIONS: number[] = [1, 3, 7, 15, 30];
@@ -149,6 +150,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   overlayEnabled: true,
   discordPresenceEnabled: false,
   startInVinylMode: false,
+  queueShowPlayed: false,
   artistImageFetchingEnabled: true,
   streamHistoryDays: 3,
   windowScale: 1,

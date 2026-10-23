@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useRef, useState } from 'react';
 import Titlebar from './Titlebar';
 import { alpha, Theme } from '@mui/material/styles';
 import Box from '@mui/material/Box';
@@ -42,6 +42,21 @@ function Layout() {
     window.addEventListener(PLAYBACK_ERROR_EVENT, handler);
     return () => window.removeEventListener(PLAYBACK_ERROR_EVENT, handler);
   }, []);
+
+  // The queue pins rows above the bar, so it needs the real top edge. barFloat mirrors the
+  // bottom/y offsets below; the height changes with the lyrics panel and the window size.
+  const barRef = useRef<HTMLDivElement>(null);
+  const barFloat = isPhone ? 0 : 20;
+  useEffect(() => {
+    const el = barRef.current;
+    if (!el) return;
+    const report = () =>
+      dispatch({ type: 'SET_PLAYBAR_INSET', payload: barFloat + el.offsetHeight });
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [barFloat, dispatch]);
 
   useEffect(() => {
     if (isPhone) {
@@ -161,6 +176,7 @@ function Layout() {
             }}
           >
             <Box
+              ref={barRef}
               sx={{
                 width: '100%',
                 margin: 'auto',

@@ -17,6 +17,13 @@ import {
 import { AMETHYST, AppTheme } from '../../config/theme';
 import { ThemeMode, TitleBarStyle } from '../../config/app_settings';
 import { ScanMode } from '../../config/constants';
+import {
+  insertUnique,
+  markPlaying,
+  queuedAround,
+  removeQueueEntry,
+  unshuffle,
+} from './queueOps';
 
 export type RepeatMode = 'off' | 'all' | 'one';
 
@@ -42,6 +49,8 @@ export type QueueTrack = {
   AlbumId?: string | number;
   AlbumTitle?: string;
   ArtistName?: string;
+  /** Added with "Play next" / "Add to queue" and not played yet. */
+  Queued?: boolean;
 };
 
 const PLAYBACK_FIELDS: readonly (keyof QueueTrack)[] = [
@@ -52,6 +61,7 @@ const PLAYBACK_FIELDS: readonly (keyof QueueTrack)[] = [
   'AlbumId',
   'AlbumTitle',
   'ArtistName',
+  'Queued',
 ];
 
 export function pickQueueTrack(track: Track | QueueTrack | null | undefined): QueueTrack | null {
@@ -122,6 +132,8 @@ export interface AppState {
   repeatMode: RepeatMode;
   isShuffle: boolean;
   isPlayerBarVisible: boolean;
+  /** How far the shown player bar's top edge sits above the page bottom. */
+  playBarInset: number;
   isLyricsExpanded: boolean;
   isScanningLibrary: boolean;
   /** A remote sync specifically, which unlike a local scan runs on the main process. */
@@ -152,6 +164,10 @@ export type AppAction =
   | { type: 'SET_CURR_TRACK'; payload: Track }
   | { type: 'REFRESH_QUEUE_TRACKS'; payload: Track[] }
   | { type: 'ENQUEUE'; payload: { tracks: Track[]; next?: boolean } }
+  | { type: 'PLAY_QUEUE_INDEX'; payload: number }
+  | { type: 'REORDER_QUEUE'; payload: QueueTrack[] }
+  | { type: 'REMOVE_FROM_QUEUE'; payload: number }
+  | { type: 'CLEAR_UP_NEXT' }
   | { type: 'SET_IS_PLAYING'; payload: boolean }
   | { type: 'SET_PROGRESS'; payload: number }
   | { type: 'CHANGE_TRACK' }
@@ -159,6 +175,7 @@ export type AppAction =
   | { type: 'PREV_TRACK' }
   | { type: 'SET_REPEAT_MODE'; payload: RepeatMode }
   | { type: 'SET_PLAYER_BAR_VISIBLE'; payload: boolean }
+  | { type: 'SET_PLAYBAR_INSET'; payload: number }
   | { type: 'SET_LYRICS_EXPANDED'; payload: boolean }
   | { type: 'SET_SHUFFLE'; payload: boolean }
   | { type: 'SET_SCANNING'; payload: { isScanning: boolean; scanMode?: ScanMode | null } }
@@ -210,6 +227,7 @@ const initialState: AppState = (() => {
     repeatMode: savedRepeat,
     isShuffle: savedShuffle,
     isPlayerBarVisible: true,
+    playBarInset: 0,
     isLyricsExpanded: false,
     isScanningLibrary: false,
     isSyncing: false,
@@ -230,6 +248,18 @@ export const store = createContext<StoreContextValue>({
   dispatch: () => undefined,
 });
 const { Provider } = store;
+
+// Unshuffled, the queue as edited is the order to return to; shuffled, the
+// pre-shuffle order still is.
+const orderAfterEdit = (state: AppState, queue: QueueTrack[]) =>
+  state.isShuffle ? state.originalOrder : queue.map(t => t.Id);
+
+function playAt(state: AppState, index: number): AppState {
+  const queue = markPlaying(state.queue, index);
+  const track = queue[index];
+  setQueueState(queue, index, track, state.queueSource);
+  return { ...state, queue, queueIndex: index, track, isPlaying: true };
+}
 
 function reducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
@@ -315,7 +345,12 @@ function reducer(state: AppState, action: AppAction): AppState {
       const fresh = new Map<string | number, QueueTrack>();
       for (const t of toQueueTracks(action.payload)) fresh.set(t.Id, t);
       if (!fresh.size) return state;
-      const queue = state.queue.map(t => fresh.get(t.Id) ?? t);
+      // Copied per entry: the queue finds entries by identity, so a song queued twice must
+      // not become one shared object. The DB row has no Queued.
+      const queue = state.queue.map(t => {
+        const f = fresh.get(t.Id);
+        return f ? { ...f, Queued: t.Queued } : t;
+      });
       const track = state.track ? (fresh.get(state.track.Id) ?? state.track) : state.track;
       if (track === state.track && queue.every((t, i) => t === state.queue[i])) return state;
       setQueueState(queue, state.queueIndex, track, state.queueSource);
@@ -324,10 +359,54 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'ENQUEUE': {
       const items = toQueueTracks(action.payload.tracks);
       if (!items.length) return state;
+      // Nothing playing, so there is no queue to slot into; the songs become it.
+      if (!state.track) {
+        return playAt(
+          reducer(state, { type: 'SET_QUEUE', payload: { queue: items, index: 0, source: null } }),
+          0
+        );
+      }
+      for (const t of items) t.Queued = true;
       const at = action.payload.next ? state.queueIndex + 1 : state.queue.length;
-      const queue = [...state.queue.slice(0, at), ...items, ...state.queue.slice(at)];
+      const { queue, index } = insertUnique(state.queue, state.queueIndex, at, items);
+      setQueueState(queue, index, state.track, state.queueSource);
+      return {
+        ...state,
+        queue,
+        queueIndex: index,
+        originalOrder: state.isShuffle
+          ? [...state.originalOrder, ...items.map(t => t.Id)]
+          : queue.map(t => t.Id),
+      };
+    }
+    case 'PLAY_QUEUE_INDEX': {
+      if (!state.queue[action.payload]) return state;
+      return playAt(state, action.payload);
+    }
+    // The payload is a permutation of the current entries, so the playing one is
+    // found again by identity.
+    case 'REORDER_QUEUE': {
+      const queue = action.payload;
+      const queueIndex = Math.max(0, queue.indexOf(state.queue[state.queueIndex]));
+      setQueueState(queue, queueIndex, state.track, state.queueSource);
+      return { ...state, queue, queueIndex, originalOrder: orderAfterEdit(state, queue) };
+    }
+    case 'REMOVE_FROM_QUEUE': {
+      const res = removeQueueEntry(state.queue, state.queueIndex, action.payload);
+      if (!res) return state;
+      setQueueState(res.queue, res.index, state.track, state.queueSource);
+      return {
+        ...state,
+        queue: res.queue,
+        queueIndex: res.index,
+        originalOrder: orderAfterEdit(state, res.queue),
+      };
+    }
+    case 'CLEAR_UP_NEXT': {
+      const queue = state.queue.slice(0, state.queueIndex + 1);
+      if (queue.length === state.queue.length) return state;
       setQueueState(queue, state.queueIndex, state.track, state.queueSource);
-      return { ...state, queue, originalOrder: [...state.originalOrder, ...items.map(t => t.Id)] };
+      return { ...state, queue, originalOrder: orderAfterEdit(state, queue) };
     }
     case 'SET_IS_PLAYING': {
       if (state.isPlaying === action.payload) return state;
@@ -342,30 +421,12 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'NEXT_TRACK': {
       let nextIndex = state.queueIndex + 1;
       if (state.repeatMode === 'all' && nextIndex >= state.queue.length) nextIndex = 0;
-      if (nextIndex < state.queue.length) {
-        setQueueState(state.queue, nextIndex, state.queue[nextIndex], state.queueSource);
-        return {
-          ...state,
-          queueIndex: nextIndex,
-          track: state.queue[nextIndex],
-          isPlaying: true,
-        };
-      }
-      return state;
+      return nextIndex < state.queue.length ? playAt(state, nextIndex) : state;
     }
     case 'PREV_TRACK': {
       let prevIndex = state.queueIndex - 1;
       if (state.repeatMode === 'all' && prevIndex < 0) prevIndex = state.queue.length - 1;
-      if (prevIndex >= 0) {
-        setQueueState(state.queue, prevIndex, state.queue[prevIndex], state.queueSource);
-        return {
-          ...state,
-          queueIndex: prevIndex,
-          track: state.queue[prevIndex],
-          isPlaying: true,
-        };
-      }
-      return state;
+      return prevIndex >= 0 ? playAt(state, prevIndex) : state;
     }
     case 'SET_REPEAT_MODE': {
       setPlaybackRepeatMode(action.payload);
@@ -380,6 +441,10 @@ function reducer(state: AppState, action: AppAction): AppState {
         isPlayerBarVisible: action.payload,
         isLyricsExpanded: action.payload && state.isLyricsExpanded,
       };
+    }
+    case 'SET_PLAYBAR_INSET': {
+      if (state.playBarInset === action.payload) return state;
+      return { ...state, playBarInset: action.payload };
     }
     case 'SET_LYRICS_EXPANDED': {
       return { ...state, isLyricsExpanded: action.payload };
@@ -426,35 +491,22 @@ function reducer(state: AppState, action: AppAction): AppState {
     case 'SET_SHUFFLE': {
       setPlaybackShuffle(!!action.payload);
       if (action.payload) {
-        const currentTrack = state.track;
-        const currentQueue = state.isShuffle ? state.queue : [...state.queue];
-        const otherTracks = currentQueue.filter(track => track.Id !== currentTrack?.Id);
+        // By position, not Id: an Id filter also drops other copies of the playing song.
+        // The user's songs keep their place, next or at the end; only the list is shuffled.
+        const at = state.queueIndex;
+        const currentTrack = state.queue[at] ?? state.track;
+        const { next, later } = queuedAround(state.queue, at);
+        const otherTracks = state.queue.filter((t, i) => i < at || (i > at && !t.Queued));
         for (let i = otherTracks.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
           [otherTracks[i], otherTracks[j]] = [otherTracks[j], otherTracks[i]];
         }
-        const shuffledQueue = currentTrack ? [currentTrack, ...otherTracks] : otherTracks;
+        const rest = [...next, ...otherTracks, ...later];
+        const shuffledQueue = currentTrack ? [currentTrack, ...rest] : rest;
         return { ...state, isShuffle: true, queue: shuffledQueue, queueIndex: 0 };
       } else {
-        // Restore original order by mapping recorded IDs back to QueueTracks held
-        // in the current (shuffled) queue; no full Track[] duplicate is kept.
-        const byId = new Map<string | number, QueueTrack>();
-        for (const t of state.queue) byId.set(t.Id, t);
-        const restored: QueueTrack[] = [];
-        for (const id of state.originalOrder) {
-          const t = byId.get(id);
-          if (t) restored.push(t);
-        }
-        const currentTrack = state.track;
-        const originalIndex = currentTrack
-          ? restored.findIndex(track => track.Id === currentTrack.Id)
-          : 0;
-        return {
-          ...state,
-          isShuffle: false,
-          queue: restored,
-          queueIndex: originalIndex >= 0 ? originalIndex : 0,
-        };
+        const restored = unshuffle(state.queue, state.originalOrder, state.queueIndex);
+        return { ...state, isShuffle: false, queue: restored.queue, queueIndex: restored.index };
       }
     }
     default:

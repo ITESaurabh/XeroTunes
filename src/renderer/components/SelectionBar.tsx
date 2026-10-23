@@ -1,10 +1,12 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useContext, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
   Button,
   Checkbox,
   Divider,
+  ListItemIcon,
+  ListItemText,
   Menu,
   MenuItem,
   Snackbar,
@@ -12,12 +14,13 @@ import {
 } from '@mui/material';
 import { Icon } from '@iconify/react';
 import playIcon from '@iconify/icons-fluent/play-24-filled';
+import queueIcon from '@iconify/icons-fluent/apps-list-24-regular';
 import addIcon from '@iconify/icons-fluent/text-bullet-list-add-24-regular';
 import editIcon from '@iconify/icons-fluent/edit-24-regular';
 import { useQuery } from '@tanstack/react-query';
 import { useIpc } from '../state/ipc';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { Track } from '../utils/store';
+import { store, Track } from '../utils/store';
 import { isTaggable } from '../../config/constants';
 import { useNewPlaylist } from './NewPlaylistItem';
 
@@ -110,6 +113,7 @@ export default function SelectionBar({
   onEditTags,
 }: SelectionBarProps) {
   const { invokeEventToMainProcess } = useIpc();
+  const { state, dispatch } = useContext(store);
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -140,6 +144,17 @@ export default function SelectionBar({
       setToast(`Added ${res.added} to ${playlist.Name}`);
     },
     [invokeEventToMainProcess, selected]
+  );
+
+  const handleEnqueue = useCallback(
+    (next: boolean) => {
+      setMenuAnchor(null);
+      dispatch({ type: 'ENQUEUE', payload: { tracks: selected, next } });
+      if (!state.track) return;
+      const songs = `${selected.length} song${selected.length === 1 ? '' : 's'}`;
+      setToast(next ? `Playing ${songs} next` : `Added ${songs} to queue`);
+    },
+    [dispatch, selected, state.track]
   );
 
   return (
@@ -214,6 +229,19 @@ export default function SelectionBar({
       </Box>
 
       <Menu anchorEl={menuAnchor} open={!!menuAnchor} onClose={() => setMenuAnchor(null)}>
+        <MenuItem onClick={() => handleEnqueue(true)}>
+          <ListItemIcon>
+            <Icon icon={playIcon} width={20} />
+          </ListItemIcon>
+          <ListItemText>Play next</ListItemText>
+        </MenuItem>
+        <MenuItem onClick={() => handleEnqueue(false)}>
+          <ListItemIcon>
+            <Icon icon={queueIcon} width={20} />
+          </ListItemIcon>
+          <ListItemText>Add to queue</ListItemText>
+        </MenuItem>
+        <Divider />
         {newPlaylistItem}
         {!!playlists?.length && <Divider />}
         {(playlists ?? []).map(p => (
