@@ -74,6 +74,7 @@ import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
 import { CHANNEL, IDENTITY } from '../../config/channel';
 import { isUnderAnyRoot } from './libraryRules';
 import { buildTrackIndex, matchFavourite } from './favouriteMatch';
+import { sameSongGroups } from './duplicateGroups';
 import { parsePlaylistFile, writePlaylistFile } from './playlistFormats';
 import { writeTags, TagFields } from './tagWriter';
 import { parseFile as parseAudioFile } from 'music-metadata';
@@ -1200,8 +1201,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   );
 
-  // Byte-identical files only: FileHash is a sha1 of the whole file, so the same
-  // song at a different bitrate is a different file and deliberately not reported.
+  // Identical copies share an audio hash, so dropping one loses nothing. Same-song
+  // copies differ in audio, so which to keep is the user's call.
   ipcMain.handle('find-duplicate-tracks', () => {
     const rows = db
       .prepare(
@@ -1213,50 +1214,118 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         Track.Duration,
         Track.FileHash,
         Track.DateAdded,
+        Track.BitRate,
+        Track.Extension,
         ${TRACK_ARTIST_NAMES},
         Album.Title AS AlbumTitle
       FROM Track
       LEFT JOIN Album ON Track.AlbumId = Album.Id
-      WHERE Track.FileHash IN (
-        SELECT FileHash FROM Track
-        WHERE FileHash IS NOT NULL AND TRIM(FileHash) <> ''
-        GROUP BY FileHash HAVING COUNT(*) > 1
-      )
+      WHERE Track.FileHash IS NOT NULL AND TRIM(Track.FileHash) <> ''
       ORDER BY Track.FileHash, Track.DateAdded, Track.Id
     `
       )
       .all() as Array<{ FileHash: string }>;
 
-    const groups = new Map<string, typeof rows>();
+    const byHash = new Map<string, typeof rows>();
     for (const row of rows) {
-      const group = groups.get(row.FileHash);
+      const group = byHash.get(row.FileHash);
       if (group) group.push(row);
-      else groups.set(row.FileHash, [row]);
+      else byHash.set(row.FileHash, [row]);
     }
-    return [...groups.entries()].map(([fileHash, tracks]) => ({ fileHash, tracks }));
+
+    // Keyed on hashes, not paths: a kept group survives moves and renames, and a
+    // new copy changes the key so the group is listed again.
+    const kept = new Set(
+      (db.prepare('SELECT GroupKey FROM KeptDuplicate').all() as { GroupKey: string }[]).map(
+        r => r.GroupKey
+      )
+    );
+    const keyed = (groups: (typeof rows)[]) =>
+      groups.map(tracks => ({
+        key: tracks
+          .map(t => t.FileHash)
+          .sort()
+          .join('|'),
+        tracks,
+      }));
+    const identical = keyed([...byHash.values()].filter(tracks => tracks.length > 1));
+    const similar = keyed(sameSongGroups(rows));
+
+    return {
+      identical: identical.filter(g => !kept.has(g.key)),
+      similar: similar.filter(g => !kept.has(g.key)),
+      kept: [
+        ...identical.filter(g => kept.has(g.key)).map(g => ({ ...g, kind: 'identical' })),
+        ...similar.filter(g => kept.has(g.key)).map(g => ({ ...g, kind: 'similar' })),
+      ],
+    };
   });
 
-  // Remembers the paths too, so the next scan doesn't re-add files still on disk.
-  ipcMain.handle('remove-tracks-from-library', (_e, { trackIds }: { trackIds?: number[] }) => {
-    const ids = (trackIds ?? []).filter(id => Number.isInteger(id));
-    if (!ids.length) return { success: true, removed: 0 };
+  ipcMain.handle('keep-duplicate-group', (_e, { key }: { key?: string }) => {
+    if (!key) return { success: false };
+    db.prepare('INSERT OR REPLACE INTO KeptDuplicate (GroupKey, KeptAt) VALUES (?, ?)').run(
+      key,
+      Date.now()
+    );
+    return { success: true };
+  });
 
-    const select = db.prepare('SELECT Uri FROM Track WHERE Id = ?');
-    const ignore = db.prepare('INSERT OR REPLACE INTO IgnoredTrack (Uri, IgnoredAt) VALUES (?, ?)');
-    const del = db.prepare('DELETE FROM Track WHERE Id = ?');
+  ipcMain.handle('unkeep-duplicate-group', (_e, { key }: { key?: string }) => {
+    if (!key) return { success: false };
+    db.prepare('DELETE FROM KeptDuplicate WHERE GroupKey = ?').run(key);
+    return { success: true };
+  });
 
-    db.transaction(() => {
-      for (const id of ids) {
-        const row = select.get(id) as { Uri: string } | undefined;
-        if (row?.Uri) ignore.run(row.Uri, Date.now());
-        del.run(id);
+  // Files left on disk go on the ignore list so the next scan doesn't re-add them.
+  // deleteFiles trashes rather than unlinks, so a wrong tick can be undone. Paths
+  // come from the DB, never the renderer.
+  ipcMain.handle(
+    'remove-tracks-from-library',
+    async (_e, { trackIds, deleteFiles }: { trackIds?: number[]; deleteFiles?: boolean }) => {
+      const ids = (trackIds ?? []).filter(id => Number.isInteger(id));
+      if (!ids.length) return { success: true, removed: 0, failed: [] };
+
+      const select = db.prepare('SELECT Uri FROM Track WHERE Id = ?');
+      const rows = ids.map(id => ({
+        id,
+        uri: (select.get(id) as { Uri: string } | undefined)?.Uri,
+      }));
+
+      const trashed = new Set<number>();
+      const failed: string[] = [];
+      if (deleteFiles) {
+        for (const { id, uri } of rows) {
+          if (!uri) continue;
+          try {
+            if (!fs.statSync(uri).isFile()) throw new Error('Not a file');
+            await shell.trashItem(uri);
+            trashed.add(id);
+          } catch {
+            failed.push(uri);
+            continue;
+          }
+          // Same path as sidecarPathFor in lyricsSource.ts; left behind, it would be an orphan.
+          const lrc = path.join(path.dirname(uri), `${path.parse(uri).name}.lrc`);
+          if (fs.existsSync(lrc)) await shell.trashItem(lrc).catch(() => undefined);
+        }
       }
-    })();
-    cleanupOrphans(db, { ALBUM_ART_DIR, ARTIST_ART_DIR });
 
-    sendMessageToRendererProcess(mainWin, 'library-updated', { removed: ids.length });
-    return { success: true, removed: ids.length };
-  });
+      const ignore = db.prepare(
+        'INSERT OR REPLACE INTO IgnoredTrack (Uri, IgnoredAt) VALUES (?, ?)'
+      );
+      const del = db.prepare('DELETE FROM Track WHERE Id = ?');
+      db.transaction(() => {
+        for (const { id, uri } of rows) {
+          if (uri && !trashed.has(id)) ignore.run(uri, Date.now());
+          del.run(id);
+        }
+      })();
+      cleanupOrphans(db, { ALBUM_ART_DIR, ARTIST_ART_DIR });
+
+      sendMessageToRendererProcess(mainWin, 'library-updated', { removed: ids.length });
+      return { success: true, removed: ids.length, failed };
+    }
+  );
 
   ipcMain.handle('get-ignored-track-count', () => {
     return (db.prepare('SELECT COUNT(*) AS count FROM IgnoredTrack').get() as { count: number })
@@ -1377,6 +1446,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   CREATE TABLE IF NOT EXISTS IgnoredTrack (
     Uri TEXT PRIMARY KEY,
     IgnoredAt BIGINT
+  )
+`
+  ).run();
+
+  // Duplicate groups the user chose to keep whole. Keys are audio hashes, so
+  // bumping HASH_PREFIX un-keeps them all.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS KeptDuplicate (
+    GroupKey TEXT PRIMARY KEY,
+    KeptAt BIGINT
   )
 `
   ).run();
@@ -1714,6 +1794,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       confirmLabel = 'OK',
       cancelLabel = 'Cancel',
       destructive = false,
+      checkboxLabel,
     } = options || {};
 
     const result = await dialog.showMessageBox(mainWin, {
@@ -1724,10 +1805,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       title,
       message,
       detail,
+      checkboxLabel,
       noLink: true,
     });
 
-    return { confirmed: result.response === 0 };
+    return { confirmed: result.response === 0, checkboxChecked: result.checkboxChecked };
   });
 
   ipcMain.handle('add-music-folder', async (e, opts?: { skipScan?: boolean }) => {

@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Box, Stack, Typography } from '@mui/material';
+import { Box, Stack, Typography, type SxProps, type Theme } from '@mui/material';
 
 import reiJudgy from '../../assets/mascot/rei-judgy.png';
 
@@ -19,6 +19,8 @@ const TAGLINES = [
 export interface EmptyProps {
   /** Page name, substituted into taglines. */
   page: string;
+  /** Fixed heading in place of a random tagline. */
+  title?: string;
   /** What the user can do about it. */
   hint?: React.ReactNode;
   /** Action rendered under the hint. */
@@ -28,12 +30,13 @@ export interface EmptyProps {
    * Full size under a heading swallows the viewport and reads as a failed page load.
    */
   compact?: boolean;
+  sx?: SxProps<Theme>;
 }
 
-function Empty({ page, hint, children, compact = false }: EmptyProps) {
+function Empty({ page, title, hint, children, compact = false, sx }: EmptyProps) {
   const tagline = useMemo(
-    () => TAGLINES[Math.floor(Math.random() * TAGLINES.length)].replace('{page}', page),
-    [page]
+    () => title ?? TAGLINES[Math.floor(Math.random() * TAGLINES.length)].replace('{page}', page),
+    [page, title]
   );
 
   return (
@@ -41,13 +44,16 @@ function Empty({ page, hint, children, compact = false }: EmptyProps) {
       alignItems="center"
       justifyContent="center"
       spacing={1}
-      sx={{
-        flex: 1,
-        minHeight: 0,
-        p: compact ? 3 : 4,
-        pb: compact ? 8 : 28,
-        textAlign: 'center',
-      }}
+      sx={[
+        {
+          flex: 1,
+          minHeight: 0,
+          p: compact ? 3 : 4,
+          pb: compact ? 8 : 28,
+          textAlign: 'center',
+        },
+        ...(Array.isArray(sx) ? sx : [sx]),
+      ]}
     >
       <Box
         component="img"

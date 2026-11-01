@@ -6,10 +6,10 @@ import assert from 'assert';
 import http from 'http';
 import { parseStreamTitle, startStreamMeta, stopStreamMeta } from './StreamMeta.ts';
 
-assert.deepStrictEqual(parseStreamTitle('On Wings of Hope - Happiness in a Closet'), {
-  raw: 'On Wings of Hope - Happiness in a Closet',
-  artist: 'On Wings of Hope',
-  title: 'Happiness in a Closet',
+assert.deepStrictEqual(parseStreamTitle('Test Artist - Test Title'), {
+  raw: 'Test Artist - Test Title',
+  artist: 'Test Artist',
+  title: 'Test Title',
 });
 assert.deepStrictEqual(parseStreamTitle('Station ID'), {
   raw: 'Station ID',
@@ -31,7 +31,7 @@ function metaBlock(title) {
 const server = http.createServer((req, res) => {
   assert.strictEqual(req.headers['icy-metadata'], '1');
   res.writeHead(200, { 'content-type': 'audio/mpeg', 'icy-metaint': String(META_INT) });
-  const block = metaBlock('Notions - Disown');
+  const block = metaBlock('Artist - Title');
   res.write(Buffer.concat([Buffer.alloc(META_INT, 0x55), block.subarray(0, 5)]));
   setTimeout(() => res.write(block.subarray(5)), 10);
 });
@@ -45,7 +45,7 @@ server.listen(0, '127.0.0.1', () => {
 
   startStreamMeta(`http://127.0.0.1:${port}/stream`, meta => {
     clearTimeout(timeout);
-    assert.deepStrictEqual(meta, { raw: 'Notions - Disown', artist: 'Notions', title: 'Disown' });
+    assert.deepStrictEqual(meta, { raw: 'Artist - Title', artist: 'Artist', title: 'Title' });
     stopStreamMeta();
     server.close();
     console.log('StreamMeta ok');

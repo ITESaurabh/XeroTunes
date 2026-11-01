@@ -1,33 +1,59 @@
 import React from 'react';
+import os from 'os';
 import {
   Alert,
+  alpha,
   Box,
   Button,
   Checkbox,
   Chip,
   CircularProgress,
-  Divider,
+  IconButton,
+  ListItem,
+  ListItemButton,
   Stack,
+  Tab,
+  Tabs,
   Tooltip,
   Typography,
 } from '@mui/material';
+import { Icon } from '@iconify/react';
+import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import AppDialog from './AppDialog';
+import Empty from './Empty';
 import { useIpc } from '../state/ipc';
-import { useConfirm } from '../utils/useConfirm';
+import { OS_WINDOWS } from '../../config/constants';
+
+const BIN = os.type() === OS_WINDOWS ? 'Recycle Bin' : 'Trash';
 
 interface DuplicateTrack {
   Id: number;
   Title: string;
   Uri: string;
   Duration: number | null;
+  BitRate: number | null;
+  Extension: string | null;
   ArtistName: string | null;
   AlbumTitle: string | null;
   DateAdded: number | null;
 }
 
 interface DuplicateGroup {
-  fileHash: string;
+  key: string;
   tracks: DuplicateTrack[];
+}
+
+type Kind = 'identical' | 'similar';
+type TabKind = Kind | 'kept';
+
+interface KeptGroup extends DuplicateGroup {
+  /** The tab it came from and goes back to on Restore. */
+  kind: Kind;
+}
+
+interface Duplicates extends Record<Kind, DuplicateGroup[]> {
+  /** Groups the user chose to keep whole, left out of the other two lists. */
+  kept: KeptGroup[];
 }
 
 function formatDuration(seconds: number | null): string {
@@ -36,6 +62,182 @@ function formatDuration(seconds: number | null): string {
   return `${mins}:${String(Math.round(seconds % 60)).padStart(2, '0')}`;
 }
 
+function formatQuality(track: DuplicateTrack): string {
+  return [
+    track.BitRate ? `${Math.round(track.BitRate / 1000)} kbps` : null,
+    track.Extension?.replace('.', '').toUpperCase(),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+// Copies usually differ in only one of the two, so each gets its own line.
+function splitPath(uri: string): { name: string; folder: string } {
+  const cut = Math.max(uri.lastIndexOf('\\'), uri.lastIndexOf('/'));
+  return { name: uri.slice(cut + 1), folder: uri.slice(0, cut) };
+}
+
+const ellipsis = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } as const;
+
+interface GroupCardProps {
+  group: DuplicateGroup;
+  /** Chip on the first copy, the one the group suggests keeping. */
+  keepLabel: string;
+  showQuality: boolean;
+  selected: Set<number>;
+  disabled: boolean;
+  onToggle: (id: number) => void;
+  actionLabel: string;
+  onAction: () => void;
+}
+
+const GroupCard: React.FC<GroupCardProps> = ({
+  group,
+  keepLabel,
+  showQuality,
+  selected,
+  disabled,
+  onToggle,
+  actionLabel,
+  onAction,
+}) => {
+  const { invokeEventToMainProcess } = useIpc();
+  const first = group.tracks[0];
+  return (
+    <Box
+      sx={{
+        border: 1,
+        borderColor: theme => theme.palette.surfaces.glassBorder,
+        borderRadius: 1,
+        overflow: 'hidden',
+        bgcolor: theme => theme.palette.surfaces.elevated,
+      }}
+    >
+      <Stack
+        direction="row"
+        alignItems="center"
+        spacing={1}
+        sx={{ pl: 1.5, pr: 1, py: 0.75, bgcolor: theme => theme.palette.surfaces.listHeader }}
+      >
+        <Box sx={{ flex: 1, minWidth: 0 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, ...ellipsis }}>
+            {first.Title}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" component="div" sx={ellipsis}>
+            {[
+              first.ArtistName,
+              first.AlbumTitle,
+              `${group.tracks.length} copies`,
+              formatDuration(first.Duration),
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </Typography>
+        </Box>
+        <Button disabled={disabled} onClick={onAction} sx={{ flexShrink: 0 }}>
+          {actionLabel}
+        </Button>
+      </Stack>
+
+      {group.tracks.map((track, index) => {
+        const removing = selected.has(track.Id);
+        const { name, folder } = splitPath(track.Uri);
+        return (
+          <ListItem
+            key={track.Id}
+            component="div"
+            disablePadding
+            sx={{ borderTop: 1, borderColor: theme => theme.palette.surfaces.glassBorder }}
+            secondaryAction={
+              <Tooltip title="Show in file explorer">
+                <IconButton
+                  edge="end"
+                  aria-label={`Show ${name} in file explorer`}
+                  onClick={() =>
+                    void invokeEventToMainProcess('reveal-file', { filePath: track.Uri })
+                  }
+                >
+                  <Icon icon={revealIcon} width={24} />
+                </IconButton>
+              </Tooltip>
+            }
+          >
+            <ListItemButton
+              onClick={() => onToggle(track.Id)}
+              sx={{
+                gap: 1,
+                py: 0.5,
+                pl: 1,
+                ...(removing && {
+                  bgcolor: theme => alpha(theme.palette.error.main, 0.16),
+                  '&:hover': { bgcolor: theme => alpha(theme.palette.error.main, 0.22) },
+                }),
+              }}
+            >
+              <Checkbox
+                color="error"
+                checked={removing}
+                tabIndex={-1}
+                disableRipple
+                inputProps={{ 'aria-label': `Remove ${track.Uri}` }}
+              />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Stack direction="row" alignItems="center" spacing={1}>
+                  <Typography variant="body2" sx={ellipsis}>
+                    {name}
+                  </Typography>
+                  {index === 0 && (
+                    <Chip
+                      size="small"
+                      color="primary"
+                      variant="outlined"
+                      label={keepLabel}
+                      sx={{ flexShrink: 0 }}
+                    />
+                  )}
+                </Stack>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  component="div"
+                  sx={{ ...ellipsis, direction: 'rtl', textAlign: 'left' }}
+                >
+                  {folder}
+                </Typography>
+              </Box>
+              {showQuality && (
+                <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                  {formatQuality(track)}
+                </Typography>
+              )}
+            </ListItemButton>
+          </ListItem>
+        );
+      })}
+    </Box>
+  );
+};
+
+const TAB_TEXT: Record<TabKind, { title: string; empty: string; help: string }> = {
+  identical: {
+    title: 'Identical',
+    empty: 'No identical tracks',
+    help: 'Every copy has the same audio; in MP3 files tags and cover art don’t count. Ticked copies are removed and the oldest is kept.',
+  },
+  similar: {
+    title: 'Same song',
+    empty: 'No same-song tracks',
+    help: 'Same title, artist, album and length, but different audio: another rip or another bitrate. Tick the copies to remove. “best” is the highest bitrate, which a file re-encoded from a worse copy can fake.',
+  },
+  kept: {
+    title: 'Kept',
+    empty: 'No kept tracks',
+    help: 'Groups where you chose to keep every copy. Restore puts a group back in the tab it came from. You can still tick copies here to remove them.',
+  },
+};
+
+const SUGGESTED: Record<Kind, string> = { identical: 'oldest', similar: 'best' };
+
 interface DuplicateTracksDialogProps {
   open: boolean;
   onClose: () => void;
@@ -43,8 +245,8 @@ interface DuplicateTracksDialogProps {
 
 const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onClose }) => {
   const { invokeEventToMainProcess } = useIpc();
-  const confirm = useConfirm();
-  const [groups, setGroups] = React.useState<DuplicateGroup[] | null>(null);
+  const [groups, setGroups] = React.useState<Duplicates | null>(null);
+  const [tab, setTab] = React.useState<TabKind>('identical');
   const [selected, setSelected] = React.useState<Set<number>>(new Set());
   const [ignoredCount, setIgnoredCount] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
@@ -58,17 +260,24 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
       invokeEventToMainProcess('get-ignored-track-count'),
     ])
       .then(([found, ignored]) => {
-        const list = found as DuplicateGroup[];
+        const list = found as Duplicates;
         setGroups(list);
+        // Stay on the open tab after a removal unless it just emptied.
+        setTab(t =>
+          list[t].length
+            ? t
+            : ((['identical', 'similar', 'kept'] as const).find(k => list[k].length) ?? 'identical')
+        );
         setIgnoredCount(Number(ignored) || 0);
-        // Keep the oldest copy: main orders by DateAdded, and the first-added is
-        // the one most likely to be referenced by a playlist.
-        setSelected(new Set(list.flatMap(g => g.tracks.slice(1).map(t => t.Id))));
+        // Keep the oldest identical copy: main orders by DateAdded, and the
+        // first-added is the one most likely to be referenced by a playlist.
+        // Same-song groups are left unticked; picking the better file is a guess.
+        setSelected(new Set(list.identical.flatMap(g => g.tracks.slice(1).map(t => t.Id))));
       })
       .catch((err: unknown) => {
         console.error('Error finding duplicate tracks:', err);
         setError(String(err));
-        setGroups([]);
+        setGroups({ identical: [], similar: [], kept: [] });
       });
   }, [invokeEventToMainProcess]);
 
@@ -84,22 +293,81 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
     });
 
   const handleRemove = async () => {
-    const ok = await confirm({
-      title: 'Remove from library?',
-      message: `${selected.size} track${selected.size === 1 ? '' : 's'} will be removed from your library.`,
-      detail:
-        'The files stay on disk. XeroTunes remembers them so later scans do not add them back — use Restore to undo.',
-      confirmLabel: 'Remove',
-      destructive: true,
-    });
-    if (!ok) return;
-
-    setBusy(true);
     try {
-      await invokeEventToMainProcess('remove-tracks-from-library', { trackIds: [...selected] });
+      // Called directly rather than through useConfirm, which only reports the button.
+      const choice = (await invokeEventToMainProcess('show-confirm', {
+        title: 'Remove from library?',
+        message: `${selected.size} track${selected.size === 1 ? '' : 's'} will be removed from your library.`,
+        detail: `Files left on disk are remembered so later scans do not add them back; Restore undoes that. Deleted files go to the ${BIN}, along with any .lrc lyrics beside them.`,
+        confirmLabel: 'Remove',
+        destructive: true,
+        checkboxLabel: 'Also delete the files',
+      })) as { confirmed?: boolean; checkboxChecked?: boolean } | undefined;
+      if (!choice?.confirmed) return;
+
+      setBusy(true);
+      const result = (await invokeEventToMainProcess('remove-tracks-from-library', {
+        trackIds: [...selected],
+        deleteFiles: !!choice.checkboxChecked,
+      })) as { failed?: string[] } | undefined;
       load();
+      // After load(), which clears the error.
+      if (result?.failed?.length) {
+        setError(
+          `${result.failed.length} file${result.failed.length === 1 ? '' : 's'} could not be moved to the ${BIN} (in use, or already gone), so ${result.failed.length === 1 ? 'it was' : 'they were'} only removed from the library:\n${result.failed.join('\n')}`
+        );
+      }
     } catch (err) {
       console.error('Error removing duplicate tracks:', err);
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Both move the group in place rather than reloading, which would reset the
+  // ticks in every other group.
+  const handleKeep = async (group: DuplicateGroup, kind: Kind) => {
+    setBusy(true);
+    try {
+      await invokeEventToMainProcess('keep-duplicate-group', { key: group.key });
+      setGroups(prev =>
+        prev
+          ? {
+              ...prev,
+              [kind]: prev[kind].filter(g => g.key !== group.key),
+              kept: [...prev.kept, { ...group, kind }],
+            }
+          : prev
+      );
+      setSelected(prev => {
+        const next = new Set(prev);
+        for (const track of group.tracks) next.delete(track.Id);
+        return next;
+      });
+    } catch (err) {
+      console.error('Error keeping duplicate group:', err);
+      setError(String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUnkeep = async ({ key, tracks, kind }: KeptGroup) => {
+    setBusy(true);
+    try {
+      await invokeEventToMainProcess('unkeep-duplicate-group', { key });
+      setGroups(prev =>
+        prev
+          ? {
+              ...prev,
+              kept: prev.kept.filter(g => g.key !== key),
+              [kind]: [...prev[kind], { key, tracks }],
+            }
+          : prev
+      );
+    } catch (err) {
+      console.error('Error moving kept duplicate group back:', err);
       setError(String(err));
     } finally {
       setBusy(false);
@@ -119,7 +387,9 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
     }
   };
 
-  const extraCopies = groups?.reduce((n, g) => n + g.tracks.length - 1, 0) ?? 0;
+  const hasAny =
+    !!groups &&
+    (groups.identical.length > 0 || groups.similar.length > 0 || groups.kept.length > 0);
 
   return (
     <AppDialog
@@ -127,6 +397,7 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
       onClose={busy ? () => undefined : onClose}
       title="Duplicate Tracks"
       maxWidth="md"
+      contentSx={{ p: 0 }}
       actions={
         <>
           <Button onClick={onClose} disabled={busy}>
@@ -138,18 +409,41 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
             disabled={busy || selected.size === 0}
             onClick={handleRemove}
           >
-            {busy ? 'Removing…' : `Remove ${selected.size} from library`}
+            {busy ? 'Working…' : `Remove ${selected.size} from library`}
           </Button>
         </>
       }
     >
-      <Stack spacing={1.5}>
-        <Typography variant="body2" color="text.secondary">
-          Files that are byte-for-byte identical, grouped together. The same song ripped twice at
-          different bitrates is a different file and is not listed here.
-        </Typography>
+      {hasAny && (
+        <Tabs
+          value={tab}
+          variant="fullWidth"
+          onChange={(_, v: TabKind) => setTab(v)}
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 1,
+            bgcolor: 'background.paper',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
+          {(['identical', 'similar', 'kept'] as const).map(kind => (
+            <Tab
+              key={kind}
+              value={kind}
+              label={`${TAB_TEXT[kind].title} (${groups[kind].length})`}
+            />
+          ))}
+        </Tabs>
+      )}
 
-        {error && <Alert severity="error">{error}</Alert>}
+      <Stack spacing={2} sx={{ p: 2 }}>
+        {error && (
+          <Alert severity="error" sx={{ whiteSpace: 'pre-line' }}>
+            {error}
+          </Alert>
+        )}
 
         {ignoredCount > 0 && (
           <Alert
@@ -170,69 +464,42 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
             <CircularProgress size={20} />
             <Typography variant="body2">Scanning the library…</Typography>
           </Stack>
-        ) : groups.length === 0 ? (
-          <Typography variant="body2" sx={{ py: 3 }}>
-            No duplicates found.
-          </Typography>
+        ) : !hasAny ? (
+          <Empty compact page="Duplicates" title="No duplicate tracks" sx={{ pb: 3 }} />
+        ) : groups[tab].length === 0 ? (
+          <Empty compact page={TAB_TEXT[tab].title} title={TAB_TEXT[tab].empty} sx={{ pb: 3 }} />
         ) : (
           <>
-            <Typography variant="subtitle2">
-              {groups.length} group{groups.length === 1 ? '' : 's'}, {extraCopies} extra cop
-              {extraCopies === 1 ? 'y' : 'ies'}
+            <Typography variant="body2" color="text.secondary">
+              {TAB_TEXT[tab].help}
             </Typography>
-
-            {groups.map(group => (
-              <Box key={group.fileHash}>
-                <Divider sx={{ mb: 1 }} />
-                <Stack direction="row" spacing={1} alignItems="baseline" sx={{ mb: 0.5 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                    {group.tracks[0].Title}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary" noWrap>
-                    {[group.tracks[0].ArtistName, group.tracks[0].AlbumTitle]
-                      .filter(Boolean)
-                      .join(' — ')}
-                  </Typography>
-                  <Chip
-                    size="small"
-                    variant="outlined"
-                    label={`${group.tracks.length} copies · ${formatDuration(group.tracks[0].Duration)}`}
+            {tab === 'kept'
+              ? groups.kept.map(group => (
+                  <GroupCard
+                    key={group.key}
+                    group={group}
+                    keepLabel={SUGGESTED[group.kind]}
+                    showQuality={group.kind === 'similar'}
+                    selected={selected}
+                    disabled={busy}
+                    onToggle={toggle}
+                    actionLabel="Restore"
+                    onAction={() => handleUnkeep(group)}
                   />
-                </Stack>
-
-                {group.tracks.map((track, index) => (
-                  <Stack key={track.Id} direction="row" alignItems="center" sx={{ pl: 0.5 }}>
-                    <Checkbox
-                      size="small"
-                      checked={selected.has(track.Id)}
-                      onChange={() => toggle(track.Id)}
-                      inputProps={{ 'aria-label': `Remove ${track.Uri}` }}
-                    />
-                    <Tooltip title={track.Uri} placement="top-start">
-                      <Typography
-                        variant="caption"
-                        sx={{
-                          flex: 1,
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          direction: 'rtl',
-                          textAlign: 'left',
-                          color: selected.has(track.Id) ? 'text.disabled' : 'text.primary',
-                          textDecoration: selected.has(track.Id) ? 'line-through' : 'none',
-                        }}
-                      >
-                        {track.Uri}
-                      </Typography>
-                    </Tooltip>
-                    {index === 0 && (
-                      <Chip size="small" label="oldest" sx={{ ml: 1, flexShrink: 0 }} />
-                    )}
-                  </Stack>
+                ))
+              : groups[tab].map(group => (
+                  <GroupCard
+                    key={group.key}
+                    group={group}
+                    keepLabel={SUGGESTED[tab]}
+                    showQuality={tab === 'similar'}
+                    selected={selected}
+                    disabled={busy}
+                    onToggle={toggle}
+                    actionLabel={group.tracks.length === 2 ? 'Keep both' : 'Keep all'}
+                    onAction={() => handleKeep(group, tab)}
+                  />
                 ))}
-              </Box>
-            ))}
           </>
         )}
       </Stack>

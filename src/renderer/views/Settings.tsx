@@ -1049,7 +1049,7 @@ const Settings: React.FC = () => {
               </ListItemIcon>
               <ListItemText
                 primary="Duplicate tracks"
-                secondary="Find identical files added more than once and drop the extra copies"
+                secondary="Find duplicate tracks and drop the extra copies"
               />
               <Button
                 variant="outlined"

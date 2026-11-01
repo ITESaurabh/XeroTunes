@@ -25,26 +25,26 @@ assert.strictEqual(detectPlaylistFormat('a/b.txt'), null);
 
 // ── resolveLocation ──────────────────────────────────────────────────────
 // Absolute on every OS: a drive letter is just a folder name on Linux and macOS.
-const base = path.resolve('/Music/Meteora');
-assert.strictEqual(resolveLocation('01. Foreword.flac', base), path.join(base, '01. Foreword.flac'));
+const base = path.resolve('/Music/Album');
+assert.strictEqual(resolveLocation('01. Intro.flac', base), path.join(base, '01. Intro.flac'));
 assert.strictEqual(resolveLocation('http://stream.example/live.mp3', base), 'http://stream.example/live.mp3');
 assert.strictEqual(
-  resolveLocation(`${pathToFileURL(base).href}/02.%20Don%27t%20Stay.flac`, base),
-  path.join(base, "02. Don't Stay.flac")
+  resolveLocation(`${pathToFileURL(base).href}/02.%20Track%27s%20Name.flac`, base),
+  path.join(base, "02. Track's Name.flac")
 );
 
 // ── M3U: the real shape shipped alongside ripped FLAC albums ────────────
 const m3uFixture = [
   '#EXTM3U',
-  "#EXTINF:13,Linkin Park - Foreword",
-  '01. Foreword.flac',
-  '#EXTINF:188,Linkin Park - Don\'t Stay',
-  "02. Don't Stay.flac",
+  "#EXTINF:13,Test Artist - Intro",
+  '01. Intro.flac',
+  '#EXTINF:188,Test Artist - Track\'s Name',
+  "02. Track's Name.flac",
 ].join('\r\n');
 const m3uEntries = parseM3U(m3uFixture, base);
 assert.strictEqual(m3uEntries.length, 2);
-assert.strictEqual(m3uEntries[0].location, path.join(base, '01. Foreword.flac'));
-assert.strictEqual(m3uEntries[0].title, 'Linkin Park - Foreword');
+assert.strictEqual(m3uEntries[0].location, path.join(base, '01. Intro.flac'));
+assert.strictEqual(m3uEntries[0].title, 'Test Artist - Intro');
 assert.strictEqual(m3uEntries[0].duration, 13);
 assert.strictEqual(m3uEntries[1].duration, 188);
 
@@ -52,10 +52,10 @@ assert.strictEqual(m3uEntries[1].duration, 188);
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'xt-playlist-'));
 const trackDir = path.join(tmpDir, 'tracks');
 fs.mkdirSync(trackDir);
-const trackPath = path.join(trackDir, "Don't Stay.flac");
+const trackPath = path.join(trackDir, "Track's Name.flac");
 fs.writeFileSync(trackPath, '');
 
-const entries = [{ location: trackPath, title: "Don't Stay", artist: 'Linkin Park', duration: 188 }];
+const entries = [{ location: trackPath, title: "Track's Name", artist: 'Test Artist', duration: 188 }];
 
 for (const ext of ['m3u', 'm3u8', 'pls', 'xspf']) {
   const filePath = path.join(tmpDir, `roundtrip.${ext}`);
@@ -69,13 +69,13 @@ for (const ext of ['m3u', 'm3u8', 'pls', 'xspf']) {
 // M3U/M3U8 write relative paths when the target sits under the output dir;
 // that's what makes an exported playlist portable if the folder moves.
 const m3uOut = writeM3U(entries, tmpDir);
-assert.ok(m3uOut.includes(path.join('tracks', "Don't Stay.flac")), 'm3u writes a relative path');
+assert.ok(m3uOut.includes(path.join('tracks', "Track's Name.flac")), 'm3u writes a relative path');
 
 // PLS always writes absolute paths (real-world PLS writers never write relative).
 const plsOut = writePLS(entries);
 assert.ok(plsOut.includes(`File1=${trackPath}`));
 const plsParsed = parsePLS(plsOut, tmpDir);
-assert.strictEqual(plsParsed[0].title, 'Linkin Park - Don\'t Stay');
+assert.strictEqual(plsParsed[0].title, 'Test Artist - Track\'s Name');
 
 // XSPF escapes XML-significant characters and round-trips them.
 const xspfEntries = [{ location: trackPath, title: 'A & B <C>', artist: 'X "Y" Z', duration: 10 }];

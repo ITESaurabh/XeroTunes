@@ -1,8 +1,8 @@
 // How an exported favourite finds its track again. TrackIds don't survive a
-// database wipe or a different install, so a .xtfav entry carries the file's sha1
-// and its filename instead: the hash covers the whole file, so it survives a
-// rename but not a tag edit, and the filename catches the tracks whose tags
-// changed. Plain JS with no deps so the main process and test_favouriteMatch.js
+// database wipe or a different install, so a .xtfav entry carries the file's hash
+// and its filename instead. The hash survives a rename, and for MP3 a tag edit;
+// the filename catches the rest, including entries exported under an older hash
+// scheme. Plain JS with no deps so the main process and test_favouriteMatch.js
 // can both load it.
 const path = require('path');
 

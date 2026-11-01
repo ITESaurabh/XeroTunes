@@ -30,8 +30,8 @@ assert.equal(formatLrcTime(-500), '00:00.00');
 
 // ── parseLrc ───────────────────────────────────────────────────────────────
 // Pasted plain text is the starting state of every new sync.
-const pasted = parseLrc('I push myself to the edge\nFeel it in my chest');
-assert.deepEqual(texts(pasted), ['I push myself to the edge', 'Feel it in my chest']);
+const pasted = parseLrc('First line of the verse\nSecond line of the verse');
+assert.deepEqual(texts(pasted), ['First line of the verse', 'Second line of the verse']);
 assert.deepEqual(times(pasted), [null, null]);
 
 // Centiseconds, milliseconds and bare seconds all appear in real files.

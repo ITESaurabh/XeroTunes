@@ -50,7 +50,7 @@ You can easily use your local music collection or your Remote servers like (Jell
 - **Servers**: Jellyfin, Emby, Plex, Subsonic/Navidrome, Nextcloud, WebDAV, UPnP/DLNA
 - **Lyrics** from a `.lrc` file, the song itself, or your server
 - **Tag editor** for titles, artists, albums and cover art
-- **Duplicate finder** for identical files
+- **Duplicate finder** for identical copies, and for the same song ripped twice
 - **Cast** to Chromecast and Google speakers
 - **Scrobbling** to Last.fm, Libre.fm and ListenBrainz
 - **Equalizer**: 10 bands, with presets like Bass boost, Vocal and Rock

@@ -13,23 +13,20 @@ const body = (tracks, nowPlaying) =>
 const scrobbleArtist = track => body([{ timestamp: 1, ...track }], false).get('artist[0]');
 
 assert.strictEqual(
-  scrobbleArtist({ track: 'Get Lucky', artists: ['Daft Punk', 'Pharrell Williams'] }),
-  'Daft Punk'
+  scrobbleArtist({ track: 'Song A', artists: ['Main Artist', 'Guest Artist'] }),
+  'Main Artist'
 );
 
 // Names a delimiter-based splitter mangles. One artist row means one artist.
 assert.strictEqual(
-  scrobbleArtist({ track: 'Yonkers', artists: ['Tyler, The Creator'] }),
-  'Tyler, The Creator'
+  scrobbleArtist({ track: 'Song B', artists: ['Alpha, The Band'] }),
+  'Alpha, The Band'
 );
-assert.strictEqual(
-  scrobbleArtist({ track: 'The Boxer', artists: ['Simon & Garfunkel'] }),
-  'Simon & Garfunkel'
-);
-assert.strictEqual(scrobbleArtist({ track: 'Back in Black', artists: ['AC/DC'] }), 'AC/DC');
-assert.strictEqual(scrobbleArtist({ track: 'Hunting Party', artists: ['Sunn O)))'] }), 'Sunn O)))');
+assert.strictEqual(scrobbleArtist({ track: 'Song C', artists: ['Alpha & Beta'] }), 'Alpha & Beta');
+assert.strictEqual(scrobbleArtist({ track: 'Song D', artists: ['AC/DC'] }), 'AC/DC');
+assert.strictEqual(scrobbleArtist({ track: 'Song E', artists: ['Echo O)))'] }), 'Echo O)))');
 
-assert.strictEqual(scrobbleArtist({ track: 'B', artists: [], artistRaw: 'Boards of Canada' }), 'Boards of Canada');
+assert.strictEqual(scrobbleArtist({ track: 'B', artists: [], artistRaw: 'Raw Artist' }), 'Raw Artist');
 
 assert.strictEqual(scrobbleArtist({ track: 'B', artists: ['  ', 'Real Name'] }), 'Real Name');
 
@@ -45,19 +42,19 @@ for (const albumArtist of ['Various Artists', 'various', '  VARIOUS ARTISTS  '])
   assert.strictEqual(params.has('albumArtist[0]'), false, albumArtist);
 }
 assert.strictEqual(
-  body([{ track: 'T', artists: ['A'], timestamp: 1, albumArtist: 'Miles Davis' }], false).get(
+  body([{ track: 'T', artists: ['A'], timestamp: 1, albumArtist: 'Album Artist' }], false).get(
     'albumArtist[0]'
   ),
-  'Miles Davis'
+  'Album Artist'
 );
 
 // If these disagree, one links to the right artist and the other mints a new
 // one. It is the regression that keeps coming back.
 const track = {
-  track: 'Instant Crush',
-  artists: ['Daft Punk', 'Julian Casablancas'],
-  artistRaw: 'Daft Punk, Julian Casablancas',
-  album: 'Random Access Memories',
+  track: 'Song F',
+  artists: ['Main Artist', 'Guest Artist'],
+  artistRaw: 'Main Artist, Guest Artist',
+  album: 'Test Album',
   duration: 337.4,
   timestamp: 1700000000,
 };
@@ -74,10 +71,10 @@ assert.strictEqual(body([track, { track: 'X', artists: ['Y'] }], true).has('arti
 
 // ListenBrainz has room for the whole credit, so it must NOT be collapsed.
 const lb = listenBrainzBody([track], false).payload[0];
-assert.strictEqual(lb.track_metadata.artist_name, 'Daft Punk, Julian Casablancas');
+assert.strictEqual(lb.track_metadata.artist_name, 'Main Artist, Guest Artist');
 assert.deepStrictEqual(lb.track_metadata.additional_info.artist_names, [
-  'Daft Punk',
-  'Julian Casablancas',
+  'Main Artist',
+  'Guest Artist',
 ]);
 assert.strictEqual(lb.listened_at, 1700000000);
 assert.strictEqual(lb.track_metadata.additional_info.duration_ms, 337400);

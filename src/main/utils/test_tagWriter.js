@@ -112,7 +112,7 @@ async function main() {
 
   // ID3v2.3 has no UTF-8: taglib has to fall back to UTF-16 rather than write a
   // frame nothing else can decode. Asserts the round trip, not the encoding byte.
-  const CJK = 'Wuthering Waves, Forts, 楊秉音';
+  const CJK = 'Alpha, Beta, 測試歌手';
   writeTags(legacy, { title: CJK, artists: [CJK], comment: CJK });
   const unicode = await parseFile(legacy);
   assert.strictEqual(unicode.common.title, CJK);

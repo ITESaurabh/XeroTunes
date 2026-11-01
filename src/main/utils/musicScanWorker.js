@@ -1,9 +1,9 @@
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
-const crypto = require('crypto');
 const { cleanupOrphans } = require('../db/cleanup');
 const { applyLibrarySettings, splitArtists } = require('./libraryRules');
+const { HASH_PREFIX, fileHash: getFileHash } = require('./audioHash');
 
 // Cache the ESM import so it's resolved once for all files
 let mmPromise = null;
@@ -109,16 +109,6 @@ function getOrCreateAlbum(db, title, artistId, extra = {}, sourceId = null) {
   const stmt = db.prepare(`INSERT INTO Album (${cols}) VALUES (${placeholders})`);
   const info = stmt.run(...vals);
   return info.lastInsertRowid;
-}
-
-function getFileHash(filePath) {
-  const hash = crypto.createHash('sha1');
-  const stream = fs.createReadStream(filePath);
-  return new Promise((resolve, reject) => {
-    stream.on('data', data => hash.update(data));
-    stream.on('end', () => resolve(hash.digest('hex')));
-    stream.on('error', reject);
-  });
 }
 
 // Without this, files the user dropped but kept on disk get re-added by the next scan.
@@ -346,7 +336,8 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
 
 // ─── Basic (optimistic) scan ─────────────────────────────────────────────────
 // Only processes files that are NOT already tracked. Cheap deletion check via
-// fs.existsSync so it never reads/hashes unchanged files.
+// fs.existsSync so it never reads/hashes unchanged files, apart from a one-off
+// rehash when HASH_PREFIX changes.
 
 async function runBasicScan(db, folders, config, supportedFileTypes) {
   // Deliberately includes rows from remote sources: a downloaded remote track
@@ -364,10 +355,28 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
     }
   }
 
-  const total = newFiles.length;
+  // Rows hashed under an older HASH_PREFIX would never match fresh hashes, so
+  // they're rehashed once. NULL is skipped: remote tracks have no hash and
+  // usually no file.
+  const staleHashes = db
+    .prepare('SELECT Id, Uri FROM Track WHERE FileHash IS NOT NULL AND FileHash NOT LIKE ?')
+    .all(`${HASH_PREFIX}%`);
+
+  const total = newFiles.length + staleHashes.length;
   let scanned = 0;
   let processed = 0;
   process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
+
+  const setHash = db.prepare('UPDATE Track SET FileHash = ? WHERE Id = ?');
+  for (const track of staleHashes) {
+    try {
+      if (fs.existsSync(track.Uri)) setHash.run(await getFileHash(track.Uri), track.Id);
+    } catch (err) {
+      console.error('[basic-scan] Rehash error:', track.Uri, err?.message || err);
+    }
+    processed++;
+    process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
+  }
 
   for (const filePath of newFiles) {
     try {

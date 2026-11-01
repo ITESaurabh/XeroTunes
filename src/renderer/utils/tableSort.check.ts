@@ -54,13 +54,13 @@ assert.deepEqual(nextSort({ key: 'Title', dir: 'desc' }, 'Year'), { key: 'Year',
 // Filters run on the displayed text, so a formatted duration is matchable.
 assert.equal(matchesFilter('3:13', 'contains', '13'), true);
 assert.equal(matchesFilter('3:13', 'equals', '3:13'), true);
-assert.equal(matchesFilter('Marilyn Manson', 'contains', 'MANSON'), true, 'case-insensitive');
-assert.equal(matchesFilter('Marilyn Manson', 'startsWith', 'mar'), true);
-assert.equal(matchesFilter('Marilyn Manson', 'endsWith', 'son'), true);
-assert.equal(matchesFilter('Marilyn Manson', 'equals', 'manson'), false);
+assert.equal(matchesFilter('Test Artist', 'contains', 'ARTIST'), true, 'case-insensitive');
+assert.equal(matchesFilter('Test Artist', 'startsWith', 'tes'), true);
+assert.equal(matchesFilter('Test Artist', 'endsWith', 'ist'), true);
+assert.equal(matchesFilter('Test Artist', 'equals', 'artist'), false);
 
 // Surrounding whitespace in the box must not stop a match.
-assert.equal(matchesFilter('Eminem', 'contains', '  emin  '), true);
+assert.equal(matchesFilter('Placeholder', 'contains', '  place  '), true);
 
 // Empty/non-empty look at the real cell, not the trimmed needle.
 assert.equal(matchesFilter('', 'isEmpty', ''), true);
@@ -71,8 +71,8 @@ assert.equal(opNeedsValue('isEmpty'), false);
 assert.equal(opNeedsValue('contains'), true);
 
 // Quick search spans the columns it is given; an empty query keeps every row.
-assert.equal(matchesSearch(['Holy Wood', 'Marilyn Manson'], 'manson'), true);
-assert.equal(matchesSearch(['Holy Wood', 'Marilyn Manson'], 'eminem'), false);
+assert.equal(matchesSearch(['Test Album', 'Test Artist'], 'artist'), true);
+assert.equal(matchesSearch(['Test Album', 'Test Artist'], 'placeholder'), false);
 assert.equal(matchesSearch(['a'], '   '), true, 'blank query is not a filter');
 assert.equal(matchesSearch([], 'x'), false);
 

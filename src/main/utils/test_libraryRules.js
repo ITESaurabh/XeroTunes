@@ -17,7 +17,7 @@ function withRules(separators, exceptions, fn) {
 // ── splitArtists ─────────────────────────────────────────────────────────────
 
 withRules([',', '&'], ['AC/DC', '+/-'], () => {
-  assert.deepStrictEqual(splitArtists('Simon & Garfunkel'), ['Simon', 'Garfunkel']);
+  assert.deepStrictEqual(splitArtists('Alpha & Beta'), ['Alpha', 'Beta']);
   assert.deepStrictEqual(splitArtists('A, B & C'), ['A', 'B', 'C']);
   // '/' is not a separator here, so the name is untouched with or without the rule.
   assert.deepStrictEqual(splitArtists('AC/DC'), ['AC/DC']);
@@ -29,11 +29,11 @@ withRules([',', '&'], ['AC/DC', '+/-'], () => {
 });
 
 // An exception keeps a name whole even when it contains a live separator.
-withRules([',', '&'], ['Simon & Garfunkel'], () => {
-  assert.deepStrictEqual(splitArtists('Simon & Garfunkel'), ['Simon & Garfunkel']);
-  assert.deepStrictEqual(splitArtists('simon & garfunkel'), ['simon & garfunkel']);
+withRules([',', '&'], ['Alpha & Beta'], () => {
+  assert.deepStrictEqual(splitArtists('Alpha & Beta'), ['Alpha & Beta']);
+  assert.deepStrictEqual(splitArtists('alpha & beta'), ['alpha & beta']);
   // Only the exact name is spared; other tags still split.
-  assert.deepStrictEqual(splitArtists('Simon & Art'), ['Simon', 'Art']);
+  assert.deepStrictEqual(splitArtists('Alpha & Gamma'), ['Alpha', 'Gamma']);
 });
 
 // Adding a separator splits names that used to be whole.
@@ -50,7 +50,7 @@ withRules(['+'], [], () => {
 // A blank separator would otherwise compile to a regex matching between every
 // character and shred the name.
 withRules([''], [], () => {
-  assert.deepStrictEqual(splitArtists('Metallica'), ['Metallica']);
+  assert.deepStrictEqual(splitArtists('Placeholder'), ['Placeholder']);
 });
 withRules([], [], () => {
   assert.deepStrictEqual(splitArtists('A & B'), ['A & B']);
@@ -63,7 +63,7 @@ const p = (...parts) => parts.join(sep);
 
 const roots = [p('D:', 'Music'), p('E:', 'Archive', 'FLAC')];
 
-assert.strictEqual(isUnderAnyRoot(p('D:', 'Music', 'Queen', 'a.mp3'), roots), true);
+assert.strictEqual(isUnderAnyRoot(p('D:', 'Music', 'Artist', 'a.mp3'), roots), true);
 assert.strictEqual(isUnderAnyRoot(p('E:', 'Archive', 'FLAC', 'b.flac'), roots), true);
 assert.strictEqual(isUnderAnyRoot(p('D:', 'Videos', 'c.mp3'), roots), false);
 // A sibling that merely shares a prefix is not inside the root.

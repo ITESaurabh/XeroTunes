@@ -24,7 +24,7 @@ const entry = (hash, file) => ({ hash, file });
 assert.strictEqual(matchFavourite(index, entry('ccc', 'Song A.mp3')), 3);
 // A renamed file still hashes the same.
 assert.strictEqual(matchFavourite(index, entry('bbb', 'Whatever It Is Now.mp3')), 2);
-// A tag edit changes the bytes, so the filename is what's left.
+// A hash that misses (an older export, a re-tagged FLAC) leaves the filename.
 assert.strictEqual(matchFavourite(index, entry('no-longer-matching', 'Song B.mp3')), 2);
 // Filenames are compared case-insensitively; extensions still count.
 assert.strictEqual(matchFavourite(index, entry(null, 'SONG b.MP3')), 2);
