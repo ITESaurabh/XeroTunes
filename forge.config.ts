@@ -1,3 +1,4 @@
+import { existsSync } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
@@ -17,6 +18,7 @@ import { rendererConfig } from './webpack.renderer.config';
 import { CHANNEL, IDENTITY } from './src/config/channel';
 import { OS_FLOOR } from './src/config/osFloor';
 import { checkOsFloor } from './scripts/checkOsFloor';
+import { shipNodeModules } from './scripts/shipNodeModules';
 import { writeInstallScripts } from './scripts/linux/installScripts';
 
 const AUDIO_MIME_TYPES = [
@@ -55,7 +57,8 @@ const config: ForgeConfig = {
         : './src/assets/logo/XeroTunesLogo',
 
     executableName: IDENTITY.installName,
-    asar: true,
+    // sharp's binary and libvips can't load from an asar; AutoUnpackNatives adds *.node.
+    asar: { unpack: '**/node_modules/{sharp,@img}/**/*' },
     appCategoryType: 'public.app-category.music',
     name: IDENTITY.productName,
     // Loose-shipped so the AUMID registration in src/index.ts can point
@@ -193,6 +196,14 @@ const config: ForgeConfig = {
     }),
   ],
   hooks: {
+    async packageAfterPrune(_config, buildPath, _electronVersion, platform, arch) {
+      shipNodeModules(['sharp'], __dirname, buildPath);
+      // yarn installs only the host's binary; a cross-arch build would ship one that can't load.
+      const binary = `@img/sharp-${platform}-${arch}`;
+      if (!existsSync(path.join(buildPath, 'node_modules', binary))) {
+        throw new Error(`${binary} isn't installed; add ${platform}/${arch} to supportedArchitectures in .yarnrc.yml.`);
+      }
+    },
     // Before any installer is made, so a floor rise can't reach a release.
     async postPackage(_config, { platform, outputPaths }) {
       checkOsFloor(platform, outputPaths, OS_FLOOR);

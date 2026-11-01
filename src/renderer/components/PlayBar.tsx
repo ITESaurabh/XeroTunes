@@ -324,6 +324,50 @@ function streamIdOf(id: string | number | undefined): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
+// Safe to inline: coverArt.js keeps stored covers under Chromium's 2 MB artwork data URL limit.
+async function artworkDataUrl(path: string): Promise<string> {
+  const response = await fetch(`file:///${path.replace(/\\/g, '/')}`);
+  const blob = await response.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ── SMTC keepalive (silent loop) ─────────────────────────────────────
+// 1s silent WAV looped in a hidden audio element. While it's playing,
+// MediaSession always has at least one active player, so the session
+// doesn't go inactive while the main audio's WebMediaPlayer is destroyed
+// and re-created on a track change; SMTC keeps the OS tile pinned.
+// Never revoked: under StrictMode's dev remount, revoke-on-unmount killed the live loop.
+const SILENT_SRC = (() => {
+  const sampleRate = 8000;
+  const numSamples = sampleRate; // 1 second
+  const buffer = new ArrayBuffer(44 + numSamples);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true); // PCM format
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true); // byte rate
+  view.setUint16(32, 1, true); // block align
+  view.setUint16(34, 8, true); // bits per sample
+  writeStr(36, 'data');
+  view.setUint32(40, numSamples, true);
+  // 8-bit unsigned PCM midpoint = 128 = silence
+  for (let i = 0; i < numSamples; i++) view.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
+})();
+
 export default function PlayBar() {
   const theme = useTheme();
   const navigate = useNavigate();
@@ -714,48 +758,6 @@ export default function PlayBar() {
     dispatch({ type: 'SET_IS_PLAYING', payload: !paused });
   }, [paused, dispatch]);
 
-  // ── SMTC keepalive (silent loop) ─────────────────────────────────────
-  // 1s silent WAV looped in a hidden audio element. While it's playing,
-  // MediaSession always has at least one active player, so the session
-  // doesn't go inactive while the main audio's WebMediaPlayer is destroyed
-  // and re-created on a track change; SMTC keeps the OS tile pinned.
-  const silentSrc = useMemo(() => {
-    const sampleRate = 8000;
-    const numSamples = sampleRate; // 1 second
-    const buffer = new ArrayBuffer(44 + numSamples);
-    const view = new DataView(buffer);
-    const writeStr = (offset: number, str: string) => {
-      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-    };
-    writeStr(0, 'RIFF');
-    view.setUint32(4, 36 + numSamples, true);
-    writeStr(8, 'WAVE');
-    writeStr(12, 'fmt ');
-    view.setUint32(16, 16, true); // PCM chunk size
-    view.setUint16(20, 1, true); // PCM format
-    view.setUint16(22, 1, true); // mono
-    view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate, true); // byte rate
-    view.setUint16(32, 1, true); // block align
-    view.setUint16(34, 8, true); // bits per sample
-    writeStr(36, 'data');
-    view.setUint32(40, numSamples, true);
-    // 8-bit unsigned PCM midpoint = 128 = silence
-    for (let i = 0; i < numSamples; i++) view.setUint8(44 + i, 128);
-    return URL.createObjectURL(new Blob([buffer], { type: 'audio/wav' }));
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      // Release the blob URL when PlayBar unmounts.
-      try {
-        URL.revokeObjectURL(silentSrc);
-      } catch {
-        /* noop */
-      }
-    };
-  }, [silentSrc]);
-
   // Mirror the main audio's play/pause state. Letting the silent track run
   // while the user has paused makes Chromium override our explicit
   // playbackState='paused' (since it sees an active player), which breaks
@@ -1099,18 +1101,11 @@ export default function PlayBar() {
     let cancelled = false;
     void (async () => {
       try {
-        const fileUrl =`file:///${(track.AlbumArt as string).replace(/\\/g, '/')}`;
-        const response = await fetch(fileUrl);
-        const blob = await response.blob();
-        const base64 = await new Promise<string>(resolve => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(blob);
-        });
+        const src = await artworkDataUrl(track.AlbumArt as string);
         if (cancelled || metadataReqRef.current !== reqId) return;
         navigator.mediaSession.metadata = new MediaMetadata({
           ...baseMeta,
-          artwork: [{ src: base64 }],
+          artwork: [{ src }],
         });
       } catch {
         /* artwork stays empty */
@@ -2224,10 +2219,10 @@ export default function PlayBar() {
         connectedDeviceId={isCasting ? castDeviceId : null}
       />
       <audio ref={audioRef} style={AudioElementStyle} />
-      {/* SMTC keepalive, fed by silentSrc. */}
+      {/* SMTC keepalive, fed by SILENT_SRC. */}
       <audio
         ref={silentAudioRef}
-        src={silentSrc}
+        src={SILENT_SRC}
         loop
         preload="auto"
         style={AudioElementStyle}

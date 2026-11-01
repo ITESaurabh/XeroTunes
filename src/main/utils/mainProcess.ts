@@ -77,6 +77,7 @@ import { buildTrackIndex, matchFavourite } from './favouriteMatch';
 import { sameSongGroups } from './duplicateGroups';
 import { parsePlaylistFile, writePlaylistFile } from './playlistFormats';
 import { writeTags, TagFields } from './tagWriter';
+import { capCover, capStoredCovers, imageSize } from './coverArt';
 import { parseFile as parseAudioFile } from 'music-metadata';
 import os from 'os';
 
@@ -507,6 +508,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       },
     });
     win.setAlwaysOnTop(true, 'screen-saver');
+    // Otherwise macOS pins it to the Space that was active at launch. Without
+    // skipTransformProcessType, visibleOnFullScreen hides the app's dock icon.
+    win.setVisibleOnAllWorkspaces(true, {
+      visibleOnFullScreen: true,
+      skipTransformProcessType: true,
+    });
     win.setIgnoreMouseEvents(true);
     win.webContents.setVisualZoomLevelLimits(1, 1).catch(() => undefined);
     win.loadURL(overlayEntry).catch(err => console.error('[overlay] Load failed:', err));
@@ -1166,7 +1173,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
               fs.rmSync(albumJpg(albumId), { force: true });
               setAlbumArt.run('', albumId);
             } else {
-              fs.copyFileSync(fields.artPath, albumJpg(albumId));
+              // The tags keep the picked image as is; only the cached copy is capped.
+              fs.writeFileSync(albumJpg(albumId), await capCover(fs.readFileSync(fields.artPath)));
               setAlbumArt.run(albumJpg(albumId), albumId);
             }
           } catch {
@@ -1184,7 +1192,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
               fs.rmSync(trackArt, { force: true });
               setTrackArt.run('', row.Id);
             } else {
-              fs.copyFileSync(fields.artPath, trackArt);
+              fs.writeFileSync(trackArt, await capCover(fs.readFileSync(fields.artPath)));
               setTrackArt.run(trackArt, row.Id);
             }
           } catch {
@@ -1552,6 +1560,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   }
 
+  // Not awaited, so startup never waits on sharp.
+  capStoredCovers(ALBUM_ART_DIR)
+    .then(n => n && console.log(`[cover] Capped ${n} stored cover(s)`))
+    .catch(err => console.warn('[cover] Capping stored covers failed:', err));
+
   // Rows age out after settings.streamHistoryDays unless bookmarked, so this
   // stays a short "what was that song?" list rather than a permanent log.
   db.prepare(
@@ -1689,7 +1702,52 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     }
   }
 
-  ipcMain.handle('save-image', async (_e, { src, suggestedName }) => {
+  const extForMime = (mime: string): string => {
+    if (mime.includes('png')) return '.png';
+    if (mime.includes('webp')) return '.webp';
+    if (mime.includes('gif')) return '.gif';
+    return '.jpg';
+  };
+
+  function cachedCoverPath(src: string): string | null {
+    if (src.startsWith('data:') || /^https?:\/\//i.test(src)) return null;
+    const file = src.startsWith('file://') ? fileURLToPath(src) : src;
+    return path.dirname(file) === ALBUM_ART_DIR ? file : null;
+  }
+
+  // The cache is capped at 1200px; the full-size picture is still in the tags of tracks using it.
+  async function originalCover(coverPath: string): Promise<{ data: Buffer; mime: string } | null> {
+    const rows = db.prepare('SELECT Uri FROM Track WHERE AlbumArt = ?').all(coverPath) as {
+      Uri: string;
+    }[];
+    for (const { Uri } of rows) {
+      if (!fs.existsSync(Uri)) continue;
+      try {
+        const picture = (await parseAudioFile(Uri)).common.picture?.[0];
+        if (picture) return { data: Buffer.from(picture.data), mime: picture.format };
+      } catch {
+        /* unreadable; try the album's next track */
+      }
+    }
+    return null;
+  }
+
+  // Compares sizes, not bytes: an album's tracks often carry different encodes of the same art.
+  ipcMain.handle('get-original-cover', async (_e, { src }) => {
+    try {
+      const coverPath = typeof src === 'string' ? cachedCoverPath(src) : null;
+      const original = coverPath ? await originalCover(coverPath) : null;
+      const size = original && (await imageSize(original.data));
+      if (!coverPath || !size) return null;
+      const cached = await imageSize(fs.readFileSync(coverPath));
+      const longSide = (s: { width: number; height: number }) => Math.max(s.width, s.height);
+      return { ...size, capped: !!cached && longSide(size) > longSide(cached) };
+    } catch {
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-image', async (_e, { src, suggestedName, original }) => {
     try {
       if (!src || typeof src !== 'string') {
         return { success: false, error: 'No image source' };
@@ -1699,14 +1757,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       let data: Buffer;
       let ext = '.jpg';
 
-      if (src.startsWith('data:')) {
+      const coverPath = original ? cachedCoverPath(src) : null;
+      if (coverPath) {
+        const embedded = await originalCover(coverPath);
+        if (!embedded) return { success: false, error: 'The original cover is no longer in the file' };
+        data = embedded.data;
+        ext = extForMime(embedded.mime);
+      } else if (src.startsWith('data:')) {
         const match = /^data:(.*?);base64,(.*)$/s.exec(src);
         if (!match) return { success: false, error: 'Unsupported image data' };
         data = Buffer.from(match[2], 'base64');
-        const mime = match[1];
-        if (mime.includes('png')) ext = '.png';
-        else if (mime.includes('webp')) ext = '.webp';
-        else if (mime.includes('gif')) ext = '.gif';
+        ext = extForMime(match[1]);
       } else if (src.startsWith('file://')) {
         const filePath = fileURLToPath(src);
         data = fs.readFileSync(filePath);

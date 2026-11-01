@@ -23,6 +23,7 @@ import {
   stripNamespace,
 } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
+import { capCover } from '../utils/coverArt';
 import type {
   ConnectInput,
   MetadataMode,
@@ -441,7 +442,7 @@ async function downloadAlbumArt(
       jobs
         .slice(i, i + 4)
         .map(([albumId, url]) =>
-          downloadTo(url, path.join(ALBUM_ART_DIR, `${albumId}.jpg`), headers)
+          downloadCover(url, path.join(ALBUM_ART_DIR, `${albumId}.jpg`), headers)
         )
     );
     onProgress?.(Math.min(i + 4, jobs.length), jobs.length);
@@ -661,7 +662,7 @@ function clearMissingArt(sourceId: number): void {
   })();
 }
 
-async function downloadTo(
+async function downloadCover(
   url: string,
   destPath: string,
   headers?: Record<string, string>
@@ -672,7 +673,7 @@ async function downloadTo(
     // The art loop skips any album whose file already exists, so a truncated
     // write here would never be retried.
     const tmp = `${destPath}.part`;
-    fs.writeFileSync(tmp, Buffer.from(await res.arrayBuffer()));
+    fs.writeFileSync(tmp, await capCover(Buffer.from(await res.arrayBuffer())));
     fs.renameSync(tmp, destPath);
     return true;
   } catch {

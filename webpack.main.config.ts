@@ -23,6 +23,8 @@ export const mainConfig: Configuration = {
   },
   externals: {
     'react-native-fs': 'reactNativeFs',
+    // sharp picks its @img binary by a runtime path webpack can't follow; forge.config.ts ships it.
+    sharp: 'commonjs sharp',
     ...(process.env.NODE_ENV === 'development' && {
       'better-sqlite3': 'commonjs better-sqlite3',
       'castv2-client': 'commonjs castv2-client',

@@ -4,6 +4,7 @@ const Database = require('better-sqlite3');
 const { cleanupOrphans } = require('../db/cleanup');
 const { applyLibrarySettings, splitArtists } = require('./libraryRules');
 const { HASH_PREFIX, fileHash: getFileHash } = require('./audioHash');
+const { capCover } = require('./coverArt');
 
 // Cache the ESM import so it's resolved once for all files
 let mmPromise = null;
@@ -186,7 +187,7 @@ function writeArtistLinks(db, trackId, albumId, artistIds, albumArtistIds) {
   }
 }
 
-function insertTrack(db, config, filePath, musicInfo, fileHash) {
+async function insertTrack(db, config, filePath, musicInfo, fileHash) {
   const { primaryId: primaryArtistId, ids: artistIds } = resolveArtists(db, musicInfo.tags.artist);
 
   const genreId = musicInfo.tags.genre
@@ -209,7 +210,7 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
   if (albumId && musicInfo.tags.picture) {
     const albumArtPath = path.join(config.ALBUM_ART_DIR, `${albumId}.jpg`);
     if (!fs.existsSync(albumArtPath)) {
-      fs.writeFileSync(String(albumArtPath), Buffer.from(musicInfo.tags.picture.data));
+      fs.writeFileSync(albumArtPath, await capCover(Buffer.from(musicInfo.tags.picture.data)));
     }
     albumArt = albumArtPath;
   }
@@ -260,7 +261,7 @@ function insertTrack(db, config, filePath, musicInfo, fileHash) {
   };
 }
 
-function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
+async function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
   const { primaryId: primaryArtistId, ids: artistIds } = resolveArtists(db, musicInfo.tags.artist);
 
   const genreId = musicInfo.tags.genre
@@ -288,7 +289,7 @@ function updateTrack(db, config, filePath, musicInfo, fileHash, trackId) {
   if (albumId && musicInfo.tags.picture) {
     const albumArtPath = path.join(config.ALBUM_ART_DIR, `${albumId}.jpg`);
     if (!fs.existsSync(albumArtPath)) {
-      fs.writeFileSync(String(albumArtPath), Buffer.from(musicInfo.tags.picture.data));
+      fs.writeFileSync(albumArtPath, await capCover(Buffer.from(musicInfo.tags.picture.data)));
     }
     albumArt = albumArtPath;
   }
@@ -382,7 +383,7 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
     try {
       const fileHash = await getFileHash(filePath);
       const musicInfo = await parseMusicWorker(filePath);
-      insertTrack(db, config, filePath, musicInfo, fileHash);
+      await insertTrack(db, config, filePath, musicInfo, fileHash);
       scanned++;
     } catch (err) {
       console.error('[basic-scan] Insert error:', filePath, err?.message || err);
@@ -446,9 +447,9 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
         const trackRow = db.prepare('SELECT Id FROM Track WHERE Uri = ?').get(filePath);
         const musicInfo = await parseMusicWorker(filePath);
         if (!trackRow) {
-          insertTrack(db, config, filePath, musicInfo, fileHash);
+          await insertTrack(db, config, filePath, musicInfo, fileHash);
         } else {
-          updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
+          await updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
         }
         scanned++;
         folderScanned++;
@@ -504,9 +505,9 @@ async function runFileScan(db, files, config) {
         const trackRow = db.prepare('SELECT Id FROM Track WHERE Uri = ?').get(filePath);
         const musicInfo = await parseMusicWorker(filePath);
         if (!trackRow) {
-          insertTrack(db, config, filePath, musicInfo, fileHash);
+          await insertTrack(db, config, filePath, musicInfo, fileHash);
         } else {
-          updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
+          await updateTrack(db, config, filePath, musicInfo, fileHash, trackRow.Id);
         }
         scanned++;
       }

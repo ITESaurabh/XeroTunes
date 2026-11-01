@@ -27,12 +27,33 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
   imageAlt = 'Preview image',
 }) => {
   const [resolution, setResolution] = React.useState<string>('');
+  // An album cover's embedded original; `capped` when the preview is a scaled-down copy.
+  const [original, setOriginal] = React.useState<{
+    width: number;
+    height: number;
+    capped: boolean;
+  } | null>(null);
   const [menuPos, setMenuPos] = React.useState<{ top: number; left: number } | null>(null);
   const isPhone = useMediaQuery((theme: Theme) => theme.breakpoints.down('md'));
 
   React.useEffect(() => {
     setResolution('');
   }, [imageSrc]);
+
+  React.useEffect(() => {
+    setOriginal(null);
+    if (!open || !imageSrc) return;
+    let cancelled = false;
+    ipcRenderer
+      .invoke('get-original-cover', { src: imageSrc })
+      .then((info: typeof original) => {
+        if (!cancelled) setOriginal(info);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, imageSrc]);
 
   const handleContextMenu = (event: React.MouseEvent) => {
     if (!imageSrc) return;
@@ -42,11 +63,15 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
 
   const handleCloseMenu = () => setMenuPos(null);
 
-  const handleSaveImage = async () => {
+  const handleSaveImage = async (saveOriginal: boolean) => {
     handleCloseMenu();
     if (!imageSrc) return;
     try {
-      await ipcRenderer.invoke('save-image', { src: imageSrc, suggestedName: imageAlt });
+      await ipcRenderer.invoke('save-image', {
+        src: imageSrc,
+        suggestedName: imageAlt,
+        original: saveOriginal,
+      });
     } catch {
       /* ignore: non-critical for the user */
     }
@@ -127,6 +152,7 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
           sx={{ color: 'text.secondary', minHeight: 20 }}
         >
           {resolution}
+          {resolution && original?.capped && ` (original ${original.width} x ${original.height})`}
         </Typography>
         <Button
           size="small"
@@ -144,7 +170,19 @@ const ImagePreviewDialog: React.FC<ImagePreviewDialogProps> = ({
         anchorReference="anchorPosition"
         anchorPosition={menuPos ?? undefined}
       >
-        <MenuItem onClick={handleSaveImage}>Save image…</MenuItem>
+        {original?.capped ? (
+          [
+            <MenuItem key="original" onClick={() => handleSaveImage(true)}>
+              Save original ({original.width} x {original.height})…
+            </MenuItem>,
+            <MenuItem key="shown" onClick={() => handleSaveImage(false)}>
+              Save as shown ({resolution})…
+            </MenuItem>,
+          ]
+        ) : (
+          // Same size either way, so save the embedded original: a PNG stays a PNG.
+          <MenuItem onClick={() => handleSaveImage(!!original)}>Save image…</MenuItem>
+        )}
       </Menu>
     </Dialog>
   );
