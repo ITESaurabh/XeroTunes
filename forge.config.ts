@@ -196,12 +196,27 @@ const config: ForgeConfig = {
     }),
   ],
   hooks: {
+    // Native sharp binds to Electron's system glib and segfaults (electron/electron#46323); without
+    // it, sharp loads @img/sharp-wasm32. Deleted from node_modules so `yarn start` gets wasm too.
+    async generateAssets(_config, platform) {
+      if (platform !== 'linux') return;
+      const img = path.join(__dirname, 'node_modules', '@img');
+      for (const name of await fs.readdir(img)) {
+        if (/^sharp-(libvips-)?linux/.test(name)) {
+          await fs.rm(path.join(img, name), { recursive: true, force: true });
+        }
+      }
+    },
     async packageAfterPrune(_config, buildPath, _electronVersion, platform, arch) {
       shipNodeModules(['sharp'], __dirname, buildPath);
+      const img = path.join(buildPath, 'node_modules', '@img');
       // yarn installs only the host's binary; a cross-arch build would ship one that can't load.
-      const binary = `@img/sharp-${platform}-${arch}`;
-      if (!existsSync(path.join(buildPath, 'node_modules', binary))) {
-        throw new Error(`${binary} isn't installed; add ${platform}/${arch} to supportedArchitectures in .yarnrc.yml.`);
+      const binary = platform === 'linux' ? 'sharp-wasm32' : `sharp-${platform}-${arch}`;
+      if (!existsSync(path.join(img, binary))) {
+        throw new Error(`@img/${binary} isn't installed; check supportedArchitectures in .yarnrc.yml.`);
+      }
+      if (platform !== 'linux') {
+        await fs.rm(path.join(img, 'sharp-wasm32'), { recursive: true, force: true });
       }
     },
     // Before any installer is made, so a floor rise can't reach a release.
