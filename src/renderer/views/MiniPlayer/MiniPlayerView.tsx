@@ -218,7 +218,7 @@ export default function MiniPlayerView(): React.ReactElement {
             padding: theme.spacing(1, 2),
             justifyContent: 'space-between',
             alignItems: 'center',
-            '-webkit-app-region': 'drag',
+            WebkitAppRegion: 'drag',
           }}
         >
           <Typography fontSize={'0.875rem'} color={theme.palette.primary.main} fontWeight={500}>
@@ -228,7 +228,7 @@ export default function MiniPlayerView(): React.ReactElement {
           <Box
             display={'flex'}
             sx={{
-              '-webkit-app-region': 'none',
+              WebkitAppRegion: 'none',
             }}
             gap={'0.6rem'}
           >

@@ -14,8 +14,10 @@ export const listHeaderSx: SxProps<Theme> = {
   bgcolor: theme => theme.palette.surfaces.listHeader,
 };
 
-/** Tile card in the folder grids. */
+/** Tile card in the library grids. */
 export const gridCardSx: SxProps<Theme> = {
+  // One theme radius, like the play bar and every other card.
+  borderRadius: 1,
   bgcolor: theme => alpha(theme.palette.text.primary, 0.03),
   border: '1px solid',
   borderColor: theme => alpha(theme.palette.text.primary, 0.07),
@@ -25,6 +27,9 @@ export const gridCardSx: SxProps<Theme> = {
     borderColor: theme => alpha(theme.palette.text.primary, 0.15),
   },
 };
+
+/** Cover corners on the play bar and album cards, a step tighter than a card's. */
+export const coverRadius = (theme: Theme) => Math.max(0, theme.shape.borderRadius - 4);
 
 /**
  * Put this class on a card's outer container so descendants using

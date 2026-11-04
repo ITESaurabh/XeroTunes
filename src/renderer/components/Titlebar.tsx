@@ -248,7 +248,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
           bgcolor: 'background.default',
           height: '32px',
           pl: effectiveStyle === 'mac' && !chromeless ? 8.5 : 0,
-          ...(chromeless && { '-webkit-app-region': 'no-drag' }),
+          ...(chromeless && { WebkitAppRegion: 'no-drag' }),
         }}
       >
         <div className="tb-controls">
@@ -270,7 +270,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             display={'flex'}
             alignItems={'center'}
             direction={'row'}
-            sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+            sx={{ WebkitAppRegion: 'no-drag', ...inactiveChromeSx }}
             ml={'0.5rem'}
           >
             {!minimal && (
@@ -352,7 +352,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             <TitlePill
               aria-label={updateLabel}
               onClick={runUpdate}
-              sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+              sx={{ WebkitAppRegion: 'no-drag', ...inactiveChromeSx }}
             >
               <Icon icon={update.state === 'ready' ? restartIcon : downloadIcon} width={14} />
               {!isPhone && <span className="pill-label">{updateLabel}</span>}
@@ -369,7 +369,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             <TitlePill
               aria-label="Stop casting"
               onClick={() => window.dispatchEvent(new CustomEvent(CAST_STOP_EVENT))}
-              sx={{ '-webkit-app-region': 'no-drag', ...inactiveChromeSx }}
+              sx={{ WebkitAppRegion: 'no-drag', ...inactiveChromeSx }}
             >
               <Icon icon={castFilledIcon} width={14} className="cast-pill-icon" />
               {!isPhone && <span className="pill-label">{state.castDeviceName || 'Casting'}</span>}
@@ -379,7 +379,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
 
         {/* Windows style controls */}
         {showControls && effectiveStyle === 'windows' && (
-          <Box sx={{ '-webkit-app-region': 'no-drag', height: '100%', ...inactiveChromeSx }}>
+          <Box sx={{ WebkitAppRegion: 'no-drag', height: '100%', ...inactiveChromeSx }}>
             <NavButtons onClick={() => sendMessageToNode('minimize', null)}>
               <Icon icon={minimizeIcon} />
             </NavButtons>
@@ -399,7 +399,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
               alignItems: 'center',
               mr: 0.28,
               gap: 1.6,
-              '-webkit-app-region': 'no-drag',
+              WebkitAppRegion: 'no-drag',
               ...inactiveChromeSx,
             }}
           >
@@ -445,7 +445,7 @@ const Titlebar = memo(({ minimal = false }: TitlebarProps) => {
             sx={{
               display: 'flex',
               alignItems: 'center',
-              '-webkit-app-region': 'no-drag',
+              WebkitAppRegion: 'no-drag',
               pr: 1,
               gap: '14px',
               ...inactiveChromeSx,

@@ -14,6 +14,7 @@ import { useScrollHidePlayerBar } from '../utils/useScrollHidePlayerBar';
 import FloatingScrollbar from '../components/FloatingScrollbar';
 import { useScrollRestoration } from '../utils/useScrollRestoration';
 import { DEFAULT_AA } from '../../config/constants';
+import { coverRadius } from '../styles/listSx';
 
 export interface Album {
   Id: number;
@@ -68,7 +69,8 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        borderRadius: 0.5,
+        // The cover fills the card's top, so the card's corners are the cover's.
+        borderRadius: `${coverRadius(theme)}px`,
         overflow: 'hidden',
         position: 'relative',
         backgroundColor: theme.palette.background.default,
@@ -95,7 +97,7 @@ const AlbumCard: React.FC<AlbumCardProps> = React.memo(({ album, width, onClick 
           width: artSize,
           height: artSize,
           position: 'relative',
-          borderRadius: 0.5,
+          borderRadius: `${coverRadius(theme)}px`,
           overflow: 'hidden',
           backgroundColor: 'surfaces.artFrom',
           flexShrink: 0,
@@ -163,11 +165,7 @@ Cell.displayName = 'Cell';
 
 const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }}
-    />
+    <div {...rest} ref={ref} style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }} />
   )
 );
 ScrollContainer.displayName = 'ScrollContainer';

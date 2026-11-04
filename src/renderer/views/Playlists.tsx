@@ -349,7 +349,6 @@ const Playlists: React.FC = () => {
                   onClick={() => navigate(`/main_window/playlists/${playlist.Id}`)}
                   sx={{
                     ...gridCardSx,
-                    borderRadius: 1,
                     overflow: 'hidden',
                   }}
                 >

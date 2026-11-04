@@ -48,6 +48,8 @@ import recentIcon from '@iconify/icons-fluent/add-circle-24-regular';
 import recentActiveIcon from '@iconify/icons-fluent/add-circle-24-filled';
 import vinylIcon from '@iconify/icons-fluent/record-24-regular';
 import vinylActiveIcon from '@iconify/icons-fluent/record-24-filled';
+import qualityIcon from '@iconify/icons-fluent/pulse-24-regular';
+import qualityActiveIcon from '@iconify/icons-fluent/pulse-24-filled';
 import settingsIcon from '@iconify/icons-fluent/settings-24-regular';
 import settingsActiveIcon from '@iconify/icons-fluent/settings-24-filled';
 import { store, LibraryStats } from '../utils/store';
@@ -183,6 +185,12 @@ const menuItems: MenuItem[] = [
     href: '/main_window/vinyl',
     icon: vinylIcon,
     iconActive: vinylActiveIcon,
+  },
+  {
+    title: 'Quality Check',
+    href: '/main_window/quality',
+    icon: qualityIcon,
+    iconActive: qualityActiveIcon,
   },
 ];
 

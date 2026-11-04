@@ -64,7 +64,7 @@ const ArtistCard: React.FC<ArtistCardProps> = React.memo(({ artist, width, onCli
       onMouseLeave={handleMouseLeave}
       sx={{
         width,
-        borderRadius: 0.5,
+        borderRadius: 1,
         overflow: 'hidden',
         position: 'relative',
         outline: theme =>
@@ -150,11 +150,7 @@ Cell.displayName = 'Cell';
 
 const ScrollContainer = React.forwardRef<HTMLDivElement, React.HTMLProps<HTMLDivElement>>(
   ({ style, ...rest }, ref) => (
-    <div
-      {...rest}
-      ref={ref}
-      style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }}
-    />
+    <div {...rest} ref={ref} style={{ ...style, overflowY: 'auto', overflowX: 'hidden' }} />
   )
 );
 ScrollContainer.displayName = 'ScrollContainer';

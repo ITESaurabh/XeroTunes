@@ -19,7 +19,9 @@ import {
 } from '@mui/material';
 import { Icon } from '@iconify/react';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
+import compareIcon from '@iconify/icons-fluent/scales-24-regular';
 import AppDialog from './AppDialog';
+import QualityCompareDialog from './QualityCompareDialog';
 import Empty from './Empty';
 import { useIpc } from '../state/ipc';
 import { OS_WINDOWS } from '../../config/constants';
@@ -89,6 +91,8 @@ interface GroupCardProps {
   onToggle: (id: number) => void;
   actionLabel: string;
   onAction: () => void;
+  /** Weighs a copy against the group's first; same-song groups only. */
+  onCompare?: (track: DuplicateTrack) => void;
 }
 
 const GroupCard: React.FC<GroupCardProps> = ({
@@ -100,6 +104,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
   onToggle,
   actionLabel,
   onAction,
+  onCompare,
 }) => {
   const { invokeEventToMainProcess } = useIpc();
   const first = group.tracks[0];
@@ -142,6 +147,7 @@ const GroupCard: React.FC<GroupCardProps> = ({
       {group.tracks.map((track, index) => {
         const removing = selected.has(track.Id);
         const { name, folder } = splitPath(track.Uri);
+        const comparable = !!onCompare && index > 0;
         return (
           <ListItem
             key={track.Id}
@@ -149,17 +155,29 @@ const GroupCard: React.FC<GroupCardProps> = ({
             disablePadding
             sx={{ borderTop: 1, borderColor: theme => theme.palette.surfaces.glassBorder }}
             secondaryAction={
-              <Tooltip title="Show in file explorer">
-                <IconButton
-                  edge="end"
-                  aria-label={`Show ${name} in file explorer`}
-                  onClick={() =>
-                    void invokeEventToMainProcess('reveal-file', { filePath: track.Uri })
-                  }
-                >
-                  <Icon icon={revealIcon} width={24} />
-                </IconButton>
-              </Tooltip>
+              <Stack direction="row">
+                {comparable && (
+                  <Tooltip title={`Compare with the ${keepLabel} copy`}>
+                    <IconButton
+                      aria-label={`Compare ${name} with the ${keepLabel} copy`}
+                      onClick={() => onCompare(track)}
+                    >
+                      <Icon icon={compareIcon} width={24} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+                <Tooltip title="Show in file explorer">
+                  <IconButton
+                    edge="end"
+                    aria-label={`Show ${name} in file explorer`}
+                    onClick={() =>
+                      void invokeEventToMainProcess('reveal-file', { filePath: track.Uri })
+                    }
+                  >
+                    <Icon icon={revealIcon} width={24} />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
             }
           >
             <ListItemButton
@@ -168,6 +186,8 @@ const GroupCard: React.FC<GroupCardProps> = ({
                 gap: 1,
                 py: 0.5,
                 pl: 1,
+                // Room for the second button; ListItem only reserves one.
+                ...(comparable && { pr: 12 }),
                 ...(removing && {
                   bgcolor: theme => alpha(theme.palette.error.main, 0.16),
                   '&:hover': { bgcolor: theme => alpha(theme.palette.error.main, 0.22) },
@@ -251,6 +271,10 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
   const [ignoredCount, setIgnoredCount] = React.useState(0);
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [comparing, setComparing] = React.useState<{
+    a: DuplicateTrack;
+    b: DuplicateTrack;
+  } | null>(null);
 
   const load = React.useCallback(() => {
     setGroups(null);
@@ -485,6 +509,11 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
                     onToggle={toggle}
                     actionLabel="Restore"
                     onAction={() => handleUnkeep(group)}
+                    onCompare={
+                      group.kind === 'similar'
+                        ? track => setComparing({ a: group.tracks[0], b: track })
+                        : undefined
+                    }
                   />
                 ))
               : groups[tab].map(group => (
@@ -498,11 +527,31 @@ const DuplicateTracksDialog: React.FC<DuplicateTracksDialogProps> = ({ open, onC
                     onToggle={toggle}
                     actionLabel={group.tracks.length === 2 ? 'Keep both' : 'Keep all'}
                     onAction={() => handleKeep(group, tab)}
+                    onCompare={
+                      tab === 'similar'
+                        ? track => setComparing({ a: group.tracks[0], b: track })
+                        : undefined
+                    }
                   />
                 ))}
           </>
         )}
       </Stack>
+
+      <QualityCompareDialog
+        open={comparing !== null}
+        onClose={() => setComparing(null)}
+        a={
+          comparing
+            ? { uri: comparing.a.Uri, label: 'suggested copy', duration: comparing.a.Duration }
+            : null
+        }
+        b={
+          comparing
+            ? { uri: comparing.b.Uri, label: 'other copy', duration: comparing.b.Duration }
+            : null
+        }
+      />
     </AppDialog>
   );
 };

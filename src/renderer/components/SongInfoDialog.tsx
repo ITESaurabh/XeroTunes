@@ -55,7 +55,7 @@ function formatDate(timestamp: number | null | undefined): string {
   });
 }
 
-function formatFileSize(bytes: number): string {
+export function formatFileSize(bytes: number): string {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
@@ -84,7 +84,7 @@ function sanitizeForDisplay(value: unknown): unknown {
   return value;
 }
 
-const LabelText: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+export const LabelText: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <Typography
     variant="caption"
     sx={{

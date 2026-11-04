@@ -1071,6 +1071,19 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return { canceled: false, filePath: result.filePaths[0] };
   });
 
+  // Quality Check's "compare with another file": any audio file, in the library or not.
+  ipcMain.handle('pick-audio-file', async () => {
+    const result = await dialog.showOpenDialog(mainWin, {
+      title: 'Choose a file to compare',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Audio', extensions: ['mp3', 'flac', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'webm'] },
+      ],
+    });
+    if (result.canceled || !result.filePaths?.length) return { canceled: true };
+    return { canceled: false, filePath: result.filePaths[0] };
+  });
+
   // One handler for both editor modes: an album edit is the same write repeated
   // over every track id, with only the album-level fields set.
   //
@@ -1284,6 +1297,60 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return { success: true };
   });
 
+  // A track without a hash (not rehashed yet) is keyed on its path instead; the
+  // renderer builds the same key when it saves.
+  const qualityTrackSql = `
+      SELECT
+        Track.Id,
+        Track.Title,
+        Track.Uri,
+        Track.Extension,
+        Track.Duration,
+        Track.FileHash,
+        Track.AlbumArt,
+        Track.AlbumId,
+        ${TRACK_ARTIST_NAMES},
+        Album.Title AS AlbumTitle,
+        QualityReport.Report
+      FROM Track
+      LEFT JOIN Album ON Track.AlbumId = Album.Id
+      LEFT JOIN QualityReport
+        ON QualityReport.Key = COALESCE(NULLIF(TRIM(Track.FileHash), ''), Track.Uri)`;
+
+  // Local files only: the check decodes the whole file, which a stream doesn't give.
+  ipcMain.handle('get-quality-tracks', () => ({
+    tracks: db
+      .prepare(
+        `${qualityTrackSql} WHERE Track.SourceId IS NULL ORDER BY Track.Title COLLATE NOCASE`
+      )
+      .all(),
+    streamed: (
+      db.prepare('SELECT COUNT(*) AS n FROM Track WHERE SourceId IS NOT NULL').get() as {
+        n: number;
+      }
+    ).n,
+  }));
+
+  ipcMain.handle('get-quality-track', (_e, { trackId }: { trackId?: number }) =>
+    Number.isInteger(trackId)
+      ? (db
+          .prepare(`${qualityTrackSql} WHERE Track.Id = ? AND Track.SourceId IS NULL`)
+          .get(trackId) ?? null)
+      : null
+  );
+
+  ipcMain.handle(
+    'save-quality-report',
+    (_e, { key, report }: { key?: unknown; report?: unknown }) => {
+      if (typeof key !== 'string' || !key || key.length > 4096) return { success: false };
+      if (typeof report !== 'string' || report.length > 256 * 1024) return { success: false };
+      db.prepare(
+        'INSERT OR REPLACE INTO QualityReport (Key, Report, CheckedAt) VALUES (?, ?, ?)'
+      ).run(key, report, Date.now());
+      return { success: true };
+    }
+  );
+
   // Files left on disk go on the ignore list so the next scan doesn't re-add them.
   // deleteFiles trashes rather than unlinks, so a wrong tick can be undone. Paths
   // come from the DB, never the renderer.
@@ -1465,6 +1532,19 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   CREATE TABLE IF NOT EXISTS KeptDuplicate (
     GroupKey TEXT PRIMARY KEY,
     KeptAt BIGINT
+  )
+`
+  ).run();
+
+  // Quality Check results, one per audio file. Keyed on the audio hash, so a
+  // moved or renamed file keeps its report and identical copies share one.
+  // Report is the renderer's JSON, which carries its own version.
+  db.prepare(
+    `
+  CREATE TABLE IF NOT EXISTS QualityReport (
+    Key TEXT PRIMARY KEY,
+    Report TEXT NOT NULL,
+    CheckedAt BIGINT
   )
 `
   ).run();

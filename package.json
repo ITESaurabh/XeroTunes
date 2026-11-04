@@ -1,7 +1,7 @@
 {
   "name": "xerotunes",
   "productName": "XeroTunes",
-  "version": "0.48.5",
+  "version": "0.50.0",
   "description": "An open source cross platform music player application.",
   "main": ".webpack/main/index.js",
   "private": true,
@@ -88,6 +88,7 @@
     "better-sqlite3": "12.11.1",
     "bonjour-service": "^1.4.3",
     "castv2-client": "^1.2.0",
+    "echarts": "^6.1.0",
     "minimist": "^1.2.8",
     "motion": "^12.29.2",
     "mui-image": "^1.0.7",

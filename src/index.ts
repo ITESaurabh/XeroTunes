@@ -6,6 +6,7 @@ import { execSync, execFileSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import mainIpcs, { registerSettingsIpc } from './main/utils/mainProcess';
+import qualityWorkerIpcs from './main/utils/qualityWorker';
 import { installAppMenu } from './main/utils/appMenu';
 import { initUpdater } from './main/modules/Updater';
 import { OS_WINDOWS } from './config/constants';
@@ -16,6 +17,7 @@ const currOS = os.type();
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MINI_PLAYER_WEBPACK_ENTRY: string;
 declare const OVERLAY_WEBPACK_ENTRY: string;
+declare const QUALITY_WORKER_WEBPACK_ENTRY: string;
 
 const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.aac', '.flac', '.webm', '.m4a'];
 
@@ -362,6 +364,7 @@ function createWindow() {
     });
 
     mainIpcs(mainWin, OVERLAY_WEBPACK_ENTRY);
+    qualityWorkerIpcs(mainWin, QUALITY_WORKER_WEBPACK_ENTRY);
     mainWin
       .loadURL(MAIN_WINDOW_WEBPACK_ENTRY)
       .catch(err => console.error('[main-window] Load failed:', err));

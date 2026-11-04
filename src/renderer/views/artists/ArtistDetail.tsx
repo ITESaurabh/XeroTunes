@@ -762,7 +762,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
               ) : (
                 <Box
                   sx={{
-                    borderRadius: 2,
+                    borderRadius: 1,
                     border: '1px solid',
                     borderColor: theme => alpha(theme.palette.text.primary, 0.08),
                     bgcolor: 'background.paper',
@@ -850,7 +850,7 @@ const ArtistDetail: React.FC<ArtistDetailProps> = ({ showAlbumArtist = false }) 
               {orphanTracks.length > 0 && (
                 <Box
                   sx={{
-                    borderRadius: 2,
+                    borderRadius: 1,
                     border: '1px solid',
                     borderColor: theme => alpha(theme.palette.text.primary, 0.08),
                     bgcolor: 'background.paper',

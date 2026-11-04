@@ -21,12 +21,14 @@ import artistIcon from '@iconify/icons-fluent/mic-24-regular';
 import editIcon from '@iconify/icons-fluent/edit-24-regular';
 import copyIcon from '@iconify/icons-fluent/copy-24-regular';
 import infoIcon from '@iconify/icons-fluent/info-24-regular';
+import qualityIcon from '@iconify/icons-fluent/pulse-24-regular';
 import revealIcon from '@iconify/icons-fluent/folder-arrow-right-24-regular';
 import chevronRightIcon from '@iconify/icons-fluent/chevron-right-20-regular';
 import DownloadMenuItem from './DownloadMenuItem';
 import CopyInfoMenu from './CopyInfoMenu';
 import { useNewPlaylist } from './NewPlaylistItem';
 import SongInfoDialog from './SongInfoDialog';
+import QualityReportDialog from './QualityReportDialog';
 import TagEditorDialog, { EditableTrack } from './TagEditorDialog';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -79,6 +81,7 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
   const [playlistAnchor, setPlaylistAnchor] = useState<HTMLElement | null>(null);
   const [copyAnchor, setCopyAnchor] = useState<HTMLElement | null>(null);
   const [infoSong, setInfoSong] = useState<Track | null>(null);
+  const [qualitySong, setQualitySong] = useState<Track | null>(null);
   const [editTracks, setEditTracks] = useState<EditableTrack[] | null>(null);
   const [isFavourite, setIsFavourite] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -263,6 +266,19 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
           <ListItemText>Show in file explorer</ListItemText>
         </MenuItem>
         <DownloadMenuItem song={song} onDone={close} />
+        {/* The check reads the whole file, which a stream doesn't give us. */}
+        <MenuItem
+          disabled={isRemote || typeof uri !== 'string'}
+          onClick={() => {
+            setQualitySong(song);
+            close();
+          }}
+        >
+          <ListItemIcon>
+            <Icon icon={qualityIcon} width={20} />
+          </ListItemIcon>
+          <ListItemText>Quality report</ListItemText>
+        </MenuItem>
         <MenuItem
           onClick={() => {
             setInfoSong(song);
@@ -306,6 +322,12 @@ const TrackContextMenu: React.FC<Props> = ({ menu, onClose, extra }) => {
         onClose={() => setInfoSong(null)}
         track={infoSong}
         songPath={(infoSong?.Uri as string) ?? null}
+      />
+
+      <QualityReportDialog
+        open={qualitySong !== null}
+        onClose={() => setQualitySong(null)}
+        track={qualitySong}
       />
 
       {editTracks && (

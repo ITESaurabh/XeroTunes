@@ -90,6 +90,7 @@ import bookmark24Filled from '@iconify/icons-fluent/bookmark-24-filled';
 import queue24Regular from '@iconify/icons-fluent/apps-list-24-regular';
 import { Image } from 'mui-image';
 import { DEFAULT_AA, isTaggable } from '../../config/constants';
+import { coverRadius } from '../styles/listSx';
 const { ipcRenderer } = window.require('electron');
 import { motion } from 'motion/react';
 import { useNavigate, useLocation } from 'react-router';
@@ -114,7 +115,7 @@ const CoverImage = styled(Box)(({ theme }) => ({
   objectFit: 'cover',
   overflow: 'hidden',
   flexShrink: 0,
-  borderRadius: 8,
+  borderRadius: coverRadius(theme),
   backgroundColor: alpha(theme.palette.surfaces.well, 0.08),
   '& > img': { width: '100%' },
   [theme.breakpoints.down('md')]: { width: 90, height: 90 },
@@ -172,7 +173,7 @@ const PlayerCard = styled(Grid, {
   backdropFilter: 'blur(80px)',
   width: '100%',
   border: `${theme.palette.surfaces.glassBorder} 1px solid`,
-  '-electron-corner-smoothing': '100%',
+  ElectronCornerSmoothing: '100%',
   backgroundColor: theme.palette.surfaces.glass,
   // The border alone is too faint in light mode to separate the bar from the page.
   boxShadow: theme.shadows[8],
@@ -256,7 +257,6 @@ const ControlButton = styled(IconButton)(({ theme }) => ({
 
 const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
 const PlayPauseIconStyle: React.CSSProperties = { margin: '0.3rem' };
-const AlbumArtImageStyle: React.CSSProperties = { borderRadius: '0.4375rem' };
 const AudioElementStyle: React.CSSProperties = { display: 'none' };
 
 const VolumeStack = styled(Stack, {
@@ -1742,13 +1742,7 @@ export default function PlayBar() {
         <Grid xs={12} md={5} lg={6}>
           <TrackInfoRow>
             <CoverImageInteractive hasArt={!!state.track.AlbumArt} onClick={handleCoverClick}>
-              <Image
-                src={albumArtSrc}
-                className="no-select no-drag"
-                showLoading
-                style={AlbumArtImageStyle}
-                fit="contain"
-              />
+              <Image src={albumArtSrc} className="no-select no-drag" showLoading fit="contain" />
               {canFavourite && (
                 <FavouriteButton
                   size="medium"
@@ -2194,10 +2188,7 @@ export default function PlayBar() {
         onClose={handleCloseMenu}
       />
       {/* Surround (beta) */}
-      <SurroundMixerDialog
-        open={surround.mixerOpen}
-        onClose={() => surround.setMixerOpen(false)}
-      />
+      <SurroundMixerDialog open={surround.mixerOpen} onClose={() => surround.setMixerOpen(false)} />
       <EqualizerDialog
         open={eqOpen}
         onClose={() => setEqOpen(false)}

@@ -62,6 +62,7 @@ const AppDialog: React.FC<AppDialogProps> = ({
       PaperProps={{
         sx: {
           flex: 1,
+          overflow: 'hidden',
           border: (theme: Theme) => `1px solid ${theme.palette.surfaces.glassBorder}`,
         },
       }}

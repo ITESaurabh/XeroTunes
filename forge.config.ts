@@ -1,4 +1,4 @@
-import { existsSync } from 'fs';
+import nodeFs, { existsSync } from 'fs';
 import fs from 'fs/promises';
 import path from 'path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
@@ -66,7 +66,8 @@ const config: ForgeConfig = {
     extraResource: ['./src/assets/logo/XeroTunesLogo.ico', './src/assets/logo/XeroTunesLogo.png'],
     // macOS kills an app that opens the mic without this; surround's mic sync does.
     extendInfo: {
-      NSMicrophoneUsageDescription: 'XT Ambion surround sync listens to your speakers to line them up.',
+      NSMicrophoneUsageDescription:
+        'XT Ambion surround sync listens to your speakers to line them up.',
       LSMinimumSystemVersion: OS_FLOOR.macos,
     },
   },
@@ -147,6 +148,13 @@ const config: ForgeConfig = {
       mainConfig,
       devContentSecurityPolicy: "'unsafe-eval'",
       port: 3456,
+      devServer: {
+        devMiddleware: {
+          // No createReadStream, so files are read whole: a stream raced webpack's rewrite
+          // and cut index.js short, leaving a blank window ("Invalid or unexpected token").
+          outputFileSystem: { ...nodeFs, createReadStream: undefined },
+        },
+      },
       renderer: {
         config: rendererConfig,
         entryPoints: [
@@ -170,6 +178,11 @@ const config: ForgeConfig = {
             html: './src/overlay.html',
             js: './src/overlay_renderer.ts',
             name: 'overlay',
+          },
+          {
+            html: './src/quality_worker.html',
+            js: './src/quality_worker_renderer.ts',
+            name: 'quality_worker',
           },
         ],
       },
@@ -213,7 +226,9 @@ const config: ForgeConfig = {
       // yarn installs only the host's binary; a cross-arch build would ship one that can't load.
       const binary = platform === 'linux' ? 'sharp-wasm32' : `sharp-${platform}-${arch}`;
       if (!existsSync(path.join(img, binary))) {
-        throw new Error(`@img/${binary} isn't installed; check supportedArchitectures in .yarnrc.yml.`);
+        throw new Error(
+          `@img/${binary} isn't installed; check supportedArchitectures in .yarnrc.yml.`
+        );
       }
       if (platform !== 'linux') {
         await fs.rm(path.join(img, 'sharp-wasm32'), { recursive: true, force: true });

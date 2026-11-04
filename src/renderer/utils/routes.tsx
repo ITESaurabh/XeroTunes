@@ -25,6 +25,7 @@ const YearDetail = lazy(() => import('../views/YearDetail'));
 const LyricStudio = lazy(() => import('../views/LyricStudio'));
 const VinylMode = lazy(() => import('../views/VinylMode'));
 const Queue = lazy(() => import('../views/Queue'));
+const Quality = lazy(() => import('../views/Quality'));
 
 const BigLoader = () => {
   return (
@@ -221,6 +222,14 @@ const routes = [
         element: (
           <Page>
             <VinylMode />
+          </Page>
+        ),
+      },
+      {
+        path: 'quality',
+        element: (
+          <Page>
+            <Quality />
           </Page>
         ),
       },

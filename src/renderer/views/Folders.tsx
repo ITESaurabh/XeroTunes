@@ -1,11 +1,5 @@
 import React, { useContext, useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  Container,
-  Box,
-  Grid,
-  LinearProgress,
-  Typography,
-} from '@mui/material';
+import { Container, Box, Grid, LinearProgress, Typography } from '@mui/material';
 import { useNavigate } from 'react-router';
 import { Icon } from '@iconify/react';
 import folderIcon from '@iconify/icons-fluent/folder-24-filled';
@@ -100,7 +94,6 @@ const FolderCard: React.FC<FolderCardProps> = React.memo(
         justifyContent: 'center',
         gap: 1,
         p: 2,
-        borderRadius: 2,
         ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',

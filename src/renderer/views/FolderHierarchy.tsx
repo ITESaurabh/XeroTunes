@@ -25,10 +25,7 @@ import Empty from '../components/Empty';
 import SelectionBar, { toEditableTracks, useTrackSelection } from '../components/SelectionBar';
 import { useTrackMenu } from '../components/TrackContextMenu';
 import TagEditorDialog, { EditableTrack } from '../components/TagEditorDialog';
-import TrackRow, {
-  TRACK_ROW_H,
-  TRACK_ROW_PHONE_H,
-} from '../components/TrackRow';
+import TrackRow, { TRACK_ROW_H, TRACK_ROW_PHONE_H } from '../components/TrackRow';
 import ViewModeToggle, { GRID_MIN_PX, GRID_GAP, GRID_ICON_REM } from '../components/ViewModeToggle';
 import { useIpc } from '../state/ipc';
 import { store, Track } from '../utils/store';
@@ -125,7 +122,6 @@ const SubFolderCard: React.FC<SubFolderCardProps> = React.memo(
         justifyContent: 'center',
         gap: 1,
         p: 2,
-        borderRadius: 2,
         ...gridCardSx,
         '&:focus-visible': {
           outline: '2px solid',
@@ -373,7 +369,7 @@ const FolderHierarchy: React.FC = () => {
   });
 
   const subfolders = useMemo(() => children?.subfolders ?? [], [children]);
-  const songs = useMemo(() => (children?.songs ?? []), [children]);
+  const songs = useMemo(() => children?.songs ?? [], [children]);
 
   const breadcrumb = useMemo(() => buildBreadcrumb(currentPath, roots), [currentPath, roots]);
 
