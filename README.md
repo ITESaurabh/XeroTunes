@@ -26,6 +26,9 @@
 ### 📃 Lyric Studio
 A professional grade interface for Add/Edit & Sync song lyric right from the app! you can even export it into an .LRC file.  
 
+### 🔬 Quality Checker
+See what your music files really are from the inside. A dedicated tool to find fake (low quality) FLACs, MP3s and all other formats. also find track issues like clipping, songs cut short or silence in the track.
+
 ### 🎮 Discord Presence
 Now you can show your Friends what you're playing, just like Spotify, but for music you own!
 
