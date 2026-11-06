@@ -5,6 +5,7 @@ import { store, Track } from '../../utils/store';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { formatDuration } from '../../utils/formatDuration';
 import { DEFAULT_AA } from '../../../config/constants';
+import { fuzzyFilter } from '../../../config/fuzzyMatch';
 
 // COMPACT fits the tray a narrow window keeps the catalogue in.
 interface Metrics {
@@ -155,14 +156,13 @@ export default function Catalogue({ compact = false }: { compact?: boolean }) {
   });
 
   const albums = useMemo(() => groupAlbums(allSongs), [allSongs]);
-  const shown = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return albums;
-    const hit = (v: unknown) => typeof v === 'string' && v.toLowerCase().includes(q);
-    return albums.filter(
-      a => hit(a.title) || hit(a.artist) || a.tracks.some(t => hit(t.Title) || hit(t.ArtistName))
-    );
-  }, [albums, query]);
+  const shown = useMemo(
+    () =>
+      fuzzyFilter(albums, query, a =>
+        [a.title, a.artist, ...a.tracks.flatMap(t => [t.Title, t.ArtistName])].join(' ')
+      ),
+    [albums, query]
+  );
 
   const currentId = state.track?.Id;
   const onDeckKey = useMemo(

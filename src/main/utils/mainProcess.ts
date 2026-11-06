@@ -3227,6 +3227,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       };
     }
 
+    // Years and folders are literal: 1998 is not a typo for 1999, and one typo in a
+    // parent folder's name would match every path under it.
     const searchPattern = `%${query}%`;
     const exactQuery = query.toLowerCase();
 
@@ -3246,21 +3248,20 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           ${TRACK_ARTIST_NAMES},
           Album.Id AS AlbumId,
           Album.Title AS AlbumTitle,
-          Genre.Name AS GenreName
+          Genre.Name AS GenreName,
+          fuzzy_rank(Track.Title, ?) AS MatchRank
         FROM Track
         JOIN TrackArtist ON Track.Id = TrackArtist.TrackId
         JOIN Artist AS Artist2 ON TrackArtist.ArtistId = Artist2.Id
         LEFT JOIN Album ON Track.AlbumId = Album.Id
         LEFT JOIN Genre ON Track.GenreId = Genre.Id
-        WHERE Track.Title LIKE ? COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
         GROUP BY Track.Id
-        ORDER BY 
-          CASE WHEN LOWER(Track.Title) = ? THEN 0 ELSE 1 END,
-          Track.Title COLLATE NOCASE
+        ORDER BY MatchRank, Track.Title COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const albums = db
         .prepare(
@@ -3275,19 +3276,18 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
             MIN(CAST(Track.Year AS INTEGER))
           ) AS ReleaseYear,
           Artist.Name AS ArtistName,
-          COUNT(Track.Id) AS SongCount
+          COUNT(Track.Id) AS SongCount,
+          fuzzy_rank(Album.Title, ?) AS MatchRank
         FROM Album
         LEFT JOIN Artist ON Album.ArtistId = Artist.Id
         LEFT JOIN Track ON Album.Id = Track.AlbumId
-        WHERE Album.Title LIKE ? COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
         GROUP BY Album.Id
-        ORDER BY 
-          CASE WHEN LOWER(Album.Title) = ? THEN 0 ELSE 1 END,
-          Album.Title COLLATE NOCASE
+        ORDER BY MatchRank, Album.Title COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const artists = db
         .prepare(
@@ -3296,20 +3296,19 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Artist.Id,
           Artist.Name,
           Artist.ProfileImgUri,
-          COUNT(DISTINCT TrackArtist.TrackId) AS SongCount
+          COUNT(DISTINCT TrackArtist.TrackId) AS SongCount,
+          fuzzy_rank(Artist.Name, ?) AS MatchRank
         FROM Artist
         LEFT JOIN TrackArtist ON Artist.Id = TrackArtist.ArtistId
         LEFT JOIN Track ON TrackArtist.TrackId = Track.Id
-        WHERE Artist.Name LIKE ? COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
         GROUP BY Artist.Id
         HAVING COUNT(DISTINCT TrackArtist.TrackId) > 0
-        ORDER BY 
-          CASE WHEN LOWER(Artist.Name) = ? THEN 0 ELSE 1 END,
-          Artist.Name COLLATE NOCASE
+        ORDER BY MatchRank, Artist.Name COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const albumArtists = db
         .prepare(
@@ -3318,20 +3317,19 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Artist.Id,
           Artist.Name,
           Artist.ProfileImgUri,
-          COUNT(DISTINCT AlbumArtist.AlbumId) AS AlbumCount
+          COUNT(DISTINCT AlbumArtist.AlbumId) AS AlbumCount,
+          fuzzy_rank(Artist.Name, ?) AS MatchRank
         FROM Artist
         JOIN AlbumArtist ON Artist.Id = AlbumArtist.ArtistId
         LEFT JOIN Album ON AlbumArtist.AlbumId = Album.Id
-        WHERE Artist.Name LIKE ? COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
         GROUP BY Artist.Id
         HAVING COUNT(DISTINCT AlbumArtist.AlbumId) > 0
-        ORDER BY 
-          CASE WHEN LOWER(Artist.Name) = ? THEN 0 ELSE 1 END,
-          Artist.Name COLLATE NOCASE
+        ORDER BY MatchRank, Artist.Name COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const genres = db
         .prepare(
@@ -3339,18 +3337,17 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         SELECT
           Genre.Id,
           Genre.Name,
-          COUNT(Track.Id) AS SongCount
+          COUNT(Track.Id) AS SongCount,
+          fuzzy_rank(Genre.Name, ?) AS MatchRank
         FROM Genre
         LEFT JOIN Track ON Genre.Id = Track.GenreId
-        WHERE Genre.Name LIKE ? COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
         GROUP BY Genre.Id
-        ORDER BY 
-          CASE WHEN LOWER(Genre.Name) = ? THEN 0 ELSE 1 END,
-          Genre.Name COLLATE NOCASE
+        ORDER BY MatchRank, Genre.Name COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const years = db
         .prepare(
@@ -3390,16 +3387,15 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         SELECT
           Playlist.Id,
           Playlist.Name,
-          (SELECT COUNT(*) FROM PlaylistTrack WHERE PlaylistId = Playlist.Id) AS SongCount
+          (SELECT COUNT(*) FROM PlaylistTrack WHERE PlaylistId = Playlist.Id) AS SongCount,
+          fuzzy_rank(Playlist.Name, ?) AS MatchRank
         FROM Playlist
-        WHERE Playlist.Name LIKE ? COLLATE NOCASE
-        ORDER BY
-          CASE WHEN LOWER(Playlist.Name) = ? THEN 0 ELSE 1 END,
-          Playlist.Name COLLATE NOCASE
+        WHERE MatchRank IS NOT NULL
+        ORDER BY MatchRank, Playlist.Name COLLATE NOCASE
         LIMIT 10
       `
         )
-        .all(searchPattern, exactQuery);
+        .all(query);
 
       const normalizeTrackNumber = (trackNumber: unknown) => {
         if (trackNumber === null || trackNumber === undefined || trackNumber === '') return null;

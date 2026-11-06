@@ -104,7 +104,7 @@ async function fetchWithTimeout(
   }
 }
 
-const CLIENT_NAME = 'Xero Music Player';
+const CLIENT_NAME = 'XeroTunes';
 
 // The server lists this in its devices, so it should track the real build. Read
 // through a lazy require because a .check.ts imports this module under plain

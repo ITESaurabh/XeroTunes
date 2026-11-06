@@ -92,10 +92,3 @@ export function matchesFilter(text: string, op: FilterOp, value: string): boolea
       return hay.includes(needle);
   }
 }
-
-/** An empty query matches everything, so the caller can pass state straight through. */
-export function matchesSearch(texts: string[], query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return texts.some(t => t.toLowerCase().includes(needle));
-}

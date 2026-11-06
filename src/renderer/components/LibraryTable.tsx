@@ -11,9 +11,9 @@ import { createPortal } from 'react-dom';
 import LibraryToolbar from './LibraryToolbar';
 import FloatingScrollbar, { SCROLLBAR_RAIL } from './FloatingScrollbar';
 import { TABLE_ACTIONS_SLOT_ID } from './PageToolbar';
+import { fuzzyFilter } from '../../config/fuzzyMatch';
 import {
   matchesFilter,
-  matchesSearch,
   nextSort,
   opNeedsValue,
   sortRows,
@@ -87,17 +87,9 @@ export function useLibraryTable<T>(rows: T[], columns: TableColumn<T>[], initial
         out = out.filter(row => matchesFilter(cellText(col, row), filter.op, filter.value));
       }
     }
-    if (search.trim()) {
-      // ponytail: rebuilds every cell's text per keystroke; memoise a per-row
-      // search index if a very large library starts to feel laggy.
-      out = out.filter(row =>
-        matchesSearch(
-          columns.map(col => cellText(col, row)),
-          search
-        )
-      );
-    }
-    return out;
+    // ponytail: rebuilds every cell's text per keystroke; memoise a per-row
+    // search index if a very large library starts to feel laggy.
+    return fuzzyFilter(out, search, row => columns.map(col => cellText(col, row)).join(' '));
   }, [rows, columns, filter, search]);
 
   const sorted = useMemo(() => {

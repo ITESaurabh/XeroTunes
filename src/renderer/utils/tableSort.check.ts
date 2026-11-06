@@ -3,7 +3,6 @@ import assert from 'node:assert';
 import {
   compareValues,
   matchesFilter,
-  matchesSearch,
   nextSort,
   opNeedsValue,
   sortRows,
@@ -69,11 +68,5 @@ assert.equal(matchesFilter('', 'isNotEmpty', ''), false);
 assert.equal(matchesFilter('x', 'isNotEmpty', 'ignored'), true);
 assert.equal(opNeedsValue('isEmpty'), false);
 assert.equal(opNeedsValue('contains'), true);
-
-// Quick search spans the columns it is given; an empty query keeps every row.
-assert.equal(matchesSearch(['Test Album', 'Test Artist'], 'artist'), true);
-assert.equal(matchesSearch(['Test Album', 'Test Artist'], 'placeholder'), false);
-assert.equal(matchesSearch(['a'], '   '), true, 'blank query is not a filter');
-assert.equal(matchesSearch([], 'x'), false);
 
 console.log('tableSort.check.ts OK');

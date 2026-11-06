@@ -20,6 +20,7 @@ import { useIpc } from '../state/ipc';
 import { Track } from '../utils/store';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { listRowSx } from '../styles/listSx';
+import { fuzzyFilter } from '../../config/fuzzyMatch';
 
 interface AddTracksDialogProps {
   open: boolean;
@@ -27,10 +28,8 @@ interface AddTracksDialogProps {
   onAdd: (_trackIds: Array<string | number>) => Promise<void> | void;
 }
 
-function matchesQuery(song: Track, needle: string): boolean {
-  const haystack = `${song.Title || ''} ${song.ArtistName || ''} ${song.AlbumTitle || ''}`;
-  return haystack.toLowerCase().includes(needle);
-}
+const songText = (song: Track): string =>
+  `${song.Title || ''} ${song.ArtistName || ''} ${song.AlbumTitle || ''}`;
 
 const AddTracksDialog: React.FC<AddTracksDialogProps> = ({ open, onClose, onAdd }) => {
   const { invokeEventToMainProcess } = useIpc();
@@ -48,11 +47,7 @@ const AddTracksDialog: React.FC<AddTracksDialogProps> = ({ open, onClose, onAdd 
     enabled: open,
   });
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return songs;
-    return songs.filter(s => matchesQuery(s, needle));
-  }, [songs, query]);
+  const filtered = useMemo(() => fuzzyFilter(songs, query, songText), [songs, query]);
 
   const toggle = useCallback((id: string | number) => {
     setSelected(prev => {
