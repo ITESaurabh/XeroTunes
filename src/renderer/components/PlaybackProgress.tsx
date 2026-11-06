@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Box from '@mui/material/Box';
+import ButtonBase from '@mui/material/ButtonBase';
 import LinearProgress from '@mui/material/LinearProgress';
 import Typography from '@mui/material/Typography';
 import { styled } from '@mui/material/styles';
 import { Icon } from '@iconify/react';
 import liveIcon from '@iconify/icons-fluent/live-24-filled';
+import { getShowTotalTime, setShowTotalTime } from '../utils/LocStoreUtil';
 
 const formatDuration = (value: number): string => {
   const safe = Number.isFinite(value) && value > 0 ? value : 0;
@@ -26,6 +28,8 @@ const Root = styled(Box, { shouldForwardProp: prop => prop !== 'inline' })<{ inl
       '& .pp-times > *:last-child': { order: 3 },
       // Tabular figures so the bar does not shift as the digits tick over.
       '& .pp-times > *': { flexShrink: 0, fontVariantNumeric: 'tabular-nums' },
+      // The bar is beside the times here, not above, so the hit area can centre.
+      '& .pp-times button::after': { top: 'calc(50% - 22px)' },
     }),
   })
 );
@@ -106,6 +110,23 @@ const TimeText = styled(Typography)({
   opacity: 0.38,
   fontWeight: 500,
   letterSpacing: 0.2,
+  '&:has(.Mui-focusVisible)': { opacity: 1 },
+});
+
+const TimeToggle = styled(ButtonBase)({
+  display: 'block',
+  font: 'inherit',
+  letterSpacing: 'inherit',
+  '&::after': {
+    content: '""',
+    position: 'absolute',
+    top: 0,
+    left: '50%',
+    width: '100%',
+    minWidth: 44,
+    height: 44,
+    transform: 'translateX(-50%)',
+  },
 });
 
 const LiveRow = styled(Box)(({ theme }) => ({
@@ -170,6 +191,12 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   durationRef.current = duration;
   const isLiveRef = useRef(isLive);
   isLiveRef.current = isLive;
+  const [showTotal, setShowTotal] = useState(getShowTotalTime);
+
+  const toggleShowTotal = () => {
+    setShowTotal(!showTotal);
+    setShowTotalTime(!showTotal);
+  };
 
   const applyElastic = useCallback(() => {
     if (fillRef.current) fillRef.current.style.transition = FILL_ELASTIC;
@@ -253,11 +280,10 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     return () => audio.removeEventListener('timeupdate', onTimeUpdate);
   }, [audioRef, paint]);
 
-  // Reset paint on new track / duration arrival, and once the fill comes back
-  // after buffering swapped it out.
+  // Repaint on new track or duration, and when the fill or time-left label remounts.
   useEffect(() => {
     paint(audioRef.current?.currentTime ?? 0);
-  }, [trackId, duration, buffering, paint, audioRef]);
+  }, [trackId, duration, buffering, showTotal, paint, audioRef]);
 
   const seekFromClientX = useCallback((clientX: number): number | null => {
     const el = trackRef.current;
@@ -368,7 +394,19 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
             {buffering ? 'Buffering' : 'Live'}
           </LiveRow>
         ) : (
-          <TimeText>{buffering ? 'Buffering' : <span ref={remTextRef}>-0:00</span>}</TimeText>
+          <TimeText>
+            {buffering ? (
+              'Buffering'
+            ) : (
+              <TimeToggle
+                disableRipple
+                title={showTotal ? 'Show time left' : 'Show track length'}
+                onClick={toggleShowTotal}
+              >
+                {showTotal ? formatDuration(duration) : <span ref={remTextRef}>-0:00</span>}
+              </TimeToggle>
+            )}
+          </TimeText>
         )}
       </TimeRow>
     </Root>

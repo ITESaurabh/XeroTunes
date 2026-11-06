@@ -16,6 +16,7 @@ export interface NowPlayingData {
 let rpcClient: Client | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let currentActivity: NowPlayingData | null = null;
+let currentActivityAt = 0;
 let presenceEnabled = false;
 
 const RECONNECT_DELAY_MS = 15_000;
@@ -56,17 +57,21 @@ async function connect() {
   rpcClient.on('ready', () => {
     clearReconnectTimer();
     if (currentActivity?.isPlaying) {
-      applyActivity(currentActivity);
+      // The last update can be minutes old if Discord was away, and playback kept going.
+      const elapsed = (Date.now() - currentActivityAt) / 1000;
+      applyActivity({ ...currentActivity, position: currentActivity.position + elapsed });
     }
   });
 
+  // Pinned to 1.4.0 for this: 1.5.x doesn't emit it when Discord closes the pipe.
   rpcClient.on('disconnected', () => {
     void destroyClient();
     if (presenceEnabled) scheduleReconnect();
   });
 
   try {
-    await rpcClient.connect();
+    // connect() never emits 'ready'; only login() does.
+    await rpcClient.login();
   } catch {
     await destroyClient();
     if (presenceEnabled) scheduleReconnect();
@@ -130,6 +135,7 @@ export function setPresenceEnabled(enabled: boolean): void {
 export function updatePresence(data: NowPlayingData): void {
   if (!presenceEnabled) return;
   currentActivity = data;
+  currentActivityAt = Date.now();
   if (!data.isPlaying) {
     if (rpcClient?.isConnected && rpcClient.user) {
       rpcClient.user.clearActivity().catch(() => undefined);

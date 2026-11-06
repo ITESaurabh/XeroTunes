@@ -461,6 +461,14 @@ export function setQueueShowPlayed(enabled: boolean): void {
   updateSettings({ queueShowPlayed: enabled });
 }
 
+export function getShowTotalTime(): boolean {
+  return getSettings().showTotalTime;
+}
+
+export function setShowTotalTime(enabled: boolean): void {
+  updateSettings({ showTotalTime: enabled });
+}
+
 export function getDiscordEnabled(): boolean {
   return getSettings().discordPresenceEnabled;
 }

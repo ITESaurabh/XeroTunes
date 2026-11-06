@@ -86,6 +86,7 @@ export interface AppSettings {
   windowScale: number;
   startInVinylMode: boolean;
   queueShowPlayed: boolean;
+  showTotalTime: boolean;
 }
 
 export const STREAM_HISTORY_DAY_OPTIONS: number[] = [1, 3, 7, 15, 30];
@@ -151,6 +152,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   discordPresenceEnabled: false,
   startInVinylMode: false,
   queueShowPlayed: false,
+  showTotalTime: false,
   artistImageFetchingEnabled: true,
   streamHistoryDays: 3,
   windowScale: 1,
