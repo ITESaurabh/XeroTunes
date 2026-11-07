@@ -887,6 +887,11 @@ export default function PlayBar() {
         return;
       }
 
+      // The OS has already moved the sound to the speakers when this fires, so mute
+      // before enumerating. Any device change mutes briefly; only a removal pauses.
+      const held = pausedRef.current ? null : audioRef.current;
+      if (held) held.muted = true;
+
       const current = await snapshotOutputs();
       const removed = [...knownOutputIds].some(id => !current.has(id));
 
@@ -894,7 +899,15 @@ export default function PlayBar() {
       current.forEach(id => knownOutputIds.add(id));
 
       if (removed && !pausedRef.current) {
+        // Not left to the pause effect: its fade-out would be heard once the mute lifts.
+        audioRef.current?.pause();
         setPaused(true);
+      }
+      if (held) {
+        // A gapless swap during the await copies the mute onto the new deck.
+        const muted = muteVolumeRef.current || castingRef.current || surroundRef.current;
+        held.muted = muted;
+        if (audioRef.current) audioRef.current.muted = muted;
       }
     };
 

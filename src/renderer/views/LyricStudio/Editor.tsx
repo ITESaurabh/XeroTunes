@@ -29,11 +29,13 @@ const Area = styled('textarea')(({ theme }) => ({
 export interface EditorProps {
   value: string;
   onChange: (_next: string) => void;
+  hidden?: boolean;
 }
 
-export default function Editor({ value, onChange }: EditorProps) {
+export default function Editor({ value, onChange, hidden }: EditorProps) {
   return (
     <Area
+      hidden={hidden}
       value={value}
       onChange={e => onChange(e.target.value)}
       spellCheck={false}

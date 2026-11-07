@@ -72,6 +72,7 @@ const SOURCE_LABEL: Record<LyricsSource, string> = {
 const Root = styled(motion.div)(({ theme }) => ({
   display: 'flex',
   height: '100vh',
+  overflow: 'hidden',
   paddingTop: TITLEBAR_H,
   boxSizing: 'border-box',
   backgroundColor: theme.palette.background.default,
@@ -295,12 +296,12 @@ export default function LyricStudio() {
     (next: Tab | null) => {
       if (!next || next === tab) return;
       if (next === 'sync' && !hasLyrics) return;
+      // Coming back leaves the draft alone: Sync only changes timings, and rewriting
+      // the textarea from code would wipe its Ctrl+Z history.
       if (tab === 'edit') {
         const merged = reconcile(lines, draft);
         setLines(merged);
         setCursor(c => (c < 0 ? -1 : Math.min(c, merged.length)));
-      } else {
-        setDraft(toText(lines));
       }
       setTab(next);
     },
@@ -610,9 +611,8 @@ export default function LyricStudio() {
             </Box>
           </Stack>
 
-          {tab === 'edit' ? (
-            <Editor value={draft} onChange={setDraft} />
-          ) : (
+          <Editor value={draft} onChange={setDraft} hidden={tab !== 'edit'} />
+          {tab === 'sync' && (
             <SyncStudio
               lines={lines}
               cursor={cursor}
