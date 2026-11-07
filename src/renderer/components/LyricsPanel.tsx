@@ -116,6 +116,8 @@ const lrcInlineStyle: React.CSSProperties = {
 
 interface LyricsPanelProps {
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  /** Re-subscribes per track: a gapless swap moves audioRef to the other deck. */
+  trackId: string | number | undefined;
   lrcContent: string | null;
   lyricsType: 'synced' | 'unsynced' | null;
   lyricsSource: 'LRC file' | 'Embedded' | 'Server' | null;
@@ -132,6 +134,7 @@ interface LrcLine {
 
 const LyricsPanel = React.memo(function LyricsPanel({
   audioRef,
+  trackId,
   lrcContent,
   lyricsType,
   lyricsSource,
@@ -153,7 +156,7 @@ const LyricsPanel = React.memo(function LyricsPanel({
     const onTimeUpdate = () => setPositionMs(audio.currentTime * 1000);
     audio.addEventListener('timeupdate', onTimeUpdate);
     return () => audio.removeEventListener('timeupdate', onTimeUpdate);
-  }, [audioRef]);
+  }, [audioRef, trackId]);
 
   const lineRenderer = useCallback(
     ({ active, line }: { active: boolean; line: LrcLine }) => (

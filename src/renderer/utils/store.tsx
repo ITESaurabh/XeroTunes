@@ -254,6 +254,15 @@ const { Provider } = store;
 const orderAfterEdit = (state: AppState, queue: QueueTrack[]) =>
   state.isShuffle ? state.originalOrder : queue.map(t => t.Id);
 
+/** Index NEXT_TRACK moves to; -1 at the end of a non-repeating queue. */
+export function nextQueueIndex(
+  state: Pick<AppState, 'queue' | 'queueIndex' | 'repeatMode'>
+): number {
+  const next = state.queueIndex + 1;
+  if (next < state.queue.length) return next;
+  return state.repeatMode === 'all' && state.queue.length > 0 ? 0 : -1;
+}
+
 function playAt(state: AppState, index: number): AppState {
   const queue = markPlaying(state.queue, index);
   const track = queue[index];
@@ -419,9 +428,8 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...initialState };
     }
     case 'NEXT_TRACK': {
-      let nextIndex = state.queueIndex + 1;
-      if (state.repeatMode === 'all' && nextIndex >= state.queue.length) nextIndex = 0;
-      return nextIndex < state.queue.length ? playAt(state, nextIndex) : state;
+      const nextIndex = nextQueueIndex(state);
+      return nextIndex >= 0 ? playAt(state, nextIndex) : state;
     }
     case 'PREV_TRACK': {
       let prevIndex = state.queueIndex - 1;

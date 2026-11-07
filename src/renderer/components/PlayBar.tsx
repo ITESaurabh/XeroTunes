@@ -23,7 +23,7 @@ import Grid from '@mui/material/Unstable_Grid2/Grid2';
 import type { Grid2TypeMap } from '@mui/material/Unstable_Grid2';
 import type { OverridableComponent } from '@mui/material/OverridableComponent';
 import type { IconButtonTypeMap } from '@mui/material/IconButton';
-import { store, RepeatMode } from '../utils/store';
+import { store, RepeatMode, nextQueueIndex } from '../utils/store';
 import { toMediaSrc } from '../utils/misc';
 import { useSurround } from '../utils/useSurround';
 import SurroundMixerDialog from './SurroundMixerDialog';
@@ -258,6 +258,8 @@ const ControlButton = styled(IconButton)(({ theme }) => ({
 const TransportIconStyle: React.CSSProperties = { margin: '0.2rem' };
 const PlayPauseIconStyle: React.CSSProperties = { margin: '0.3rem' };
 const AudioElementStyle: React.CSSProperties = { display: 'none' };
+// Under the ~15 s idle timeout after which Chromium can suspend a paused player.
+const GAPLESS_PRELOAD_S = 10;
 
 const VolumeStack = styled(Stack, {
   shouldForwardProp: prop => prop !== 'isPhone',
@@ -375,7 +377,22 @@ export default function PlayBar() {
   const { state, dispatch } = useContext(store);
   const defaultVol = getVolumeLevel();
   const [songPath, setSongPath] = useState<string | null>(null);
+  // Gapless: audioRef points at whichever deck is playing; the other preloads the next track.
   const audioRef = useRef<HTMLAudioElement>(null);
+  const decksRef = useRef<[HTMLAudioElement | null, HTMLAudioElement | null]>([null, null]);
+  const setDeckA = useCallback((el: HTMLAudioElement | null) => {
+    decksRef.current[0] = el;
+    audioRef.current = el;
+  }, []);
+  const setDeckB = useCallback((el: HTMLAudioElement | null) => {
+    decksRef.current[1] = el;
+  }, []);
+  const idleDeck = useCallback((): HTMLAudioElement | null => {
+    const [a, b] = decksRef.current;
+    return audioRef.current === a ? b : a;
+  }, []);
+  // The deck a gapless swap started; the fade-in effect skips it.
+  const swappedDeckRef = useRef<HTMLAudioElement | null>(null);
   // Hidden silent loop: keeps MediaSession active across track changes so SMTC
   // doesn't drop the OS-level entry.
   const silentAudioRef = useRef<HTMLAudioElement>(null);
@@ -522,6 +539,17 @@ export default function PlayBar() {
   // downloaded. Gates the features that need real bytes on disk.
   const isRemote = !!trackUri && /^https?:\/\//i.test(trackUri);
 
+  // Same-Uri neighbours keep the normal path: songPath wouldn't change, so the
+  // per-track effects wouldn't move to the other deck.
+  const nextQueued = state.repeatMode === 'one' ? undefined : state.queue[nextQueueIndex(state)];
+  const gaplessNextUri =
+    !isLive &&
+    nextQueued?.Uri &&
+    nextQueued.Uri !== trackUri &&
+    streamIdOf(nextQueued.Id) === undefined
+      ? toMediaSrc(nextQueued.Uri)
+      : null;
+
   // A source set to read tags lazily hands the library a track named after its
   // file, and playing it is what fills in the rest. Main answers immediately
   // for anything already tagged.
@@ -591,7 +619,7 @@ export default function PlayBar() {
     // Surround (beta): the element is muted, so where its sink points is moot.
     if (deviceId === SURROUND_OUTPUT_ID) return;
     setEqualizerSink(deviceId);
-    for (const el of [audioRef.current, silentAudioRef.current]) {
+    for (const el of [...decksRef.current, silentAudioRef.current]) {
       const sinkable = el;
       if (!sinkable?.setSinkId || sinkable.sinkId === deviceId) continue;
       try {
@@ -606,7 +634,9 @@ export default function PlayBar() {
   useEffect(() => {
     if (audioRef.current && songPath) {
       const audio = audioRef.current;
-      audio.src = toMediaSrc(songPath);
+      // Already loaded when a gapless swap brought this deck in.
+      const src = toMediaSrc(songPath);
+      if (audio.getAttribute('src') !== src) audio.src = src;
       // Radio can't run ahead of the broadcast. defaultPlaybackRate is what a new src starts at.
       audio.defaultPlaybackRate = audio.playbackRate = isLiveRef.current ? 1 : tempoRef.current;
       audio.volume = muteVolumeRef.current || castingRef.current ? 0 : volumeRef.current;
@@ -687,9 +717,49 @@ export default function PlayBar() {
     // unknown duration, so no seek, progress fill, play-count or scrobble happens.
     const handleLoadedMetadata = () =>
       setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    // A preloaded deck fired loadedmetadata before it became the active one.
+    if (audio.readyState >= HTMLMediaElement.HAVE_METADATA) handleLoadedMetadata();
     audio.addEventListener('loadedmetadata', handleLoadedMetadata);
     return () => audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
   }, [songPath]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    const idle = idleDeck();
+    if (!audio || !idle || !gaplessNextUri || isCasting) return;
+    const check = () => {
+      if (idle.getAttribute('src') === gaplessNextUri || !Number.isFinite(audio.duration)) return;
+      const left = (audio.duration - audio.currentTime) / (audio.playbackRate || 1);
+      if (left <= GAPLESS_PRELOAD_S) idle.src = gaplessNextUri;
+    };
+    check();
+    audio.addEventListener('timeupdate', check);
+    return () => audio.removeEventListener('timeupdate', check);
+  }, [songPath, gaplessNextUri, isCasting, idleDeck]);
+
+  // No-op unless the idle deck holds the expected track; the src effect then loads it as before.
+  // ponytail: starting on `ended` leaves output startup as a gap. If audible on a live
+  // album, schedule both decks in one AudioContext instead.
+  const swapToIdleDeck = useCallback(
+    (expected: string | null): void => {
+      const prev = audioRef.current;
+      const next = idleDeck();
+      if (!prev || !next || !expected || next.error || next.getAttribute('src') !== expected) {
+        return;
+      }
+      next.defaultPlaybackRate = next.playbackRate = tempoRef.current;
+      next.volume = prev.volume;
+      next.muted = prev.muted;
+      // Wire the EQ before play so the first samples aren't heard dry.
+      applyEqualizer(next, getEqualizerSettings());
+      prev.onended = null;
+      prev.onerror = null;
+      audioRef.current = next;
+      swappedDeckRef.current = next;
+      next.play().catch(() => undefined);
+    },
+    [idleDeck]
+  );
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -703,9 +773,8 @@ export default function PlayBar() {
           audio.play().catch(() => undefined);
           // Track id doesn't change on repeat, so arm the next scrobble here.
           startScrobbleWindow();
-        } else if (state.queueIndex < state.queue.length - 1) {
-          dispatch({ type: 'NEXT_TRACK' });
-        } else if (state.repeatMode === 'all') {
+        } else if (state.queueIndex < state.queue.length - 1 || state.repeatMode === 'all') {
+          swapToIdleDeck(gaplessNextUri);
           dispatch({ type: 'NEXT_TRACK' });
         } else {
           setPaused(true);
@@ -746,7 +815,16 @@ export default function PlayBar() {
       if (canAdvance) dispatch({ type: 'NEXT_TRACK' });
       else dispatch({ type: 'RESET_PLAYBACK' });
     };
-  }, [state.queue, state.queueIndex, state.repeatMode, state.track, dispatch, startScrobbleWindow]);
+  }, [
+    state.queue,
+    state.queueIndex,
+    state.repeatMode,
+    state.track,
+    dispatch,
+    startScrobbleWindow,
+    swapToIdleDeck,
+    gaplessNextUri,
+  ]);
 
   useEffect(() => {
     pausedRef.current = paused;
@@ -905,6 +983,11 @@ export default function PlayBar() {
 
     const FADE_STEPS = 25;
     const FADE_INTERVAL_MS = 20;
+
+    // Track changes fade in; on a gapless swap that would dip the join.
+    const swapped = swappedDeckRef.current === audio;
+    swappedDeckRef.current = null;
+    if (swapped && !paused) return;
 
     if (paused) {
       const startVol = audio.volume;
@@ -1733,6 +1816,7 @@ export default function PlayBar() {
         <LyricsCollapse in={isLyricsExpanded} mountOnEnter unmountOnExit>
           <LyricsPanel
             audioRef={audioRef}
+            trackId={state.track.Id}
             lrcContent={lrcContent}
             lyricsType={lyricsType}
             lyricsSource={lyricsSource}
@@ -2209,7 +2293,8 @@ export default function PlayBar() {
         onStopCasting={handleStopCasting}
         connectedDeviceId={isCasting ? castDeviceId : null}
       />
-      <audio ref={audioRef} style={AudioElementStyle} />
+      <audio ref={setDeckA} preload="auto" style={AudioElementStyle} />
+      <audio ref={setDeckB} preload="auto" style={AudioElementStyle} />
       {/* SMTC keepalive, fed by SILENT_SRC. */}
       <audio
         ref={silentAudioRef}

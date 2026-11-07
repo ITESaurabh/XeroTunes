@@ -269,6 +269,7 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
   }, [audioRef, trackId, isLive, isRemote]);
 
   // Subscribe to timeupdate: DOM only, no React render.
+  // trackId: a gapless swap moves audioRef to the other deck.
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -278,7 +279,7 @@ const PlaybackProgress = React.memo(function PlaybackProgress({
     };
     audio.addEventListener('timeupdate', onTimeUpdate);
     return () => audio.removeEventListener('timeupdate', onTimeUpdate);
-  }, [audioRef, paint]);
+  }, [audioRef, paint, trackId]);
 
   // Repaint on new track or duration, and when the fill or time-left label remounts.
   useEffect(() => {
