@@ -1013,9 +1013,15 @@ export async function downloadTrack(
     };
   }
 
-  const trackNo = row.TrackNumber ? String(row.TrackNumber).padStart(2, '0') + ' ' : '';
-  const ext = (row.Extension || 'mp3').replace(/^\./, '').toLowerCase();
+  // Track number and extension come from the server too; either could carry "../".
+  const n = parseInt(String(row.TrackNumber ?? ''), 10);
+  const trackNo = n > 0 ? String(n).padStart(2, '0') + ' ' : '';
+  const reported = (row.Extension ?? '').replace(/^\./, '').toLowerCase();
+  const ext = /^[a-z0-9]{1,5}$/.test(reported) ? reported : 'mp3';
   const dest = path.join(dir, `${trackNo}${safeSegment(row.Title ?? '', 'Untitled')}.${ext}`);
+  if (path.dirname(dest) !== dir) {
+    return { success: false, error: 'The server sent a file name that would leave the folder' };
+  }
 
   try {
     fs.mkdirSync(dir, { recursive: true });

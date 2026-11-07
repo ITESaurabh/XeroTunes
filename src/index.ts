@@ -225,6 +225,25 @@ app.on('second-instance', (_event, commandLine) => {
 // Registered here, not in createWindow, so macOS 'activate' can't register it twice.
 registerSettingsIpc();
 
+function samePage(a: string, b: string): boolean {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    return x.origin === y.origin && x.pathname === y.pathname;
+  } catch {
+    return false;
+  }
+}
+
+// Every window runs with Node, so a page it navigates to (a dropped file, a
+// dragged-in link) would too. HashRouter routes and dev reloads stay on the page.
+app.on('web-contents-created', (_event, contents) => {
+  contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  contents.on('will-navigate', (event, url) => {
+    if (!samePage(url, contents.getURL())) event.preventDefault();
+  });
+});
+
 function createWindow() {
   loadingWin = new BrowserWindow({
     show: false,
