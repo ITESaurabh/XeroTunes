@@ -121,13 +121,12 @@ function Layout() {
                   sx={{
                     height: '100%',
                     flex: 1,
-                    width: '100%',
-                    maxWidth: '100%',
+                    width: 'calc(100% + 1px)',
+                    maxWidth: 'none',
                     minWidth: 0,
                     p: 0,
-                    m: 0,
-                    borderTop: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
-                    borderLeft: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
+                    m: '0 -1px -1px 0',
+                    border: theme => `1px solid ${theme.palette.surfaces.glassBorder}`,
                     overflow: 'hidden',
                   }}
                   container
