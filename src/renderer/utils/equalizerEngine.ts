@@ -34,6 +34,10 @@ let sinkId = 'default';
 // A source per element: creating a second one for the same element throws.
 const sources = new WeakMap<HTMLAudioElement, MediaElementAudioSourceNode>();
 let current: MediaElementAudioSourceNode | null = null;
+// A running context renders silence nonstop (~8% of a core), so it sleeps after this long paused.
+const SLEEP_AFTER_MS = 10_000;
+const playing = new Set<HTMLAudioElement>();
+let sleep: ReturnType<typeof setTimeout> | undefined;
 
 // '' is Chromium's spelling of the system default sink; lib.dom predates the method.
 const sink = (c: AudioContext, id: string): Promise<void> =>
@@ -90,10 +94,26 @@ function sourceFor(ctx: AudioContext, audio: HTMLAudioElement): MediaElementAudi
     // A context made before any user gesture can start suspended, and a
     // suspended context plays the element as silence.
     audio.addEventListener('play', () => {
+      playing.add(audio);
+      clearTimeout(sleep);
       if (ctx.state === 'suspended') void ctx.resume();
     });
+    audio.addEventListener('pause', () => {
+      playing.delete(audio);
+      sleepWhenIdle(ctx);
+    });
+    // Wired at launch, before anything plays, so a 'pause' may never come.
+    if (audio.paused) sleepWhenIdle(ctx);
   }
   return source;
+}
+
+function sleepWhenIdle(ctx: AudioContext): void {
+  clearTimeout(sleep);
+  // a.paused, not the set's size: a failed play() may never send 'pause'.
+  sleep = setTimeout(() => {
+    if (![...playing].some(a => !a.paused)) void ctx.suspend();
+  }, SLEEP_AFTER_MS);
 }
 
 export function applyEqualizer(audio: HTMLAudioElement | null, eq: EqualizerSettings): void {

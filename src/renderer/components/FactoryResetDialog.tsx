@@ -61,6 +61,12 @@ const RESET_ITEMS: ResetItem[] = [
     label: 'Artist image cache',
     detail: 'artist_arts, refetched in the background',
   },
+  {
+    key: 'recommendations',
+    label: 'Recommendation data',
+    detail:
+      'Mood results, listening history, the downloaded mood models, and the Smart Recommendations settings',
+  },
 ];
 
 const labelFor = (key: ResetTarget) => RESET_ITEMS.find(i => i.key === key)?.label ?? key;
@@ -107,6 +113,7 @@ const FactoryResetDialog: React.FC<FactoryResetDialogProps> = ({ open, onClose }
     setBusy(true);
     // localStorage lives in this process, so main can't clear it.
     if (selected.has('localState')) localStorage.clear();
+    else if (selected.has('recommendations')) localStorage.removeItem('smartShuffleChosen');
 
     try {
       const res = (await invokeEventToMainProcess('factory-reset', {

@@ -485,6 +485,46 @@ export function setArtistImageFetchingEnabled(enabled: boolean): void {
   updateSettings({ artistImageFetchingEnabled: enabled });
 }
 
+export function getMoodAnalysisEnabled(): boolean {
+  return getSettings().moodAnalysisEnabled;
+}
+
+export function setMoodAnalysisEnabled(enabled: boolean): void {
+  updateSettings({ moodAnalysisEnabled: enabled });
+}
+
+export function getMoodUseLyrics(): boolean {
+  return getSettings().moodUseLyrics;
+}
+
+export function setMoodUseLyrics(enabled: boolean): void {
+  updateSettings({ moodUseLyrics: enabled });
+}
+
+export function getMoodMultiThread(): boolean {
+  return getSettings().moodMultiThread;
+}
+
+export function setMoodMultiThread(enabled: boolean): void {
+  updateSettings({ moodMultiThread: enabled });
+}
+
+export function getSmartRecommendationsEnabled(): boolean {
+  return getSettings().smartRecommendationsEnabled;
+}
+
+export function setSmartRecommendationsEnabled(enabled: boolean): void {
+  updateSettings({ smartRecommendationsEnabled: enabled });
+}
+
+export function getSmartShuffleEnabled(): boolean {
+  return getSettings().smartShuffleEnabled;
+}
+
+export function setSmartShuffleEnabled(enabled: boolean): void {
+  updateSettings({ smartShuffleEnabled: enabled });
+}
+
 export function getStreamHistoryDays(): number {
   return getSettings().streamHistoryDays;
 }

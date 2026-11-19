@@ -182,6 +182,14 @@ XeroTunes is free and made by one developer. If it's useful to you, you can
 [sponsor it on GitHub](https://github.com/sponsors/ITESaurabh) or
 [donate through the website](https://xerotunes.com/#support).
 
+## Credits
+
+Mood analysis uses the MusiCNN, mood and arousal/valence models published by the
+[Music Technology Group, Universitat Pompeu Fabra](https://essentia.upf.edu/models.html),
+licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+XeroTunes does not include them. They are downloaded from essentia.upf.edu when
+you turn the feature on in Settings.
+
 ## License
 
 [GPL-3.0](LICENSE)

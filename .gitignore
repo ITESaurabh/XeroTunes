@@ -99,6 +99,7 @@ notes.txt
 .yarn/install-state.gz
 
 docs
+misc/
 .claude/
 .cursor/
 memory/

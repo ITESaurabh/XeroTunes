@@ -221,7 +221,17 @@ const config: ForgeConfig = {
       }
     },
     async packageAfterPrune(_config, buildPath, _electronVersion, platform, arch) {
-      shipNodeModules(['sharp'], __dirname, buildPath);
+      shipNodeModules(['sharp', 'onnxruntime-web'], __dirname, buildPath);
+      // Mood analysis loads one build of the runtime (moodFile.ts); the package holds 150 MB of others.
+      const ortDist = path.join(buildPath, 'node_modules', 'onnxruntime-web', 'dist');
+      const ortKeep = [
+        'ort.node.min.js',
+        'ort-wasm-simd-threaded.mjs',
+        'ort-wasm-simd-threaded.wasm',
+      ];
+      for (const name of await fs.readdir(ortDist)) {
+        if (!ortKeep.includes(name)) await fs.rm(path.join(ortDist, name), { recursive: true });
+      }
       const img = path.join(buildPath, 'node_modules', '@img');
       // yarn installs only the host's binary; a cross-arch build would ship one that can't load.
       const binary = platform === 'linux' ? 'sharp-wasm32' : `sharp-${platform}-${arch}`;

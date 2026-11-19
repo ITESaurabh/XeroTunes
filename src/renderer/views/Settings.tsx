@@ -13,6 +13,7 @@ import {
   AccordionDetails,
   List,
   ListSubheader,
+  Collapse,
   ListItem,
   ListItemIcon,
   ListItemText,
@@ -22,6 +23,8 @@ import {
   MenuItem,
   Chip,
   Tooltip,
+  Checkbox,
+  FormControlLabel,
   TextField,
   Divider,
   useTheme,
@@ -56,6 +59,11 @@ import warningIcon from '@iconify/icons-fluent/warning-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
 import colorIcon from '@iconify/icons-fluent/color-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
+import sparkleIcon from '@iconify/icons-fluent/sparkle-24-regular';
+import shuffleIcon from '@iconify/icons-fluent/arrow-shuffle-24-regular';
+import moodIcon from '@iconify/icons-fluent/headphones-sound-wave-24-regular';
+import lyricsIcon from '@iconify/icons-fluent/text-quote-24-regular';
+import historyIcon from '@iconify/icons-fluent/history-24-regular';
 import peekUpSmile from '../../assets/mascot/rei-peek-up-smile.png';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
@@ -70,6 +78,16 @@ import {
   setStartInVinylMode,
   WINDOW_SCALE_EVENT,
   getArtistImageFetchingEnabled,
+  getMoodAnalysisEnabled,
+  setMoodAnalysisEnabled,
+  getMoodUseLyrics,
+  setMoodUseLyrics,
+  getMoodMultiThread,
+  setMoodMultiThread,
+  getSmartRecommendationsEnabled,
+  setSmartRecommendationsEnabled,
+  getSmartShuffleEnabled,
+  setSmartShuffleEnabled,
   getStreamHistoryDays,
   setStreamHistoryDays,
   setArtistImageFetchingEnabled,
@@ -95,6 +113,8 @@ import {
   deleteCustomTheme,
   uniqueThemeName,
 } from '../utils/LocStoreUtil';
+import { MOOD_WORKERS, moodScan, useMoodScan } from '../utils/moodScan';
+import { forgetListeningHistory, refreshSmartShuffle } from '../utils/smartShuffle';
 import {
   STREAM_HISTORY_DAY_OPTIONS,
   WINDOW_SCALE_OPTIONS,
@@ -132,6 +152,49 @@ interface AppInfo {
   platform: string;
   dataDir: string;
 }
+
+/**
+ * Panels set into a Settings section: a step darker than the section in both
+ * modes. Paper alone is near-white in light mode, the same as the page.
+ */
+const insetSurface = (theme: Theme) =>
+  theme.palette.mode === 'dark' ? theme.palette.background.paper : theme.palette.background.default;
+
+const QUIET_SWITCH = 'quiet-switch';
+/**
+ * A switch that is on fades out until its group (the switch row and its options)
+ * is hovered or focused, since the options already show it is on. Opacity only, so
+ * it stays clickable and in the tab order. Touch screens have no hover, so there it
+ * always shows.
+ */
+const quietSwitchesSx = {
+  [`& .${QUIET_SWITCH}`]: { opacity: 0, transition: 'opacity 200ms' },
+  [`&:hover .${QUIET_SWITCH}, &:focus-within .${QUIET_SWITCH}`]: { opacity: 1 },
+  '@media (hover: none)': { [`& .${QUIET_SWITCH}`]: { opacity: 1 } },
+};
+
+/** A feature switch and the options it unlocks. */
+const featureGroupSx = {
+  ...quietSwitchesSx,
+  mb: 1.5,
+  '& > ul > li:first-of-type .MuiListItemText-primary': { fontWeight: 600 },
+};
+
+/**
+ * Options that belong to the switch above them: set into a recessed panel that
+ * starts under that switch's title, and shown only while the switch is on.
+ */
+const subOptionsSx = (theme: Theme) => ({
+  ml: '64px',
+  mr: 2,
+  borderRadius: `${theme.shape.borderRadius}px`,
+  bgcolor: insetSurface(theme),
+  border: `1px solid ${theme.palette.surfaces.glassBorder}`,
+  boxShadow: `inset 0 1px 3px ${alpha('#000', 0.2)}`,
+  '& > li + li': { borderTop: `1px solid ${theme.palette.surfaces.glassBorder}` },
+  '& .MuiListItemIcon-root': { minWidth: 36 },
+  '& .MuiListItemText-primary': { fontSize: '0.9rem' },
+});
 
 /**
  * A sticky section header only has to hide the rows scrolling under it. Dark's raised
@@ -706,6 +769,13 @@ const Settings: React.FC = () => {
   const [artistImageFetchEnabled, setArtistImageFetchEnabledState] = React.useState<boolean>(
     getArtistImageFetchingEnabled()
   );
+  const [moodEnabled, setMoodEnabledState] = React.useState<boolean>(getMoodAnalysisEnabled);
+  const [moodLyrics, setMoodLyricsState] = React.useState<boolean>(getMoodUseLyrics);
+  const [moodMultiThread, setMoodMultiThreadState] = React.useState<boolean>(getMoodMultiThread);
+  const mood = useMoodScan();
+  const [smartRec, setSmartRecState] = React.useState<boolean>(getSmartRecommendationsEnabled);
+  const [smartShuffle, setSmartShuffleState] = React.useState<boolean>(getSmartShuffleEnabled);
+  const [listeningHistory, setListeningHistory] = React.useState(0);
   const [missedArtists, setMissedArtists] = React.useState<number>(0);
   const [retryingArtists, setRetryingArtists] = React.useState<boolean>(false);
   const [scrobbler, setScrobbler] = React.useState<ScrobblerStatus | null>(null);
@@ -765,6 +835,12 @@ const Settings: React.FC = () => {
   React.useEffect(() => {
     invokeEventToMainProcess('get-missed-artist-count')
       .then((count: unknown) => setMissedArtists(Number(count) || 0))
+      .catch(() => undefined);
+  }, [invokeEventToMainProcess]);
+
+  React.useEffect(() => {
+    invokeEventToMainProcess('listening-history-count')
+      .then((count: unknown) => setListeningHistory(Number(count) || 0))
       .catch(() => undefined);
   }, [invokeEventToMainProcess]);
 
@@ -1374,6 +1450,207 @@ const Settings: React.FC = () => {
           <List
             subheader={
               <ListSubheader color="inherit" sx={subheaderSx}>
+                Smart Recommendations
+              </ListSubheader>
+            }
+          >
+            <Box component="li" sx={featureGroupSx}>
+              <List disablePadding>
+                <ListItem>
+                  <ListItemIcon>
+                    <Icon icon={moodIcon} width={'2rem'} />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="switch-list-label-mood"
+                    primary="Mood Analysis"
+                    secondary={
+                      !moodEnabled
+                        ? 'Deep analysis of the soundtrack to create a detailed local mood database. Will require to download 4 MB of ML models from essentia.upf.edu (non-commercial licence).'
+                        : mood.status === 'downloading'
+                          ? 'Downloading the models…'
+                          : mood.status === 'failed'
+                            ? `Stopped: ${mood.error}`
+                            : mood.status === 'running'
+                              ? `Analysed ${mood.done} of ${mood.total} tracks`
+                              : mood.total === 0
+                                ? 'No local tracks to analyse'
+                                : mood.errored
+                                  ? `${mood.total - mood.errored} of ${mood.total} tracks analysed, ${mood.errored} skipped (unreadable, silent or over 30 minutes)`
+                                  : `All ${mood.total} tracks analysed`
+                    }
+                  />
+                  {/* Only worth choosing while a scan runs: afterwards new tracks come a few at a
+                      time. Shown from the model download on, so the first scan can start fast;
+                      ticking it mid-scan restarts the scan with more workers, losing nothing. */}
+                  {moodEnabled &&
+                    (mood.status === 'running' || mood.status === 'downloading') &&
+                    MOOD_WORKERS > 1 && (
+                      <Tooltip
+                        enterTouchDelay={0}
+                        title="Analyse several tracks at once. The scan finishes sooner but uses more processor and memory, so the computer can feel slow until it ends."
+                      >
+                        <FormControlLabel
+                          label="Multi-threaded scan"
+                          sx={{ mr: 2, minHeight: 44 }}
+                          control={
+                            <Checkbox
+                              checked={moodMultiThread}
+                              onChange={e => {
+                                setMoodMultiThreadState(e.target.checked);
+                                setMoodMultiThread(e.target.checked);
+                                void moodScan.sync();
+                              }}
+                            />
+                          }
+                        />
+                      </Tooltip>
+                    )}
+                  <XTSwitch
+                    checked={moodEnabled}
+                    className={moodEnabled ? QUIET_SWITCH : undefined}
+                    onChange={e => {
+                      setMoodEnabledState(e.target.checked);
+                      setMoodAnalysisEnabled(e.target.checked);
+                      refreshSmartShuffle();
+                      void moodScan.sync();
+                    }}
+                    inputProps={{ 'aria-labelledby': 'switch-list-label-mood' }}
+                    sx={{
+                      mr: 0.5,
+                    }}
+                  />
+                </ListItem>
+                <Collapse in={moodEnabled} unmountOnExit>
+                  <List disablePadding sx={subOptionsSx}>
+                    <ListItem>
+                      <ListItemIcon>
+                        <Icon icon={lyricsIcon} width={'1.5rem'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        id="switch-list-label-mood-lyrics"
+                        primary="Include lyrics for analysis"
+                        secondary="Track's embedded lyrics or .lrc file can help improve the analysis quality. English only..."
+                      />
+                      <XTSwitch
+                        checked={moodLyrics}
+                        disabled={!moodEnabled}
+                        onChange={e => {
+                          setMoodLyricsState(e.target.checked);
+                          setMoodUseLyrics(e.target.checked);
+                        }}
+                        inputProps={{ 'aria-labelledby': 'switch-list-label-mood-lyrics' }}
+                        sx={{
+                          mr: 0.5,
+                        }}
+                      />
+                    </ListItem>
+                  </List>
+                </Collapse>
+              </List>
+            </Box>
+            <Box component="li" sx={featureGroupSx}>
+              <List disablePadding>
+                <ListItem>
+                  <ListItemIcon>
+                    <Icon icon={sparkleIcon} width={'2rem'} />
+                  </ListItemIcon>
+                  <ListItemText
+                    id="switch-list-label-smart-rec"
+                    primary={
+                      <>
+                        Smart Recommendations
+                        <Chip
+                          component="span"
+                          label="Beta"
+                          size="small"
+                          color="primary"
+                          variant="outlined"
+                          sx={{ height: 20, ml: 1 }}
+                        />
+                      </>
+                    }
+                    secondary={
+                      moodEnabled
+                        ? 'Intelligent features powered by Local ML Models.'
+                        : 'Needs Mood Analysis turned on'
+                    }
+                  />
+                  <XTSwitch
+                    checked={smartRec && moodEnabled}
+                    className={smartRec && moodEnabled ? QUIET_SWITCH : undefined}
+                    disabled={!moodEnabled}
+                    onChange={e => {
+                      setSmartRecState(e.target.checked);
+                      setSmartRecommendationsEnabled(e.target.checked);
+                      refreshSmartShuffle();
+                    }}
+                    inputProps={{ 'aria-labelledby': 'switch-list-label-smart-rec' }}
+                    sx={{
+                      mr: 0.5,
+                    }}
+                  />
+                </ListItem>
+                <Collapse in={smartRec && moodEnabled} unmountOnExit>
+                  <List disablePadding sx={subOptionsSx}>
+                    <ListItem>
+                      <ListItemIcon>
+                        <Icon icon={shuffleIcon} width={'1.5rem'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        id="switch-list-label-smart-shuffle"
+                        primary="Smart Shuffle"
+                        secondary="Smartly curate your queue based on your listening behaviour."
+                      />
+                      <XTSwitch
+                        checked={smartShuffle && smartRec && moodEnabled}
+                        disabled={!moodEnabled || !smartRec}
+                        onChange={e => {
+                          setSmartShuffleState(e.target.checked);
+                          setSmartShuffleEnabled(e.target.checked);
+                          refreshSmartShuffle();
+                        }}
+                        inputProps={{ 'aria-labelledby': 'switch-list-label-smart-shuffle' }}
+                        sx={{
+                          mr: 0.5,
+                        }}
+                      />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon>
+                        <Icon icon={historyIcon} width={'1.5rem'} />
+                      </ListItemIcon>
+                      <ListItemText
+                        primary="Listening history"
+                        secondary={
+                          listeningHistory > 0
+                            ? `${listeningHistory === 1 ? '1 listen or skip' : `${listeningHistory} listens and skips`} remembered on this computer for recommendation engine.`
+                            : 'Nothing yet. Tracks you listen to and skip are remembered on this computer for up to a year'
+                        }
+                      />
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        disabled={listeningHistory === 0}
+                        onClick={() => {
+                          invokeEventToMainProcess('clear-listening-history')
+                            .then(() => {
+                              forgetListeningHistory();
+                              setListeningHistory(0);
+                            })
+                            .catch(() => undefined);
+                        }}
+                      >
+                        Clear
+                      </Button>
+                    </ListItem>
+                  </List>
+                </Collapse>
+              </List>
+            </Box>
+          </List>
+          <List
+            subheader={
+              <ListSubheader color="inherit" sx={subheaderSx}>
                 Display
               </ListSubheader>
             }
@@ -1772,8 +2049,8 @@ const Settings: React.FC = () => {
                 <AccordionDetails>
                   <Stack spacing={1.5} alignItems="flex-start">
                     <Typography variant="body2" color="text.secondary">
-                      Wipe your library, settings, themes and cached art, individually or all at
-                      once. Music files on disk are never touched.
+                      Wipe your library, settings, themes, cached art and recommendation data,
+                      individually or all at once. Music files on disk are never touched.
                     </Typography>
                     <Button
                       variant="contained"
@@ -1820,6 +2097,7 @@ const Settings: React.FC = () => {
                   py: 1,
                   position: 'relative',
                   zIndex: 3,
+                  bgcolor: insetSurface,
                 }}
               >
                 <ListItem sx={{ alignItems: 'flex-start', gap: 2 }}>

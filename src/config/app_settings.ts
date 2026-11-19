@@ -4,14 +4,7 @@ import { DEFAULT_EQUALIZER_SETTINGS, type EqualizerSettings } from './equalizer'
 
 export type ThemeMode = 0 | 1 | 2;
 export type TitleBarStyle =
-  | 'default'
-  | 'native'
-  | 'hidden'
-  | 'mac'
-  | 'mac-fake'
-  | 'linux-gnome'
-  | 'linux-kde'
-  | 'windows';
+  'default' | 'native' | 'hidden' | 'mac' | 'mac-fake' | 'linux-gnome' | 'linux-kde' | 'windows';
 export type ThemePaletteVariant = 'default' | 'soft' | 'highContrast';
 export type PlaybackRepeatMode = 'off' | 'all' | 'one';
 export type ViewMode = 'list' | 'grid';
@@ -81,6 +74,16 @@ export interface AppSettings {
   overlayEnabled: boolean;
   discordPresenceEnabled: boolean;
   artistImageFetchingEnabled: boolean;
+  /** Off by default: the background scan costs CPU and a model download. */
+  moodAnalysisEnabled: boolean;
+  /** Let a track's lyrics shift its mood toward bright or dark. */
+  moodUseLyrics: boolean;
+  /** Off by default: it loads the processor until the scan ends. */
+  moodMultiThread: boolean;
+  /** Master switch for the features that recommend from mood analysis, which must be on too. */
+  smartRecommendationsEnabled: boolean;
+  /** With recommendations on, shuffle follows what the listener stays on and skips. */
+  smartShuffleEnabled: boolean;
   /** Days a station's recently-played entry survives unless it is bookmarked. */
   streamHistoryDays: number;
   windowScale: number;
@@ -114,7 +117,8 @@ export type ResetTarget =
   | 'favourites'
   | 'firstrun'
   | 'albumArts'
-  | 'artistArts';
+  | 'artistArts'
+  | 'recommendations';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   theme: {
@@ -154,6 +158,11 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   queueShowPlayed: false,
   showTotalTime: false,
   artistImageFetchingEnabled: true,
+  moodAnalysisEnabled: false,
+  moodUseLyrics: true,
+  moodMultiThread: false,
+  smartRecommendationsEnabled: false,
+  smartShuffleEnabled: true,
   streamHistoryDays: 3,
   windowScale: 1,
 };

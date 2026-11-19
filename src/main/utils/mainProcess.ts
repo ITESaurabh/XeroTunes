@@ -65,6 +65,7 @@ import {
   clampWindowScale,
 } from '../../config/app_settings';
 import { registerArtistIpc } from '../ipc/artists';
+import { registerMoodIpc, resetRecommendationData } from '../ipc/mood';
 import { registerSourceIpc } from '../ipc/sources';
 import { schemeRoot } from '../sources/registry';
 import { cancelSync, installSourceAuth, isSyncing, syncAllSources } from '../sources/sync';
@@ -328,6 +329,21 @@ const RESET_ACTIONS: Array<[Exclude<ResetTarget, 'localState'>, () => void]> = [
   ['firstrun', () => rmPath(FIRSTRUN_FILE)],
   ['albumArts', () => emptyDir(ALBUM_ART_DIR)],
   ['artistArts', () => emptyDir(ARTIST_ART_DIR)],
+  [
+    'recommendations',
+    () => {
+      resetRecommendationData();
+      const d = DEFAULT_APP_SETTINGS;
+      writeSettingsFile({
+        ...readSettingsFile(),
+        moodAnalysisEnabled: d.moodAnalysisEnabled,
+        moodUseLyrics: d.moodUseLyrics,
+        moodMultiThread: d.moodMultiThread,
+        smartRecommendationsEnabled: d.smartRecommendationsEnabled,
+        smartShuffleEnabled: d.smartShuffleEnabled,
+      });
+    },
+  ],
 ];
 
 // Registered separately from mainIpcs: the mini player (--file launch) runs
@@ -440,6 +456,9 @@ const OVERLAY_MATERIAL: BrowserWindowConstructorOptions | null =
 const OVERLAY_W = 296;
 const OVERLAY_H = 80;
 const OVERLAY_SLIDE = 24;
+// A hidden overlay is still a ~22 MB renderer, so it closes after this long hidden;
+// longer than a song, so it stays warm while music plays.
+const OVERLAY_IDLE_MS = 5 * 60_000;
 
 function overlayHome(width: number) {
   const { x, y, width: areaW, height } = screen.getPrimaryDisplay().workArea;
@@ -523,8 +542,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return win;
   }
 
-  // Pre-create so it’s warm by the time the first track plays
-  overlayWin = createOverlayWin();
+  let overlayIdle: ReturnType<typeof setTimeout> | undefined;
 
   // Set while the close prompt is up, so hammering the X can't stack dialogs.
   let askingBeforeClose = false;
@@ -623,6 +641,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   ipcMain.on('now-playing-notify', (_, data) => {
     if (mainWin.isFocused()) return;
+    clearTimeout(overlayIdle);
     if (!overlayWin || overlayWin.isDestroyed()) overlayWin = createOverlayWin();
     const send = () => {
       const win = overlayWin!;
@@ -656,6 +675,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ipcMain.on('hide-overlay', () => {
     const win = overlayWin;
     if (!win || win.isDestroyed()) return;
+    clearTimeout(overlayIdle);
+    overlayIdle = setTimeout(() => {
+      if (!win.isDestroyed() && !win.isVisible()) win.destroy();
+    }, OVERLAY_IDLE_MS);
     if (!OVERLAY_MATERIAL) return win.hide();
     animateOverlay(win, false, () => win.hide());
   });
@@ -1840,7 +1863,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       const coverPath = original ? cachedCoverPath(src) : null;
       if (coverPath) {
         const embedded = await originalCover(coverPath);
-        if (!embedded) return { success: false, error: 'The original cover is no longer in the file' };
+        if (!embedded)
+          return { success: false, error: 'The original cover is no longer in the file' };
         data = embedded.data;
         ext = extForMime(embedded.mime);
       } else if (src.startsWith('data:')) {
@@ -2775,8 +2799,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
       try {
         const fmt = ['m3u', 'm3u8', 'pls', 'xspf'].includes(format) ? format : 'm3u8';
         const playlist = db.prepare('SELECT Name FROM Playlist WHERE Id = ?').get(playlistId) as
-          | { Name: string }
-          | undefined;
+          { Name: string } | undefined;
         if (!playlist) return { success: false, error: 'Playlist not found' };
         const rows = db
           .prepare(
@@ -2885,8 +2908,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   /** Removes a cover this app owns; a path from anywhere else is left alone. */
   function discardStreamCover(streamId: number): void {
     const row = db.prepare('SELECT CoverUri FROM Stream WHERE Id = ?').get(streamId) as
-      | { CoverUri: string | null }
-      | undefined;
+      { CoverUri: string | null } | undefined;
     const current = row?.CoverUri;
     if (!current || path.dirname(current) !== STREAM_ART_DIR) return;
     try {
@@ -3184,6 +3206,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   });
 
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
+  registerMoodIpc(mainWin);
   // A source that authenticates with a header needs it on the renderer's own
   // requests too: the <audio> loading a stream, the <img> loading a cover.
   installSourceAuth(mainWin.webContents.session);

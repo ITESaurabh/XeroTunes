@@ -16,6 +16,7 @@ import AppDialog from './AppDialog';
 import { parseFile } from 'music-metadata';
 import type { IAudioMetadata } from 'music-metadata';
 import { Track } from '../utils/store';
+import { moodSummary } from '../utils/moodScan';
 
 const { ipcRenderer } = window.require('electron');
 
@@ -132,6 +133,7 @@ interface RemoteTrackDetails {
 export default function SongInfoDialog({ open, onClose, track, songPath }: SongInfoDialogProps) {
   const [metadata, setMetadata] = useState<IAudioMetadata | null>(null);
   const [dbInfo, setDbInfo] = useState<DbTrackInfo | null>(null);
+  const [mood, setMood] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState<number | null>(null);
   const [remoteInfo, setRemoteInfo] = useState<RemoteTrackDetails | null>(null);
   const [loading, setLoading] = useState(false);
@@ -151,6 +153,14 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
     setDbInfo(null);
     setFileSize(null);
     setRemoteInfo(null);
+    setMood(null);
+    if (track?.Id && !isRemote) {
+      moodSummary(Number(track.Id))
+        .then(summary => {
+          if (!cancelled) setMood(summary);
+        })
+        .catch(() => {});
+    }
 
     (async () => {
       const [meta, db, remote] = await Promise.all([
@@ -344,6 +354,7 @@ export default function SongInfoDialog({ open, onClose, track, songPath }: SongI
             />
             <InfoRow label="Played Times" value={dbInfo?.PlayedTimes ?? 0} />
             <InfoRow label="Last Played" value={formatDate(dbInfo?.LastPlayedAt)} />
+            <InfoRow label="Mood" value={mood} />
 
             <Grid item xs={12}>
               <Divider />

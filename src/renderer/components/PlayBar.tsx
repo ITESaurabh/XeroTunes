@@ -61,6 +61,11 @@ import DiscordIcon from 'svg-react-loader?name=DiscordIcon!../../assets/svgs/dis
 import LyricNoteIcon from 'svg-react-loader?name=LyricNoteIcon!../../assets/svgs/lyric-note.svg';
 import LyricNoteActiveIcon from 'svg-react-loader?name=LyricNoteActiveIcon!../../assets/svgs/lyric-note-active.svg';
 import { Icon } from '@iconify/react';
+import {
+  setSmartShuffleChosen,
+  useSmartShuffleChosen,
+  useSmartShuffleEnabled,
+} from '../utils/smartShuffle';
 import pause32Filled from '@iconify/icons-fluent/pause-32-filled';
 import play32Filled from '@iconify/icons-fluent/play-32-filled';
 import fastForward32Filled from '@iconify/icons-fluent/fast-forward-28-filled';
@@ -82,6 +87,7 @@ import speaker224Regular from '@iconify/icons-fluent/speaker-2-24-regular';
 import chevronRight20Regular from '@iconify/icons-fluent/chevron-right-20-regular';
 import shuffle24Filled from '@iconify/icons-fluent/arrow-shuffle-24-filled';
 import shuffleInactive24Filled from '@iconify/icons-fluent/arrow-shuffle-off-24-filled';
+import sparkle16Filled from '@iconify/icons-fluent/sparkle-16-filled';
 import arrowCircleDown24Filled from '@iconify/icons-fluent/arrow-between-down-24-regular';
 import heart24Regular from '@iconify/icons-fluent/heart-24-regular';
 import heart24Filled from '@iconify/icons-fluent/heart-24-filled';
@@ -1386,9 +1392,24 @@ export default function PlayBar() {
   }, [dispatch]);
   // ── End Thumbnail toolbar sync ───────────────────────────────────────
 
+  const smartAvailable = useSmartShuffleEnabled();
+  const smartShuffle = useSmartShuffleChosen() && state.isShuffle;
+  const shuffleMode = smartShuffle ? 'smart' : state.isShuffle ? 'on' : 'off';
+  const setShuffleMode = useCallback(
+    (mode: 'off' | 'on' | 'smart') => {
+      if (mode !== 'off') setSmartShuffleChosen(mode === 'smart');
+      // Going between plain and smart keeps the queue as it is: only the mode changes.
+      if ((mode !== 'off') !== state.isShuffle) {
+        dispatch({ type: 'SET_SHUFFLE', payload: mode !== 'off' });
+      }
+    },
+    [dispatch, state.isShuffle]
+  );
   const handleShuffle = useCallback(() => {
-    dispatch({ type: 'SET_SHUFFLE', payload: !state.isShuffle });
-  }, [dispatch, state.isShuffle]);
+    const modes = smartAvailable ? (['off', 'on', 'smart'] as const) : (['off', 'on'] as const);
+    setShuffleMode(modes[(modes.indexOf(shuffleMode as 'off' | 'on') + 1) % modes.length]);
+  }, [smartAvailable, shuffleMode, setShuffleMode]);
+  const [shuffleMenuAnchor, setShuffleMenuAnchor] = useState<HTMLElement | null>(null);
 
   const handleRepeat = useCallback(() => {
     const modes: RepeatMode[] = ['off', 'all', 'one'];
@@ -2053,23 +2074,85 @@ export default function PlayBar() {
             <Grid xs={6}>
               <FadedIconButton
                 onClick={handleShuffle}
+                onContextMenu={e => {
+                  e.preventDefault();
+                  // Keeps the play bar's own context menu from opening under this one.
+                  e.stopPropagation();
+                  setShuffleMenuAnchor(e.currentTarget);
+                }}
                 disabled={isLive}
                 active={state.isShuffle && !isLive}
                 title={
                   isLive
                     ? 'Shuffle unavailable on a stream'
-                    : state.isShuffle
-                      ? 'Shuffle: On'
-                      : 'Shuffle: Off'
+                    : smartShuffle
+                      ? 'Smart Shuffle: On'
+                      : `Shuffle: ${state.isShuffle ? 'On' : 'Off'}`
                 }
-                aria-label="shuffle"
+                aria-label={smartShuffle ? 'smart shuffle' : 'shuffle'}
+                aria-haspopup="menu"
               >
-                {state.isShuffle ? (
-                  <Icon icon={shuffle24Filled} width={22} />
-                ) : (
-                  <Icon icon={shuffleInactive24Filled} width={22} />
-                )}
+                <Box sx={{ position: 'relative', display: 'inline-flex' }}>
+                  {state.isShuffle ? (
+                    <Icon icon={shuffle24Filled} width={22} />
+                  ) : (
+                    <Icon icon={shuffleInactive24Filled} width={22} />
+                  )}
+                  {smartShuffle && (
+                    <Box
+                      component="span"
+                      sx={{
+                        position: 'absolute',
+                        top: -5,
+                        right: -6,
+                        display: 'inline-flex',
+                        color: 'primary.main',
+                      }}
+                    >
+                      <Icon icon={sparkle16Filled} width={12} />
+                    </Box>
+                  )}
+                </Box>
               </FadedIconButton>
+              <Menu
+                anchorEl={shuffleMenuAnchor}
+                open={!!shuffleMenuAnchor}
+                onClose={() => setShuffleMenuAnchor(null)}
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+                transformOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+              >
+                {(
+                  [
+                    ['smart', 'Smart Shuffle', sparkle16Filled],
+                    ['on', 'Shuffle', shuffle24Filled],
+                    ['off', 'Shuffle off', shuffleInactive24Filled],
+                  ] as const
+                ).map(([mode, label, icon]) => (
+                  <MenuItem
+                    key={mode}
+                    selected={shuffleMode === mode}
+                    disabled={mode === 'smart' && !smartAvailable}
+                    onClick={() => {
+                      setShuffleMode(mode);
+                      setShuffleMenuAnchor(null);
+                    }}
+                    sx={{ minHeight: 44 }}
+                  >
+                    <ListItemIcon>
+                      <Icon icon={icon} width={20} />
+                    </ListItemIcon>
+                    <ListItemText
+                      secondary={
+                        mode === 'smart' && !smartAvailable
+                          ? 'Turn on in Settings, under Smart Recommendations'
+                          : undefined
+                      }
+                    >
+                      {label}
+                    </ListItemText>
+                  </MenuItem>
+                ))}
+              </Menu>
             </Grid>
             <Grid xs={6}>
               <FadedIconButton

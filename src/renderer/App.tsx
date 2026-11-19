@@ -1,6 +1,8 @@
 import React, { useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
 import { getThemeSettings, getOnboardingComplete, getStartInVinylMode } from './utils/LocStoreUtil';
+import { moodScan } from './utils/moodScan';
+import { useSmartShuffle } from './utils/smartShuffle';
 import Onboarding from './views/Onboarding';
 import { useNavigate, useRoutes } from 'react-router';
 import { createTheme, CssBaseline, responsiveFontSizes, ThemeProvider } from '@mui/material';
@@ -29,6 +31,7 @@ const queryClient = new QueryClient({
 
 const App = () => {
   const { state, dispatch } = useContext(store);
+  useSmartShuffle(state, dispatch);
   const [systemIsDark, setSystemIsDark] = useState(true);
   const [onboardingComplete, setOnboardingComplete] = useState(() => getOnboardingComplete());
   const [crashed, setCrashed] = useState(false);
@@ -112,6 +115,16 @@ const App = () => {
     ipcRenderer.on('library-updated', handler);
     return () => {
       ipcRenderer.removeListener('library-updated', handler);
+    };
+  }, []);
+
+  // New tracks join the mood scan; it does nothing while the setting is off.
+  useEffect(() => {
+    const sync = () => void moodScan.sync();
+    sync();
+    ipcRenderer.on('library-updated', sync);
+    return () => {
+      ipcRenderer.removeListener('library-updated', sync);
     };
   }, []);
 

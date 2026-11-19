@@ -5,34 +5,38 @@
  * Jobs arrive from the main process one at a time (qualityWorker.ts).
  */
 import { checkFile, compareFiles, visualiseFile } from './renderer/utils/qualityFile';
+import { moodOfFile } from './renderer/utils/moodFile';
 import type { FileFormat, QualityMetrics } from './renderer/utils/qualityAnalysis';
 
 const { ipcRenderer } = window.require('electron');
 
 interface Job {
   id: number;
-  kind: 'check' | 'visuals' | 'compare';
+  kind: 'check' | 'visuals' | 'compare' | 'mood';
   uri: string;
   duration?: number | null;
   format?: FileFormat;
   metrics?: QualityMetrics;
   otherUri?: string;
   otherDuration?: number | null;
+  modelDir?: string;
 }
 
 ipcRenderer.on('quality-job', async (_e: unknown, job: Job) => {
   try {
     const result =
-      job.kind === 'check'
-        ? await checkFile(job.uri, job.duration ?? null)
-        : job.kind === 'compare' && job.otherUri
-          ? await compareFiles(
-              { uri: job.uri, duration: job.duration ?? null },
-              { uri: job.otherUri, duration: job.otherDuration ?? null }
-            )
-          : job.format && job.metrics
-            ? await visualiseFile(job.uri, job.format, job.metrics)
-            : null;
+      job.kind === 'mood' && job.modelDir
+        ? await moodOfFile(job.uri, job.modelDir, job.duration ?? null)
+        : job.kind === 'check'
+          ? await checkFile(job.uri, job.duration ?? null)
+          : job.kind === 'compare' && job.otherUri
+            ? await compareFiles(
+                { uri: job.uri, duration: job.duration ?? null },
+                { uri: job.otherUri, duration: job.otherDuration ?? null }
+              )
+            : job.format && job.metrics
+              ? await visualiseFile(job.uri, job.format, job.metrics)
+              : null;
     ipcRenderer.send('quality-job-done', { id: job.id, result });
   } catch (err) {
     ipcRenderer.send('quality-job-done', {

@@ -178,6 +178,10 @@ if (process.env.NODE_ENV === 'development') {
   app.commandLine.appendSwitch('remote-debugging-port', '9222');
 }
 
+// enumerateDevices() starts the video capture service, which then holds a ~15 MB
+// process for the app's life. No camera is used, and in-process it measured no bigger.
+app.commandLine.appendSwitch('enable-features', 'RunVideoCaptureServiceInBrowserProcess');
+
 const isSingleInstance = app.requestSingleInstanceLock();
 if (!isSingleInstance) {
   app.quit();

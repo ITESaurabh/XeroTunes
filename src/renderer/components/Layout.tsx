@@ -67,8 +67,10 @@ function Layout() {
   }, [isPhone, dispatch]);
 
   // Clipped so the deck's lift-off, scaled past the edges, never scrolls the window.
+  // `clip`, not `hidden`: a hidden box still scrolls when something inside it is
+  // focused or scrolled into view, which slid the whole app up under the title bar.
   return (
-    <Box height={'100%'} position="relative" overflow="hidden">
+    <Box height={'100%'} position="relative" overflow="clip">
       <Titlebar />
       <Box display={'flex'} height={'100%'}>
         <AnimatePresence>
@@ -104,7 +106,7 @@ function Layout() {
             flex: 1,
             position: 'relative',
             minWidth: 0,
-            overflow: 'hidden',
+            overflow: 'clip',
           }}
         >
           <AnimatePresence>
