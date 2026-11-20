@@ -140,6 +140,9 @@ export interface SourceProvider {
    */
   streamUrl(_credentials: SourceCredentials, _remoteId: string): string;
 
+  /** Query parameters in streamUrl that carry the login. */
+  readonly credentialParams?: readonly string[];
+
   /** The original file, for offline downloads. */
   downloadUrl(_credentials: SourceCredentials, _remoteId: string): string;
 

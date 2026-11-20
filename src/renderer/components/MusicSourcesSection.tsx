@@ -176,6 +176,7 @@ export default function MusicSourcesSection() {
   const [providers, setProviders] = useState<Provider[]>([]);
   const [statuses, setStatuses] = useState<Record<number, SourceStatus>>({});
   const [downloadFolder, setDownloadFolder] = useState('');
+  const [signInsProtected, setSignInsProtected] = useState(true);
 
   // Open state is kept separate from which step is showing: clearing the step on
   // close would swap the content back to the form for the length of the exit
@@ -223,6 +224,9 @@ export default function MusicSourcesSection() {
   useEffect(() => {
     invokeEventToMainProcess('get-source-providers', undefined)
       .then(d => setProviders(d as Provider[]))
+      .catch(() => undefined);
+    invokeEventToMainProcess('are-sign-ins-protected', undefined)
+      .then(d => setSignInsProtected(d !== false))
       .catch(() => undefined);
   }, [invokeEventToMainProcess]);
 
@@ -773,6 +777,11 @@ export default function MusicSourcesSection() {
                   </MenuItem>
                 ))}
               </TextField>
+            )}
+            {!signInsProtected && (
+              <Typography variant="caption" color="warning.main">
+                No system keyring found, so this sign-in is saved unencrypted on this computer.
+              </Typography>
             )}
           </Stack>
         )}

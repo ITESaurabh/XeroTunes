@@ -300,6 +300,7 @@ export const plexProvider: SourceProvider = {
   label: 'Plex',
   scheme: 'plex',
   tokenAuth: true,
+  credentialParams: ['X-Plex-Token'],
 
   async connect(input: ConnectInput): Promise<ConnectResult> {
     const baseUrl = trimTrailingSlash(input.baseUrl);

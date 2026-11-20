@@ -67,8 +67,14 @@ import {
 import { registerArtistIpc } from '../ipc/artists';
 import { registerMoodIpc, resetRecommendationData } from '../ipc/mood';
 import { registerSourceIpc } from '../ipc/sources';
-import { schemeRoot } from '../sources/registry';
-import { cancelSync, installSourceAuth, isSyncing, syncAllSources } from '../sources/sync';
+import { schemeRoot, withoutCredentials } from '../sources/registry';
+import {
+  cancelSync,
+  installSourceAuth,
+  isSyncing,
+  sealStoredTokens,
+  syncAllSources,
+} from '../sources/sync';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
 import { ScanMode, REPO_URL, isTaggable } from '../../config/constants';
@@ -2412,16 +2418,20 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   // slashes get typed inconsistently across tools), then the same
   // filename-anywhere-in-the-library fallback favourites use.
   function buildPlaylistTrackIndex() {
-    const rows = db.prepare('SELECT Id, Uri FROM Track').all() as Array<{
-      Id: number;
-      Uri: string | null;
-    }>;
+    const rows = db
+      .prepare(
+        'SELECT Track.Id, Track.Uri, Source.Type FROM Track LEFT JOIN Source ON Source.Id = Track.SourceId'
+      )
+      .all() as Array<{ Id: number; Uri: string | null; Type: string | null }>;
     const byExactPath = new Map<string, number>();
     const byLowerPath = new Map<string, number>();
     const byName = new Map<string, number>();
     for (const row of rows) {
       if (!row.Uri) continue;
       if (!byExactPath.has(row.Uri)) byExactPath.set(row.Uri, row.Id);
+      // The form export-playlist writes, so exported files import back.
+      const exported = withoutCredentials(row.Type, row.Uri);
+      if (!byExactPath.has(exported)) byExactPath.set(exported, row.Id);
       const lower = row.Uri.toLowerCase();
       if (!byLowerPath.has(lower)) byLowerPath.set(lower, row.Id);
       const base = path.basename(row.Uri).toLowerCase();
@@ -2816,9 +2826,11 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
                 WHERE ta.TrackId = Track.Id
               ),
               PlaylistTrack.Artist
-            ) AS ArtistName
+            ) AS ArtistName,
+            Source.Type AS SourceType
           FROM PlaylistTrack
           LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
+          LEFT JOIN Source ON Source.Id = Track.SourceId
           WHERE PlaylistTrack.PlaylistId = ?
           GROUP BY PlaylistTrack.Id
           ORDER BY PlaylistTrack.Position ASC
@@ -2829,8 +2841,28 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Title: string;
           Duration: number;
           ArtistName: string | null;
+          SourceType: string | null;
         }>;
         if (!rows.length) return { success: false, error: 'Playlist is empty' };
+
+        // Playlist files get shared, and a server track's address holds the login.
+        const shared = rows.map(r => withoutCredentials(r.SourceType, r.Uri));
+        let includeSignIns = false;
+        if (shared.some((uri, i) => uri !== rows[i].Uri)) {
+          const { response } = await dialog.showMessageBox(mainWin, {
+            type: 'warning',
+            buttons: ['Leave Sign-ins Out', 'Include Sign-ins', 'Cancel'],
+            defaultId: 0,
+            cancelId: 2,
+            title: 'Export Playlist',
+            message: 'Include your server sign-ins in the file?',
+            detail:
+              'Other players can only stream the server tracks in this playlist if the file includes your sign-in. Anyone with the file could then use your account on that server.',
+            noLink: true,
+          });
+          if (response === 2) return { success: false, canceled: true };
+          includeSignIns = response === 1;
+        }
 
         const safeName = playlist.Name.replace(/[\\/:*?"<>|]/g, '_');
         const result = await dialog.showSaveDialog(mainWin, {
@@ -2840,8 +2872,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         });
         if (result.canceled || !result.filePath) return { success: false, canceled: true };
 
-        const entries = rows.map(r => ({
-          location: r.Uri,
+        const entries = rows.map((r, i) => ({
+          location: includeSignIns ? r.Uri : shared[i],
           title: r.Title,
           artist: r.ArtistName || undefined,
           duration: r.Duration,
@@ -3207,6 +3239,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
   registerMoodIpc(mainWin);
+  sealStoredTokens();
   // A source that authenticates with a header needs it on the renderer's own
   // requests too: the <audio> loading a stream, the <img> loading a cover.
   installSourceAuth(mainWin.webContents.session);

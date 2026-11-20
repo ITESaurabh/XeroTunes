@@ -1,10 +1,10 @@
 import type { SourceProvider } from './types';
-import { embyProvider } from './emby';
-import { jellyfinProvider } from './jellyfin';
-import { plexProvider } from './plex';
-import { nextcloudProvider, subsonicProvider } from './subsonic';
-import { upnpProvider } from './upnp';
-import { webdavProvider } from './webdav';
+import { embyProvider } from './emby.ts';
+import { jellyfinProvider } from './jellyfin.ts';
+import { plexProvider } from './plex.ts';
+import { nextcloudProvider, subsonicProvider } from './subsonic.ts';
+import { upnpProvider } from './upnp.ts';
+import { webdavProvider } from './webdav.ts';
 
 /**
  * Adding a remote library type means writing one provider and adding it here.
@@ -24,6 +24,15 @@ const BY_TYPE = new Map(PROVIDERS.map(p => [p.type, p]));
 
 export function getProvider(type: string): SourceProvider | null {
   return BY_TYPE.get(type) ?? null;
+}
+
+/** For addresses that leave the app, such as exported playlists. */
+export function withoutCredentials(type: string | null, uri: string): string {
+  const params = type ? getProvider(type)?.credentialParams : undefined;
+  if (!params?.length || !/^https?:\/\//i.test(uri)) return uri;
+  const url = new URL(uri);
+  for (const name of params) url.searchParams.delete(name);
+  return url.toString();
 }
 
 export interface ProviderInfo {

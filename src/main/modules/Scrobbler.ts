@@ -9,6 +9,7 @@ import {
   LIBREFM_API_SECRET,
 } from '../../config/constants';
 import { lastfmSignature } from '../utils/scrobbleSig';
+import { isSealed, openSecret, sealSecret } from '../utils/secrets';
 import {
   primaryArtist,
   audioscrobblerParams,
@@ -54,7 +55,7 @@ export interface ScrobbleTrack {
 
 interface ProviderState {
   enabled: boolean;
-  /** AudioScrobbler session key, or ListenBrainz user token. */
+  /** AudioScrobbler session key, or ListenBrainz user token. Sealed; read via credentialFor. */
   credential: string | null;
   username: string | null;
   /** Server root for the self-hosted providers; null for the fixed ones. */
@@ -143,12 +144,30 @@ function load(): ScrobblerState {
     /* missing or corrupt: start clean */
   }
   const next = {} as ScrobblerState;
+  let resealed = false;
   for (const p of SCROBBLE_PROVIDERS) {
     next[p] = { ...emptyProvider(), ...(parsed[p] ?? {}) };
     if (!Array.isArray(next[p].queue)) next[p].queue = [];
+    const { credential } = next[p];
+    if (credential && !isSealed(credential)) {
+      const sealed = sealSecret(credential);
+      resealed ||= isSealed(sealed);
+      next[p].credential = sealed;
+    }
   }
   state = next;
+  if (resealed) save();
   return state;
+}
+
+/** 'retry' when the keyring won't decrypt, so the queue waits for it to unlock. */
+function credentialFor(provider: ScrobbleProvider): string | 'drop' | 'retry' {
+  const sealed = load()[provider].credential;
+  if (!sealed) return 'drop';
+  const credential = openSecret(sealed);
+  if (credential) return credential;
+  noteError(provider, "Couldn't read the saved sign-in from the system keyring.");
+  return 'retry';
 }
 
 function save(): void {
@@ -256,8 +275,8 @@ async function submitAudioscrobbler(
   tracks: ScrobbleTrack[],
   nowPlaying: boolean
 ): Promise<SubmitResult> {
-  const credential = load()[provider].credential;
-  if (!credential) return 'drop';
+  const credential = credentialFor(provider);
+  if (credential === 'drop' || credential === 'retry') return credential;
 
   const params = audioscrobblerParams(tracks, nowPlaying, credential);
 
@@ -280,9 +299,10 @@ async function submitListenBrainz(
   tracks: ScrobbleTrack[],
   nowPlaying: boolean
 ): Promise<SubmitResult> {
-  const credential = load()[provider].credential;
+  const credential = credentialFor(provider);
   const root = apiRoot(provider);
-  if (!credential || !root) return 'drop';
+  if (!root) return 'drop';
+  if (credential === 'drop' || credential === 'retry') return credential;
 
   try {
     const res = await fetch(`${root}/submit-listens`, {
@@ -406,7 +426,7 @@ export async function finishWebAuth(provider: ScrobbleProvider): Promise<Scrobbl
   if (!key) throw new Error('The server did not return a session.');
   pendingTokens.delete(provider);
   const st = load()[provider];
-  st.credential = key;
+  st.credential = sealSecret(key);
   st.username = (json.session?.name as string) ?? null;
   st.enabled = true;
   st.lastError = null;
@@ -444,7 +464,7 @@ export async function connectWithToken(
   } | null;
   if (!res.ok || !json?.valid) throw new Error(json?.message || 'The server rejected that token.');
   const st = load()[provider];
-  st.credential = trimmed;
+  st.credential = sealSecret(trimmed);
   st.username = (json.user_name as string) ?? null;
   st.enabled = true;
   st.lastError = null;

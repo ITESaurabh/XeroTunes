@@ -24,6 +24,7 @@ import {
 } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
 import { capCover } from '../utils/coverArt';
+import { isSealed, openSecret, sealSecret } from '../utils/secrets';
 import type {
   ConnectInput,
   MetadataMode,
@@ -163,7 +164,7 @@ function toCredentials(row: SourceRow): SourceCredentials {
     baseUrl: row.BaseUrl ?? '',
     username: row.Username,
     userId: row.UserId,
-    accessToken: row.AccessToken,
+    accessToken: openSecret(row.AccessToken),
     deviceId: row.DeviceId,
     config,
   };
@@ -706,7 +707,7 @@ export async function addSource(
         credentials.baseUrl,
         credentials.username,
         credentials.userId,
-        credentials.accessToken,
+        sealSecret(credentials.accessToken),
         credentials.deviceId,
         JSON.stringify(credentials.config ?? {})
       );
@@ -752,6 +753,19 @@ export function removeSource(id: number): { success: boolean } {
   for (const { Uri } of downloaded) unlinkQuietly(Uri);
   refreshSourceAuth();
   return { success: true };
+}
+
+/** Encrypts tokens older versions saved in plain text. Does nothing before `ready`. */
+export function sealStoredTokens(): void {
+  const rows = db
+    .prepare('SELECT Id, AccessToken FROM Source WHERE AccessToken IS NOT NULL')
+    .all() as Array<{ Id: number; AccessToken: string }>;
+  const update = db.prepare('UPDATE Source SET AccessToken = ? WHERE Id = ?');
+  for (const { Id, AccessToken } of rows) {
+    if (isSealed(AccessToken)) continue;
+    const sealed = sealSecret(AccessToken);
+    if (isSealed(sealed)) update.run(sealed, Id);
+  }
 }
 
 // ── Request auth ─────────────────────────────────────────────────────────────

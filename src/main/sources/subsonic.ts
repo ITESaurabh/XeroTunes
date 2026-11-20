@@ -211,6 +211,7 @@ function providerFor(flavour: Flavour): SourceProvider {
     label: flavour.label,
     scheme: flavour.scheme,
     needsAccount: true,
+    credentialParams: ['u', 'p', 's', 't'],
 
     async connect(input: ConnectInput): Promise<ConnectResult> {
       const baseUrl = flavour.endpoint(input.baseUrl);
