@@ -406,6 +406,10 @@ export const plexProvider: SourceProvider = {
     return apiUrl(c, track.artKey);
   },
 
+  loginParams(c): Record<string, string> {
+    return c.accessToken ? { 'X-Plex-Token': c.accessToken } : {};
+  },
+
   async details(c, remoteId): Promise<RemoteTrackDetails | null> {
     const { ratingKey } = splitRemoteId(remoteId);
     const item: PlexTrack | undefined = (

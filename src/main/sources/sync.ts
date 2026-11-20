@@ -21,6 +21,9 @@ import {
   displayPath,
   parentPath,
   stripNamespace,
+  withLogin,
+  withoutAnyCredentials,
+  withoutCredentials,
 } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
 import { capCover } from '../utils/coverArt';
@@ -342,7 +345,11 @@ function createImporter(ctx: ImportContext) {
     }
 
     const genreId = track.genres[0] ? getOrCreateGenre(track.genres[0]) : null;
-    const uri = ctx.provider.streamUrl(ctx.credentials, track.remoteId);
+    // Stored without the login; installSourceAuth adds it back per request.
+    const uri = withoutCredentials(
+      ctx.type,
+      ctx.provider.streamUrl(ctx.credentials, track.remoteId)
+    );
     const albumArt = albumId != null ? path.join(ALBUM_ART_DIR, `${albumId}.jpg`) : null;
     // Scheme-qualified so the folder tree can group by server and remote paths
     // can never collide with local ones.
@@ -769,32 +776,60 @@ export function sealStoredTokens(): void {
 }
 
 // ── Request auth ─────────────────────────────────────────────────────────────
-// A provider whose server wants an Authorization header rather than a token in
-// the URL (WebDAV) can't be reached by <audio> or <img>, which send neither.
-// The header is injected into the renderer's requests for that source's URLs
-// instead, from the same credentials the provider was handed.
+// Track.Uri carries no login and <audio>/<img> can't add one, so the renderer's
+// requests to a source get it here: a header (WebDAV) or a redirect to the same
+// URL with the login's query parameters (the rest).
 
-let authRules: Array<{ prefix: string; headers: Record<string, string> }> = [];
+interface AuthRule {
+  prefix: string;
+  headers: Record<string, string> | null;
+  login: (() => Record<string, string>) | null;
+}
 
-/** Called whenever the set of sources changes; the hook reads the cache, not the DB. */
+// ponytail: the first source at an address wins, so two accounts on one server
+// share a login; resolve the source from Track.Uri if that ever matters.
+let authRules: AuthRule[] = [];
+
+/** Called whenever the set of sources changes; the hooks read the cache, not the DB. */
 export function refreshSourceAuth(): void {
   authRules = (db.prepare('SELECT * FROM Source').all() as SourceRow[]).flatMap(row => {
     const provider = getProvider(row.Type);
-    const headers = row.BaseUrl ? provider?.requestHeaders?.(toCredentials(row)) : null;
-    return headers && Object.keys(headers).length
-      ? [{ prefix: (row.BaseUrl as string).replace(/\/+$/, '') + '/', headers }]
-      : [];
+    if (!provider || !row.BaseUrl || !(provider.requestHeaders || provider.loginParams)) return [];
+    const credentials = toCredentials(row);
+    return [
+      {
+        prefix: row.BaseUrl.replace(/\/+$/, '') + '/',
+        headers: provider.requestHeaders?.(credentials) ?? null,
+        login: provider.loginParams ? () => provider.loginParams!(credentials) : null,
+      },
+    ];
   });
+}
+
+/** For a client the hooks can't reach: a Chromecast, an exported file. */
+export function withSourceLogin(url: string): string {
+  const rule = authRules.find(r => r.login && url.startsWith(r.prefix));
+  if (!rule?.login) return url;
+  try {
+    return withLogin(url, rule.login());
+  } catch {
+    // No token (the keyring wouldn't open it); the server's 401 reports that.
+    return url;
+  }
 }
 
 export function installSourceAuth(ses: Session): void {
   refreshSourceAuth();
-  // Fires for every http request the app makes, so it stays a startsWith over a
-  // list that is empty until a source needs it.
+  // Both fire for every http request the app makes, so they stay a startsWith
+  // over a list that is empty until a source needs it.
+  ses.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (details, callback) => {
+    const signed = withSourceLogin(details.url);
+    callback(signed === details.url ? {} : { redirectURL: signed });
+  });
   ses.webRequest.onBeforeSendHeaders(
     { urls: ['http://*/*', 'https://*/*'] },
     (details, callback) => {
-      const rule = authRules.find(r => details.url.startsWith(r.prefix));
+      const rule = authRules.find(r => r.headers && details.url.startsWith(r.prefix));
       callback({
         requestHeaders: rule
           ? { ...details.requestHeaders, ...rule.headers }
@@ -802,6 +837,38 @@ export function installSourceAuth(ses: Session): void {
       });
     }
   );
+}
+
+/** Takes the login out of addresses older versions stored with it. */
+export function stripStoredLogins(): void {
+  const tracks = db
+    .prepare(
+      `SELECT Track.Id, Track.Uri, Source.Type FROM Track
+       JOIN Source ON Source.Id = Track.SourceId
+       WHERE Track.Uri LIKE 'http%'`
+    )
+    .all() as Array<{ Id: number; Uri: string; Type: string }>;
+  const entries = db
+    .prepare(
+      `SELECT PlaylistTrack.Id, PlaylistTrack.Uri, Source.Type FROM PlaylistTrack
+       LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
+       LEFT JOIN Source ON Source.Id = Track.SourceId
+       WHERE PlaylistTrack.Uri LIKE 'http%'`
+    )
+    .all() as Array<{ Id: number; Uri: string; Type: string | null }>;
+  const updateTrack = db.prepare('UPDATE Track SET Uri = ? WHERE Id = ?');
+  const updateEntry = db.prepare('UPDATE PlaylistTrack SET Uri = ? WHERE Id = ?');
+  db.transaction(() => {
+    for (const t of tracks) {
+      const uri = withoutCredentials(t.Type, t.Uri);
+      if (uri !== t.Uri) updateTrack.run(uri, t.Id);
+    }
+    // A row whose server was removed has no type to go by, so every known login parameter goes.
+    for (const e of entries) {
+      const uri = e.Type ? withoutCredentials(e.Type, e.Uri) : withoutAnyCredentials(e.Uri);
+      if (uri !== e.Uri) updateEntry.run(uri, e.Id);
+    }
+  })();
 }
 
 // ── Per-track lookups, served from the server on demand ──────────────────────
@@ -1066,7 +1133,7 @@ export function removeDownload(trackId: number): { success: boolean; error?: str
   if (/^https?:\/\//i.test(row.Uri)) return { success: true };
   unlinkQuietly(row.Uri);
   db.prepare('UPDATE Track SET Uri = ? WHERE Id = ?').run(
-    provider.streamUrl(r.credentials, r.remoteId),
+    withoutCredentials(r.type, provider.streamUrl(r.credentials, r.remoteId)),
     trackId
   );
   return { success: true };

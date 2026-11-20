@@ -608,6 +608,10 @@ export function providerFor(flavour: Flavour): SourceProvider {
       return downloadUrl(baseUrl, remoteId, token);
     },
 
+    loginParams(c) {
+      return { api_key: requireCreds(c, flavour).token };
+    },
+
     artUrl(c, track) {
       if (!track.artKey) return null;
       const [, itemId, tag] = track.artKey.split(':');

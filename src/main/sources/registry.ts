@@ -26,12 +26,34 @@ export function getProvider(type: string): SourceProvider | null {
   return BY_TYPE.get(type) ?? null;
 }
 
-/** For addresses that leave the app, such as exported playlists. */
-export function withoutCredentials(type: string | null, uri: string): string {
-  const params = type ? getProvider(type)?.credentialParams : undefined;
+const ALL_CREDENTIAL_PARAMS = [...new Set(PROVIDERS.flatMap(p => p.credentialParams ?? []))];
+
+function stripParams(uri: string, params: readonly string[] | undefined): string {
   if (!params?.length || !/^https?:\/\//i.test(uri)) return uri;
   const url = new URL(uri);
+  // Re-serialising would re-encode the rest of the query, e.g. %20 as +.
+  if (!params.some(name => url.searchParams.has(name))) return uri;
   for (const name of params) url.searchParams.delete(name);
+  return url.toString();
+}
+
+/** The form Track.Uri stores, and the one exported playlists get by default. */
+export function withoutCredentials(type: string | null, uri: string): string {
+  return stripParams(uri, type ? getProvider(type)?.credentialParams : undefined);
+}
+
+/** For an address whose source is unknown. Also strips an unrelated `s=` or `t=`. */
+export function withoutAnyCredentials(uri: string): string {
+  return stripParams(uri, ALL_CREDENTIAL_PARAMS);
+}
+
+/** No-op on an address that already carries a login, as rows from before the migration do. */
+export function withLogin(uri: string, params: Record<string, string>): string {
+  const names = Object.keys(params);
+  if (!names.length || !/^https?:\/\//i.test(uri)) return uri;
+  const url = new URL(uri);
+  if (names.some(name => url.searchParams.has(name))) return uri;
+  for (const name of names) url.searchParams.set(name, params[name]);
   return url.toString();
 }
 

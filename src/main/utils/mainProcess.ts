@@ -67,13 +67,15 @@ import {
 import { registerArtistIpc } from '../ipc/artists';
 import { registerMoodIpc, resetRecommendationData } from '../ipc/mood';
 import { registerSourceIpc } from '../ipc/sources';
-import { schemeRoot, withoutCredentials } from '../sources/registry';
+import { schemeRoot, withoutAnyCredentials } from '../sources/registry';
 import {
   cancelSync,
   installSourceAuth,
   isSyncing,
   sealStoredTokens,
+  stripStoredLogins,
   syncAllSources,
+  withSourceLogin,
 } from '../sources/sync';
 import { TRACK_ARTIST_NAMES, albumArtistNames } from '../db/fragments';
 import { cleanupOrphans } from '../db/cleanup';
@@ -2414,24 +2416,21 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     db.prepare('UPDATE Playlist SET DateModified = ? WHERE Id = ?').run(Date.now(), playlistId);
   }
 
-  // Match order: exact path, then case-insensitive path (drive letters and
-  // slashes get typed inconsistently across tools), then the same
-  // filename-anywhere-in-the-library fallback favourites use.
+  // Match order: exact path, then a server address without its login, then
+  // case-insensitive path (drive letters and slashes get typed inconsistently
+  // across tools), then for local files the same filename-anywhere-in-the-library
+  // fallback favourites use.
   function buildPlaylistTrackIndex() {
-    const rows = db
-      .prepare(
-        'SELECT Track.Id, Track.Uri, Source.Type FROM Track LEFT JOIN Source ON Source.Id = Track.SourceId'
-      )
-      .all() as Array<{ Id: number; Uri: string | null; Type: string | null }>;
+    const rows = db.prepare('SELECT Id, Uri FROM Track').all() as Array<{
+      Id: number;
+      Uri: string | null;
+    }>;
     const byExactPath = new Map<string, number>();
     const byLowerPath = new Map<string, number>();
     const byName = new Map<string, number>();
     for (const row of rows) {
       if (!row.Uri) continue;
       if (!byExactPath.has(row.Uri)) byExactPath.set(row.Uri, row.Id);
-      // The form export-playlist writes, so exported files import back.
-      const exported = withoutCredentials(row.Type, row.Uri);
-      if (!byExactPath.has(exported)) byExactPath.set(exported, row.Id);
       const lower = row.Uri.toLowerCase();
       if (!byLowerPath.has(lower)) byLowerPath.set(lower, row.Id);
       const base = path.basename(row.Uri).toLowerCase();
@@ -2446,8 +2445,14 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   ): number | null {
     const exact = index.byExactPath.get(location);
     if (exact != null) return exact;
+    // Server tracks are stored without the login an exported file may include.
+    const signedIn =
+      isStreamUrl(location) && index.byExactPath.get(withoutAnyCredentials(location));
+    if (signedIn) return signedIn;
     const lower = index.byLowerPath.get(location.toLowerCase());
     if (lower != null) return lower;
+    // Every Jellyfin/Emby stream ends in `universal?...`, so a URL's basename matches any of them.
+    if (isStreamUrl(location)) return null;
     const named = index.byName.get(path.basename(location).toLowerCase());
     return named ?? null;
   }
@@ -2826,11 +2831,9 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
                 WHERE ta.TrackId = Track.Id
               ),
               PlaylistTrack.Artist
-            ) AS ArtistName,
-            Source.Type AS SourceType
+            ) AS ArtistName
           FROM PlaylistTrack
           LEFT JOIN Track ON Track.Id = PlaylistTrack.TrackId
-          LEFT JOIN Source ON Source.Id = Track.SourceId
           WHERE PlaylistTrack.PlaylistId = ?
           GROUP BY PlaylistTrack.Id
           ORDER BY PlaylistTrack.Position ASC
@@ -2841,14 +2844,12 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
           Title: string;
           Duration: number;
           ArtistName: string | null;
-          SourceType: string | null;
         }>;
         if (!rows.length) return { success: false, error: 'Playlist is empty' };
 
-        // Playlist files get shared, and a server track's address holds the login.
-        const shared = rows.map(r => withoutCredentials(r.SourceType, r.Uri));
+        const signed = rows.map(r => withSourceLogin(r.Uri));
         let includeSignIns = false;
-        if (shared.some((uri, i) => uri !== rows[i].Uri)) {
+        if (signed.some((uri, i) => uri !== rows[i].Uri)) {
           const { response } = await dialog.showMessageBox(mainWin, {
             type: 'warning',
             buttons: ['Leave Sign-ins Out', 'Include Sign-ins', 'Cancel'],
@@ -2873,7 +2874,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
         if (result.canceled || !result.filePath) return { success: false, canceled: true };
 
         const entries = rows.map((r, i) => ({
-          location: includeSignIns ? r.Uri : shared[i],
+          location: includeSignIns ? signed[i] : r.Uri,
           title: r.Title,
           artist: r.ArtistName || undefined,
           duration: r.Duration,
@@ -3240,8 +3241,8 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
   registerMoodIpc(mainWin);
   sealStoredTokens();
-  // A source that authenticates with a header needs it on the renderer's own
-  // requests too: the <audio> loading a stream, the <img> loading a cover.
+  stripStoredLogins();
+  // Stored addresses carry no login; the renderer's <audio> and <img> get it from these hooks.
   installSourceAuth(mainWin.webContents.session);
   registerSourceIpc(
     mainWin,

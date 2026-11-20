@@ -282,6 +282,8 @@ function providerFor(flavour: Flavour): SourceProvider {
       return apiUrl(c, flavour, 'download', { id: remoteId });
     },
 
+    loginParams: c => authParams(c, flavour),
+
     artUrl(c, track) {
       if (!track.artKey) return null;
       return apiUrl(c, flavour, 'getCoverArt', {

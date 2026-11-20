@@ -143,6 +143,9 @@ export interface SourceProvider {
   /** Query parameters in streamUrl that carry the login. */
   readonly credentialParams?: readonly string[];
 
+  /** Values for credentialParams. Called per request, so a salted login can be fresh each time. */
+  loginParams?(_credentials: SourceCredentials): Record<string, string>;
+
   /** The original file, for offline downloads. */
   downloadUrl(_credentials: SourceCredentials, _remoteId: string): string;
 

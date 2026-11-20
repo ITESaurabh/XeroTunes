@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import Bonjour from 'bonjour-service';
 import { CAST_RECEIVER_APP_ID } from '../../config/constants';
+import { withSourceLogin } from '../sources/sync';
 
 type BonjourBrowser = ReturnType<InstanceType<typeof Bonjour>['find']>;
 
@@ -384,6 +385,7 @@ export async function loadMedia(payload: CastLoadPayload): Promise<void> {
     // A remote track is already served over HTTP, so the device can fetch it
     // straight from the source; proxying it would mean streaming every byte
     // through this machine, and the local file server would 404 on a URL anyway.
+    // The device gets none of our request hooks, so the login goes in the URL.
     const isRemote = /^https?:\/\//i.test(payload.filePath);
     mediaFilePath = isRemote ? null : payload.filePath;
     mediaArtPath =
@@ -394,7 +396,9 @@ export async function loadMedia(payload: CastLoadPayload): Promise<void> {
     // Cache-buster so the receiver refetches when the shared server path changes track.
     const ts = Date.now();
     const media = {
-      contentId: isRemote ? payload.filePath : `http://${ip}:${port}/media?ts=${ts}`,
+      contentId: isRemote
+        ? withSourceLogin(payload.filePath)
+        : `http://${ip}:${port}/media?ts=${ts}`,
       contentType: CONTENT_TYPES[path.extname(payload.filePath).toLowerCase()] ?? 'audio/mpeg',
       streamType: 'BUFFERED',
       metadata: {
