@@ -83,6 +83,7 @@ const config: ForgeConfig = {
     new MakerDeb({
       options: {
         name: IDENTITY.installName,
+        productName: IDENTITY.productName,
         // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
         bin: IDENTITY.installName,
         section: 'sound',
@@ -101,6 +102,7 @@ const config: ForgeConfig = {
     new MakerRpm({
       options: {
         name: IDENTITY.installName,
+        productName: IDENTITY.productName,
         // to match the packaged executableName; otherwise `bin` defaults to package.json "name"
         bin: IDENTITY.installName,
         genericName: 'Music Player',
