@@ -725,6 +725,45 @@ export async function addSource(
   }
 }
 
+/**
+ * A new token for a server already added. Re-adding would give it a new row and
+ * device id, which unlinks its tracks from playlists, favourites and history.
+ */
+export async function signInAgain(
+  id: number,
+  input: Omit<ConnectInput, 'baseUrl' | 'deviceId'>
+): Promise<{ success: boolean; error?: string }> {
+  const row = getSourceRow(id);
+  const provider = row && getProvider(row.Type);
+  if (!row?.BaseUrl || !provider) {
+    return { success: false, error: 'That server is no longer in the library' };
+  }
+  try {
+    const { credentials } = await provider.connect({
+      ...input,
+      baseUrl: row.BaseUrl,
+      deviceId: row.DeviceId ?? undefined,
+    });
+    // Track addresses carry the user id, so another account is another source.
+    if (row.UserId && credentials.userId && credentials.userId !== row.UserId) {
+      return {
+        success: false,
+        error:
+          'That is a different account from the one this server was added with. Add it as a new server instead.',
+      };
+    }
+    db.prepare('UPDATE Source SET Username = ?, AccessToken = ? WHERE Id = ?').run(
+      credentials.username,
+      sealSecret(credentials.accessToken),
+      id
+    );
+    refreshSourceAuth();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 export function removeSource(id: number): { success: boolean } {
   const albums = db.prepare('SELECT Id FROM Album WHERE SourceId = ?').all(id) as Array<{
     Id: number;

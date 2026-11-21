@@ -578,7 +578,12 @@ export function providerFor(flavour: Flavour): SourceProvider {
 
     async connect(input: ConnectInput): Promise<ConnectResult> {
       const baseUrl = await resolveBaseUrl(input.baseUrl);
-      const auth = await authenticateByName(baseUrl, input.username ?? '', input.password ?? '');
+      const auth = await authenticateByName(
+        baseUrl,
+        input.username ?? '',
+        input.password ?? '',
+        input.deviceId
+      );
       return {
         displayName: auth.serverName || input.baseUrl,
         credentials: {

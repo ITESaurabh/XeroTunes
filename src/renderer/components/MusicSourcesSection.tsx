@@ -184,6 +184,8 @@ export default function MusicSourcesSection() {
   const [addOpen, setAddOpen] = useState(false);
   // '' = choosing a type, otherwise the type being configured.
   const [addingType, setAddingType] = useState('');
+  // The server the form is signing in to; null when it adds one.
+  const [signingIn, setSigningIn] = useState<Source | null>(null);
   const [baseUrl, setBaseUrl] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -233,6 +235,7 @@ export default function MusicSourcesSection() {
   // Fields are reset on open, not on close, for the same reason.
   const openDialog = () => {
     setAddingType('');
+    setSigningIn(null);
     setError(null);
     setBaseUrl('');
     setUsername('');
@@ -240,6 +243,17 @@ export default function MusicSourcesSection() {
     setToken('');
     setMetadata('eager');
     setDiscovered(null);
+    setAddOpen(true);
+  };
+
+  const openSignIn = (source: Source) => {
+    setAddingType(source.Type);
+    setSigningIn(source);
+    setError(null);
+    setBaseUrl(source.BaseUrl ?? '');
+    setUsername(source.Username ?? '');
+    setPassword('');
+    setToken('');
     setAddOpen(true);
   };
 
@@ -287,14 +301,21 @@ export default function MusicSourcesSection() {
   const handleConnect = async () => {
     setBusy(true);
     setError(null);
-    const res = (await invokeEventToMainProcess('add-source', {
-      type: addingType,
-      baseUrl,
-      username,
-      password,
-      token,
-      metadata,
-    })) as { success: boolean; error?: string };
+    const res = (await (signingIn
+      ? invokeEventToMainProcess('sign-in-source', {
+          sourceId: signingIn.Id,
+          username,
+          password,
+          token,
+        })
+      : invokeEventToMainProcess('add-source', {
+          type: addingType,
+          baseUrl,
+          username,
+          password,
+          token,
+          metadata,
+        }))) as { success: boolean; error?: string };
     setBusy(false);
     if (!res?.success) {
       setError(res?.error || 'Could not connect to that server');
@@ -550,6 +571,17 @@ export default function MusicSourcesSection() {
                       ))}
                     </TextField>
                   )}
+                  {status?.reachable && !status.authValid && (
+                    <Button
+                      variant="contained"
+                      size="small"
+                      disableElevation
+                      disabled={libraryBusy}
+                      onClick={() => openSignIn(source)}
+                    >
+                      Sign In
+                    </Button>
+                  )}
                   <Button
                     color="error"
                     variant="contained"
@@ -605,7 +637,13 @@ export default function MusicSourcesSection() {
       <AppDialog
         open={addOpen}
         onClose={closeDialog}
-        title={addingType === '' ? 'Add External Source' : `Add ${chosen?.label ?? 'Server'}`}
+        title={
+          signingIn
+            ? `Sign In to ${signingIn.Name || signingIn.BaseUrl}`
+            : addingType === ''
+              ? 'Add External Source'
+              : `Add ${chosen?.label ?? 'Server'}`
+        }
         maxWidth={addingType ? 'xs' : 'sm'}
         actions={
           addingType === '' ? (
@@ -622,14 +660,18 @@ export default function MusicSourcesSection() {
                   Guide
                 </Button>
               )}
-              <Button onClick={() => setAddingType('')}>Back</Button>
+              {signingIn ? (
+                <Button onClick={closeDialog}>Cancel</Button>
+              ) : (
+                <Button onClick={() => setAddingType('')}>Back</Button>
+              )}
               <Button
                 variant="contained"
                 disableElevation
                 disabled={!baseUrl || busy || (chosen?.needsAccount && (!username || !password))}
                 onClick={handleConnect}
               >
-                {busy ? 'Connecting…' : 'Connect'}
+                {busy ? 'Connecting…' : signingIn ? 'Sign In' : 'Connect'}
               </Button>
             </>
           )
@@ -679,10 +721,11 @@ export default function MusicSourcesSection() {
               helperText={ADDRESS_HINT[addingType]?.helper}
               value={baseUrl}
               onChange={e => setBaseUrl(e.target.value)}
+              disabled={!!signingIn}
               fullWidth
-              autoFocus
+              autoFocus={!signingIn}
             />
-            {chosen?.discoverable && (
+            {chosen?.discoverable && !signingIn && (
               <Box>
                 <Stack direction="row" alignItems="center" justifyContent="space-between">
                   <Typography variant="subtitle2">On your network</Typography>
@@ -749,6 +792,7 @@ export default function MusicSourcesSection() {
               value={username}
               onChange={e => setUsername(e.target.value)}
               fullWidth
+              autoFocus={!!signingIn}
             />
             <TextField
               required={chosen?.needsAccount}
@@ -762,7 +806,7 @@ export default function MusicSourcesSection() {
               }}
               fullWidth
             />
-            {chosen?.fileTags && (
+            {chosen?.fileTags && !signingIn && (
               <TextField
                 select
                 label="Track details"

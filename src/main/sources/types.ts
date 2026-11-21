@@ -80,6 +80,8 @@ export interface ConnectInput {
   token?: string;
   /** Merged into the stored credentials' config; carries the metadata mode. */
   config?: Record<string, unknown>;
+  /** The stored one, when signing in again; track addresses carry it. */
+  deviceId?: string;
 }
 
 /**

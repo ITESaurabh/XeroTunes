@@ -304,7 +304,7 @@ export const plexProvider: SourceProvider = {
 
   async connect(input: ConnectInput): Promise<ConnectResult> {
     const baseUrl = trimTrailingSlash(input.baseUrl);
-    const deviceId = generateClientId();
+    const deviceId = input.deviceId || generateClientId();
     const pasted = input.token?.trim();
 
     if (!pasted && !(input.username && input.password)) {

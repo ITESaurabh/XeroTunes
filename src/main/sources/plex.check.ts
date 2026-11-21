@@ -184,6 +184,12 @@ assert.strictEqual(connected.displayName, 'Test Plex');
 assert.strictEqual(connected.credentials.accessToken, 'tok');
 // Reused rather than regenerated, so Plex does not file a new device per sync.
 assert.ok(connected.credentials.deviceId);
+const again = await plexProvider.connect({
+  baseUrl: `http://${host}`,
+  token: 'tok',
+  deviceId: connected.credentials.deviceId,
+});
+assert.strictEqual(again.credentials.deviceId, connected.credentials.deviceId);
 
 const found = await plexProvider.listTracks(connected.credentials);
 assert.strictEqual(found.length, 1);

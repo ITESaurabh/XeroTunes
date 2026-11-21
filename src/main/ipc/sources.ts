@@ -50,6 +50,15 @@ export function registerSourceIpc(
     return result;
   });
 
+  // Syncs too: a server restored from a backup has no tracks yet.
+  ipcMain.handle('sign-in-source', async (_e, { sourceId, username, password, token }) => {
+    const result = await sources.signInAgain(sourceId, { username, password, token });
+    if (result.success) {
+      void sources.syncSource(sourceId, mainWin, { librarySettings: getLibrarySettings() });
+    }
+    return result;
+  });
+
   // Takes effect on the next sync: tracks already read keep their tags, and
   // switching to a mode that reads gets them on the sync after this.
   ipcMain.handle('set-source-metadata', (_e, { sourceId, mode }) =>

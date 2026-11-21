@@ -157,6 +157,14 @@ const connected = await embyProvider.connect({
 assert.strictEqual(connected.displayName, 'Test Emby');
 assert.strictEqual(connected.credentials.baseUrl, `http://${host}/emby`);
 assert.strictEqual(connected.credentials.userId, 'u1');
+const again = await embyProvider.connect({
+  baseUrl: connected.credentials.baseUrl,
+  username: 'alice',
+  password: 'hunter2',
+  deviceId: 'kept',
+});
+assert.strictEqual(again.credentials.deviceId, 'kept');
+assert.strictEqual(again.credentials.baseUrl, `http://${host}/emby`);
 
 const found = await embyProvider.listTracks(connected.credentials);
 assert.strictEqual(found.length, 1);
