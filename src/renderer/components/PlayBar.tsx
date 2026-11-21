@@ -2036,7 +2036,11 @@ export default function PlayBar() {
               </ControlButton>
             </TransportRow>
             <VolumeStack spacing={2} direction="row" alignItems="center" isPhone={isPhone}>
-              <IconButton size="small" onClick={handleMuteClick}>
+              <IconButton
+                size="small"
+                onClick={handleMuteClick}
+                aria-label={volume === 0 || muteVolume ? 'unmute' : 'mute'}
+              >
                 {volume === 0 || muteVolume ? (
                   <Icon icon={speakerMute32Filled} width={20} />
                 ) : volume < 40 ? (

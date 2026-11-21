@@ -2051,6 +2051,23 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     return rows;
   });
 
+  // Same unreadable-or-empty rule as readFolders; async so a dead network share can't hang main.
+  ipcMain.handle('check-music-folders', async () => {
+    const folders = db.prepare('SELECT Id, Uri FROM MusicFolder').all() as {
+      Id: number;
+      Uri: string;
+    }[];
+    const offline = await Promise.all(
+      folders.map(f =>
+        fs.promises.readdir(f.Uri).then(
+          entries => entries.length === 0,
+          () => true
+        )
+      )
+    );
+    return folders.filter((_, i) => offline[i]).map(f => f.Id);
+  });
+
   // ── Folder views ────────────────────────────────────────────────────────────
   // Powers the "Folders" screen.
   ipcMain.handle('get-folders-with-songs', () => {

@@ -172,6 +172,7 @@ export default function MusicSourcesSection() {
 
   const [expanded, setExpanded] = useState(false);
   const [folders, setFolders] = useState<MusicFolder[]>([]);
+  const [offlineFolders, setOfflineFolders] = useState<number[]>([]);
   const [sources, setSources] = useState<Source[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [statuses, setStatuses] = useState<Record<number, SourceStatus>>({});
@@ -210,6 +211,9 @@ export default function MusicSourcesSection() {
     // A round trip per server, so it rides along with the list, not a timer.
     invokeEventToMainProcess('check-sources', undefined)
       .then(d => setStatuses((d ?? {}) as Record<number, SourceStatus>))
+      .catch(() => undefined);
+    invokeEventToMainProcess('check-music-folders', undefined)
+      .then(d => setOfflineFolders((d ?? []) as number[]))
       .catch(() => undefined);
   }, [invokeEventToMainProcess]);
 
@@ -349,6 +353,9 @@ export default function MusicSourcesSection() {
 
   const chosen = providers.find(p => p.type === addingType);
   const total = folders.length + sources.length;
+  const offlineChip = (
+    <Chip component="span" label="Offline" size="small" color="error" sx={{ height: 20 }} />
+  );
 
   /**
    * The icon gutter, then a block holding the text and the actions. They wrap
@@ -486,12 +493,21 @@ export default function MusicSourcesSection() {
               </Typography>
             )}
 
-            {folders.map(folder =>
-              row(
+            {folders.map(folder => {
+              const offline = offlineFolders.includes(folder.Id);
+              return row(
                 `folder-${folder.Id}`,
                 <Icon icon={folderIcon} width="2rem" />,
-                folder.Uri,
-                'Folder on this device',
+                <Box
+                  component="span"
+                  sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
+                >
+                  {folder.Uri}
+                  {offline && offlineChip}
+                </Box>,
+                offline
+                  ? "Unplugged, unmounted or empty."
+                  : 'Folder on this device',
                 <Button
                   color="error"
                   variant="contained"
@@ -502,8 +518,8 @@ export default function MusicSourcesSection() {
                 >
                   Remove
                 </Button>
-              )
-            )}
+              );
+            })}
 
             {folders.length > 0 && sources.length > 0 && <Divider sx={{ my: 1 }} />}
 
@@ -522,15 +538,7 @@ export default function MusicSourcesSection() {
                   sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}
                 >
                   {source.Name || source.BaseUrl}
-                  {status && !status.reachable && (
-                    <Chip
-                      component="span"
-                      label="Offline"
-                      size="small"
-                      color="error"
-                      sx={{ height: 20 }}
-                    />
-                  )}
+                  {status && !status.reachable && offlineChip}
                   {status?.reachable && !status.authValid && (
                     <Chip
                       component="span"

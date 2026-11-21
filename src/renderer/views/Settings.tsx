@@ -791,6 +791,7 @@ const Settings: React.FC = () => {
     message: string;
   } | null>(null);
   const [awaitingApproval, setAwaitingApproval] = React.useState<ScrobbleProvider | null>(null);
+  const [signInsProtected, setSignInsProtected] = React.useState(true);
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
@@ -914,6 +915,9 @@ const Settings: React.FC = () => {
   }, [invokeEventToMainProcess]);
 
   React.useEffect(() => {
+    invokeEventToMainProcess('are-sign-ins-protected')
+      .then((p: unknown) => setSignInsProtected(p !== false))
+      .catch(() => undefined);
     // Submissions fail in the background with no event to listen for.
     const refresh = () => {
       invokeEventToMainProcess('scrobbler-status')
@@ -2071,6 +2075,14 @@ const Settings: React.FC = () => {
                 }
               />
             ))}
+            {!signInsProtected && (
+              <ListItem>
+                <Typography variant="caption" color="warning.main">
+                  No system keyring found, so scrobbling sign-ins are saved unencrypted on this
+                  computer.
+                </Typography>
+              </ListItem>
+            )}
           </List>
           <List
             subheader={
