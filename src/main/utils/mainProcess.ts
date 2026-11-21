@@ -66,6 +66,7 @@ import {
 } from '../../config/app_settings';
 import { registerArtistIpc } from '../ipc/artists';
 import { registerMoodIpc, resetRecommendationData } from '../ipc/mood';
+import { registerBackupIpc } from './backup';
 import { registerSourceIpc } from '../ipc/sources';
 import { schemeRoot, withoutAnyCredentials } from '../sources/registry';
 import {
@@ -205,6 +206,8 @@ const PENDING_FAVOURITES_FILE = path.join(APP_CONF_FOLDER, 'pending_favourites.x
 const FAVOURITES_FILE_VERSION = 1;
 
 export interface FavouriteEntry {
+  /** Absent in files exported before it was added. */
+  uri?: string;
   hash: string | null;
   file: string;
   title: string;
@@ -228,6 +231,7 @@ function snapshotFavourites(): FavouriteEntry[] {
     AddedAt: number | null;
   }>;
   return rows.map(row => ({
+    uri: row.Uri || undefined,
     hash: row.FileHash || null,
     file: path.basename(row.Uri || ''),
     title: row.Title || '',
@@ -275,6 +279,26 @@ function readFavouritesFile(filePath: string): FavouriteEntry[] {
     throw new Error('Not a XeroTunes favourites file');
   }
   return parsed.tracks as FavouriteEntry[];
+}
+
+// Misses (tracks not scanned yet) wait in the pending file for the next scan.
+function restoreFavouritesFromBackup(entries: FavouriteEntry[]) {
+  const result = restoreFavourites(entries);
+  if (result.failed.length) {
+    let pending: FavouriteEntry[] = [];
+    try {
+      if (fs.existsSync(PENDING_FAVOURITES_FILE)) {
+        pending = readFavouritesFile(PENDING_FAVOURITES_FILE);
+      }
+    } catch {
+      /* unreadable: the backup's entries replace it */
+    }
+    fs.writeFileSync(
+      PENDING_FAVOURITES_FILE,
+      JSON.stringify(favouritesFileBody([...pending, ...result.failed]), null, 2)
+    );
+  }
+  return result;
 }
 
 // Wiping the database throws the TrackIds away, so stash the favourites first and
@@ -3240,6 +3264,10 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
 
   registerArtistIpc(mainWin, () => readSettingsFile().artistImageFetchingEnabled);
   registerMoodIpc(mainWin);
+  registerBackupIpc(mainWin, {
+    snapshotFavourites,
+    restoreFavourites: restoreFavouritesFromBackup,
+  });
   sealStoredTokens();
   stripStoredLogins();
   // Stored addresses carry no login; the renderer's <audio> and <img> get it from these hooks.

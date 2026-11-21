@@ -6,8 +6,8 @@
 import type * as Ort from 'onnxruntime-web';
 import { fft } from './qualityAnalysis.ts';
 
-/** Bump when a measurement changes; stored rows from older versions are re-analysed. */
-export const MOOD_VERSION = 2;
+// In config so the main process can tell a backup's results from a newer analyser.
+export { MOOD_VERSION } from '../../config/mood.ts';
 /** MusiCNN was trained on 16 kHz mono. */
 export const MOOD_RATE = 16000;
 

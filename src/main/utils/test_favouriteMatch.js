@@ -39,6 +39,29 @@ assert.strictEqual(matchFavourite(index, entry('zzz', 'Missing.mp3')), null);
 assert.strictEqual(matchFavourite(index, null), null);
 assert.strictEqual(matchFavourite(index, {}), null);
 
+// Same machine: the exact path beats a hash that now points elsewhere.
+assert.strictEqual(matchFavourite(index, { uri: music('Live', 'Song A.mp3'), hash: 'aaa' }), 3);
+
+// Server tracks have no hash and share a "filename", so only the address can match them.
+const server = buildTrackIndex([
+  { Id: 10, Uri: 'http://jf.lan/Audio/a1/universal?DeviceId=d&UserId=u', FileHash: null },
+  { Id: 11, Uri: 'http://jf.lan/Audio/b2/universal?DeviceId=d&UserId=u', FileHash: null },
+]);
+assert.strictEqual(
+  matchFavourite(server, { uri: 'http://jf.lan/Audio/b2/universal?DeviceId=d&UserId=u' }),
+  11
+);
+assert.strictEqual(
+  matchFavourite(server, {
+    uri: 'http://jf.lan/Audio/gone/universal?DeviceId=d&UserId=u',
+    file: 'universal?DeviceId=d&UserId=u',
+  }),
+  null
+);
+
+// No `file` on the entry: a missed hash stays a miss instead of trying the name.
+assert.strictEqual(matchFavourite(index, { hash: 'no-longer-matching' }), null);
+
 // An empty library matches nothing rather than blowing up.
 assert.strictEqual(matchFavourite(buildTrackIndex([]), entry('aaa', 'Song A.mp3')), null);
 assert.strictEqual(matchFavourite(buildTrackIndex(undefined), entry(null, 'x.mp3')), null);

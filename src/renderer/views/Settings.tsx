@@ -56,6 +56,7 @@ import artistIcon from '@iconify/icons-fluent/mic-24-regular';
 import scrobbleIcon from '@iconify/icons-fluent/cloud-sync-24-regular';
 import duplicateIcon from '@iconify/icons-fluent/document-copy-24-regular';
 import warningIcon from '@iconify/icons-fluent/warning-24-regular';
+import archiveIcon from '@iconify/icons-fluent/archive-24-regular';
 import darkThemeIcon from '@iconify/icons-fluent/dark-theme-24-regular';
 import colorIcon from '@iconify/icons-fluent/color-24-regular';
 import addIcon from '@iconify/icons-fluent/add-24-regular';
@@ -113,6 +114,11 @@ import {
   deleteCustomTheme,
   uniqueThemeName,
 } from '../utils/LocStoreUtil';
+import BackupDialog from '../components/BackupDialog';
+import type { BackupCounts, BackupPart } from '../../config/backupParts';
+
+// Stable, so the closed dialog doesn't see new counts on every render.
+const NO_COUNTS: BackupCounts = {};
 import { MOOD_WORKERS, moodScan, useMoodScan } from '../utils/moodScan';
 import { forgetListeningHistory, refreshSmartShuffle } from '../utils/smartShuffle';
 import {
@@ -821,6 +827,63 @@ const Settings: React.FC = () => {
   const { isScanningLibrary, scanMode } = state;
   const basicScanning = isScanningLibrary && scanMode === 'basic';
   const fullScanning = isScanningLibrary && scanMode === 'full';
+  const [backupBusy, setBackupBusy] = React.useState(false);
+  const [backupOpen, setBackupOpen] = React.useState(false);
+  const [backupDialog, setBackupDialog] = React.useState<{
+    mode: 'backup' | 'restore';
+    counts: BackupCounts;
+    file?: string;
+    createdAt?: number;
+    unsupported?: number;
+  } | null>(null);
+
+  // Main shows the file pickers and every result or error itself.
+  const openBackupDialog = async (mode: 'backup' | 'restore') => {
+    setBackupBusy(true);
+    try {
+      if (mode === 'backup') {
+        const counts = (await invokeEventToMainProcess(
+          'backup-summary',
+          undefined
+        )) as BackupCounts;
+        setBackupDialog({ mode, counts });
+        setBackupOpen(true);
+      } else {
+        const pick = (await invokeEventToMainProcess('restore-pick', undefined)) as {
+          file?: string;
+          counts?: BackupCounts;
+          createdAt?: number;
+          unsupported?: number;
+        };
+        if (pick?.file && pick.counts) {
+          setBackupDialog({
+            mode,
+            counts: pick.counts,
+            file: pick.file,
+            createdAt: pick.createdAt,
+            unsupported: pick.unsupported,
+          });
+          setBackupOpen(true);
+        }
+      }
+    } catch (err) {
+      console.error('Backup dialog failed to open:', err);
+    } finally {
+      setBackupBusy(false);
+    }
+  };
+  const confirmBackupDialog = async (parts: BackupPart[]) => {
+    const current = backupDialog;
+    setBackupOpen(false);
+    if (!current) return;
+    setBackupBusy(true);
+    // A successful restore relaunches the app from main, so this only returns otherwise.
+    await invokeEventToMainProcess(
+      current.mode === 'backup' ? 'backup-library' : 'restore-library',
+      { parts, file: current.file }
+    ).catch(() => undefined);
+    setBackupBusy(false);
+  };
   const applyingArtistRules = isScanningLibrary && scanMode === 'artists';
   const theme = useTheme();
   const currOs = os.type();
@@ -2016,6 +2079,33 @@ const Settings: React.FC = () => {
               </ListSubheader>
             }
           >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={archiveIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText
+                primary="Backup"
+                secondary="Settings, playlists, favourites, play history and more, in one file"
+              />
+              <Stack direction="row" spacing={1} sx={{ mr: 0.5, flexShrink: 0 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={isScanningLibrary || backupBusy}
+                  onClick={() => openBackupDialog('backup')}
+                >
+                  Back Up
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  disabled={isScanningLibrary || backupBusy}
+                  onClick={() => openBackupDialog('restore')}
+                >
+                  Restore
+                </Button>
+              </Stack>
+            </ListItem>
             <ListItem disableGutters>
               <Accordion
                 expanded={resetExpanded}
@@ -2195,6 +2285,15 @@ const Settings: React.FC = () => {
       </Box>
 
       <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
+      <BackupDialog
+        open={backupOpen}
+        mode={backupDialog?.mode ?? 'backup'}
+        counts={backupDialog?.counts ?? NO_COUNTS}
+        createdAt={backupDialog?.createdAt}
+        unsupported={backupDialog?.unsupported}
+        onClose={() => setBackupOpen(false)}
+        onConfirm={confirmBackupDialog}
+      />
 
       <DuplicateTracksDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
       <SurroundSyncDialog
