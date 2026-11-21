@@ -67,8 +67,10 @@ const BackupDialog: React.FC<BackupDialogProps> = ({
         </Typography>
         {restoring && unsupported > 0 && (
           <Typography variant="body2" color="warning.main">
-            {unsupported === 1 ? '1 part' : `${unsupported} parts`} of this backup need a newer
-            version of XeroTunes and will be skipped.
+            {unsupported === 1
+              ? '1 part of this backup needs'
+              : `${unsupported} parts of this backup need`}{' '}
+            a newer version of XeroTunes and will be skipped.
           </Typography>
         )}
 

@@ -362,7 +362,8 @@ function partsIO(deps: FavouriteDeps): Record<BackupPart, PartIO> {
             `SELECT Stream.Uri AS stream, StreamTrack.Raw AS raw, StreamTrack.Title AS title,
                StreamTrack.Artist AS artist, StreamTrack.FirstHeardAt AS firstHeardAt,
                StreamTrack.LastHeardAt AS lastHeardAt, StreamTrack.Saved AS saved
-             FROM StreamTrack JOIN Stream ON Stream.Id = StreamTrack.StreamId`
+             FROM StreamTrack JOIN Stream ON Stream.Id = StreamTrack.StreamId
+             WHERE StreamTrack.Saved = 1`
           )
           .all();
         add('stream-songs.json', json(songs));
@@ -405,9 +406,9 @@ function partsIO(deps: FavouriteDeps): Record<BackupPart, PartIO> {
           if (!station || !raw) continue;
           const heard = [num(t.firstHeardAt), num(t.lastHeardAt)];
           song.run(station.Id, raw, str(t.title), str(t.artist), ...heard, t.saved ? 1 : 0);
-          songs++;
+          if (t.saved) songs++;
         }
-        return { line: `${added} added, ${songs} songs heard on them` };
+        return { line: `${added} added, ${songs} bookmarked songs` };
       },
     },
 
