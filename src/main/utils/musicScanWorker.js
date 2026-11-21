@@ -2,7 +2,12 @@ const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
 const { cleanupOrphans } = require('../db/cleanup');
-const { applyLibrarySettings, splitArtists } = require('./libraryRules');
+const {
+  applyLibrarySettings,
+  splitArtists,
+  isUnderAnyRoot,
+  readFolders,
+} = require('./libraryRules');
 const { HASH_PREFIX, fileHash: getFileHash } = require('./audioHash');
 const { capCover } = require('./coverArt');
 
@@ -124,23 +129,6 @@ function ignoredUriSet(db) {
   } catch {
     return new Set();
   }
-}
-
-function getAllSupportedFiles(dir, supportedFileTypes) {
-  let results = [];
-  const list = fs.readdirSync(dir);
-  for (const file of list) {
-    const filePath = path.join(dir, file);
-    if (fs.statSync(filePath).isDirectory()) {
-      results = results.concat(getAllSupportedFiles(filePath, supportedFileTypes));
-    } else {
-      const ext = path.extname(filePath).toLowerCase();
-      if (supportedFileTypes.includes(ext)) {
-        results.push(filePath);
-      }
-    }
-  }
-  return results;
 }
 
 // ─── Shared helpers ──────────────────────────────────────────────────────────
@@ -348,9 +336,9 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   const knownUriSet = new Set(knownTracks.map(t => t.Uri));
   const ignored = ignoredUriSet(db);
 
+  const { online, offline } = readFolders(folders, supportedFileTypes);
   let newFiles = [];
-  for (const folder of folders) {
-    const all = getAllSupportedFiles(folder.Uri, supportedFileTypes);
+  for (const all of online.values()) {
     for (const f of all) {
       if (!knownUriSet.has(f) && !ignored.has(f)) newFiles.push(f);
     }
@@ -402,7 +390,11 @@ async function runBasicScan(db, folders, config, supportedFileTypes) {
   // source sync's job.
   let removed = 0;
   for (const track of knownTracks) {
-    if (track.SourceId == null && !fs.existsSync(track.Uri)) {
+    if (
+      track.SourceId == null &&
+      !fs.existsSync(track.Uri) &&
+      !isUnderAnyRoot(track.Uri, offline)
+    ) {
       db.prepare('DELETE FROM Track WHERE Id = ?').run(track.Id);
       removed++;
     }
@@ -427,19 +419,16 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   ).run();
 
   const ignored = ignoredUriSet(db);
+  const { online, offline } = readFolders(folders, supportedFileTypes);
   const filesByFolder = new Map(
-    folders.map(folder => [
-      folder.Uri,
-      getAllSupportedFiles(folder.Uri, supportedFileTypes).filter(f => !ignored.has(f)),
-    ])
+    [...online].map(([uri, files]) => [uri, files.filter(f => !ignored.has(f))])
   );
   const total = [...filesByFolder.values()].reduce((n, files) => n + files.length, 0);
   let scanned = 0;
   let processed = 0;
   process.parentPort.postMessage({ type: 'progress', scanned: 0, total });
 
-  for (const folder of folders) {
-    const supportedFiles = filesByFolder.get(folder.Uri);
+  for (const [folderUri, supportedFiles] of filesByFolder) {
     let folderScanned = 0;
     for (const filePath of supportedFiles) {
       try {
@@ -465,7 +454,7 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
       process.parentPort.postMessage({ type: 'progress', scanned, total, processed });
     }
     console.log(
-      `[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folder.Uri}`
+      `[full-scan] ${folderScanned}/${supportedFiles.length} files updated in: ${folderUri}`
     );
   }
 
@@ -476,7 +465,7 @@ async function runFullScan(db, folders, config, supportedFileTypes) {
   const allTracks = db.prepare('SELECT Id, Uri FROM Track WHERE SourceId IS NULL').all();
   let removed = 0;
   for (const track of allTracks) {
-    if (!validPaths.has(track.Uri)) {
+    if (!validPaths.has(track.Uri) && !isUnderAnyRoot(track.Uri, offline)) {
       db.prepare('DELETE FROM Track WHERE Id = ?').run(track.Id);
       removed++;
     }

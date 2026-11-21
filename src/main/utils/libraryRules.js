@@ -1,6 +1,8 @@
 // Rules that decide what the library contains: how an artist tag splits into
-// artists, and whether a file still belongs to a music folder. Plain JS with no
-// deps so the scan worker, the main process and test_libraryRules.js can all load it.
+// artists, whether a file still belongs to a music folder, and which folders can
+// be read. Plain JS with no deps so the scan worker, the main process and
+// test_libraryRules.js can all load it.
+const fs = require('fs');
 const path = require('path');
 
 let multiArtistSeparators = [',', '&'];
@@ -97,4 +99,41 @@ function isUnderAnyRoot(uri, roots) {
   });
 }
 
-module.exports = { applyLibrarySettings, splitArtists, isUnderAnyRoot };
+function getAllSupportedFiles(dir, supportedFileTypes) {
+  let results = [];
+  const list = fs.readdirSync(dir);
+  for (const file of list) {
+    const filePath = path.join(dir, file);
+    if (fs.statSync(filePath).isDirectory()) {
+      results = results.concat(getAllSupportedFiles(filePath, supportedFileTypes));
+    } else {
+      const ext = path.extname(filePath).toLowerCase();
+      if (supportedFileTypes.includes(ext)) {
+        results.push(filePath);
+      }
+    }
+  }
+  return results;
+}
+
+// An unreadable or empty folder is an unplugged drive or unmounted share, not
+// deleted music, so the scans keep its tracks.
+function readFolders(folders, supportedFileTypes) {
+  const online = new Map();
+  const offline = [];
+  for (const folder of folders) {
+    try {
+      const files = getAllSupportedFiles(folder.Uri, supportedFileTypes);
+      if (files.length) {
+        online.set(folder.Uri, files);
+        continue;
+      }
+    } catch (err) {
+      console.warn('[scan] Folder unavailable:', folder.Uri, err?.message || err);
+    }
+    offline.push(folder.Uri);
+  }
+  return { online, offline };
+}
+
+module.exports = { applyLibrarySettings, splitArtists, isUnderAnyRoot, readFolders };

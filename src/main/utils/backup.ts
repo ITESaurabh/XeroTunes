@@ -11,7 +11,7 @@ import { MOOD_VERSION } from '../../config/mood';
 import { getProvider } from '../sources/registry';
 import { buildTrackIndex, matchFavourite as matchTrack } from './favouriteMatch';
 import { mergeKnown } from './mergeKnown';
-import { secretsProtected } from './secrets';
+import { openSecret, secretsProtected } from './secrets';
 import type { FavouriteEntry } from './mainProcess';
 
 // An SQLite Archive (the `sqlar` table `sqlite3 -A` reads), so no zip library.
@@ -436,22 +436,31 @@ function partsIO(deps: FavouriteDeps): Record<BackupPart, PartIO> {
         );
         let added = 0;
         let unsupported = 0;
+        let locked = 0;
         for (const r of items(parse(read('servers.json')))) {
           const type = str(r.Type);
           if (!type) continue;
-          if (!getProvider(type)) {
+          const provider = getProvider(type);
+          if (!provider) {
             unsupported++;
             continue;
           }
-          const [baseUrl, username] = [str(r.BaseUrl), str(r.Username)];
+          const [baseUrl, username, token] = [str(r.BaseUrl), str(r.Username), str(r.AccessToken)];
           if (has.get(type, baseUrl, username)) continue;
-          const rest = [str(r.UserId), str(r.AccessToken), str(r.DeviceId), str(r.ConfigJson)];
+          const rest = [str(r.UserId), token, str(r.DeviceId), str(r.ConfigJson)];
           insert.run(type, str(r.Name), baseUrl, username, ...rest);
           added++;
+          // Sealed on another computer, or left out by one without a keyring.
+          if (token ? openSecret(token) === null : provider.needsAccount || provider.tokenAuth) {
+            locked++;
+          }
         }
         const sync = added ? '; sync them to load their tracks' : '';
+        const signIn = locked
+          ? `. ${locked === 1 ? '1 needs' : `${locked} need`} signing in again first, in Settings, Music Sources`
+          : '';
         return {
-          line: `${added} added${skippedNote(unsupported, 'not supported by this version')}${sync}`,
+          line: `${added} added${skippedNote(unsupported, 'not supported by this version')}${sync}${signIn}`,
         };
       },
     },

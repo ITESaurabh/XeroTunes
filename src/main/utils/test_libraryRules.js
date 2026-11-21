@@ -1,10 +1,18 @@
-// The two rules a wrong answer silently corrupts the library with: how an artist
-// tag is split, and which tracks survive removing a folder.
+// The rules a wrong answer silently corrupts the library with: how an artist tag
+// is split, which tracks survive removing a folder, and which folders a scan
+// treats as offline.
 // Run: node src/main/utils/test_libraryRules.js
 const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
-const { splitArtists, applyLibrarySettings, isUnderAnyRoot } = require('./libraryRules');
+const {
+  splitArtists,
+  applyLibrarySettings,
+  isUnderAnyRoot,
+  readFolders,
+} = require('./libraryRules');
 
 function withRules(separators, exceptions, fn) {
   applyLibrarySettings({
@@ -75,9 +83,37 @@ assert.strictEqual(isUnderAnyRoot(p('D:', 'Music', 'Rock', 'f.mp3'), [p('D:', 'M
 assert.strictEqual(isUnderAnyRoot(p('D:', 'Music', 'Rock', 'f.mp3'), [p('D:', 'Jazz')]), false);
 // No roots left: every track is outside, which is what wipes the library.
 assert.strictEqual(isUnderAnyRoot(p('D:', 'Music', 'g.mp3'), []), false);
+// A whole drive added as one folder.
+assert.strictEqual(isUnderAnyRoot(p('X:', 'i.mp3'), ['X:' + sep]), true);
 
 if (process.platform === 'win32') {
   assert.strictEqual(isUnderAnyRoot(p('d:', 'music', 'h.mp3'), roots), true);
 }
+
+// ── readFolders ──────────────────────────────────────────────────────────────
+// Offline keeps a folder's missing tracks and online deletes them, so both are checked.
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xt-folders-'));
+const at = (...parts) => path.join(tmp, ...parts);
+fs.mkdirSync(at('music', 'Album'), { recursive: true });
+fs.writeFileSync(at('music', 'a.mp3'), '');
+fs.writeFileSync(at('music', 'Album', 'B.FLAC'), '');
+fs.writeFileSync(at('music', 'cover.jpg'), '');
+fs.mkdirSync(at('empty'));
+fs.mkdirSync(at('art'));
+fs.writeFileSync(at('art', 'cover.jpg'), '');
+
+const { online, offline } = readFolders(
+  [at('music'), at('empty'), at('art'), at('unplugged')].map(Uri => ({ Uri })),
+  ['.mp3', '.flac']
+);
+assert.deepStrictEqual([...online.keys()], [at('music')]);
+assert.deepStrictEqual(
+  online.get(at('music')).sort(),
+  [at('music', 'Album', 'B.FLAC'), at('music', 'a.mp3')].sort()
+);
+// Empty is an unmounted share, art-only has no music to lose, unplugged throws.
+assert.deepStrictEqual(offline, [at('empty'), at('art'), at('unplugged')]);
+fs.rmSync(tmp, { recursive: true, force: true });
 
 console.log('library rules: all checks passed');
