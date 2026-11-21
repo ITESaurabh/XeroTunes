@@ -1000,8 +1000,11 @@ export default function PlayBar() {
       fadeIntervalRef.current = null;
     }
 
-    const FADE_STEPS = 25;
+    const FADE_MS = 500;
     const FADE_INTERVAL_MS = 20;
+    // A quiet hidden window's timers run at most once a second, so the fade follows the clock.
+    const fadeStart = performance.now();
+    const fadeProgress = () => Math.min(1, (performance.now() - fadeStart) / FADE_MS);
 
     // Track changes fade in; on a gapless swap that would dip the join.
     const swapped = swappedDeckRef.current === audio;
@@ -1009,12 +1012,16 @@ export default function PlayBar() {
     if (swapped && !paused) return;
 
     if (paused) {
+      // Muted has nothing to fade, and a throttled timer can be a minute late.
+      if (muteVolumeRef.current) {
+        audio.pause();
+        return;
+      }
       const startVol = audio.volume;
-      let step = 0;
       fadeIntervalRef.current = setInterval(() => {
-        step++;
-        audio.volume = Math.max(0, startVol * (1 - step / FADE_STEPS));
-        if (step >= FADE_STEPS) {
+        const progress = fadeProgress();
+        audio.volume = Math.max(0, startVol * (1 - progress));
+        if (progress >= 1) {
           if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
           fadeIntervalRef.current = null;
           audio.pause();
@@ -1028,11 +1035,10 @@ export default function PlayBar() {
       // paused behind the broadcast; reloading snaps back to the live edge.
       if (!Number.isFinite(audio.duration)) audio.load();
       audio.play().catch(() => undefined);
-      let step = 0;
       fadeIntervalRef.current = setInterval(() => {
-        step++;
-        audio.volume = Math.min(targetVol, targetVol * (step / FADE_STEPS));
-        if (step >= FADE_STEPS) {
+        const progress = fadeProgress();
+        audio.volume = Math.min(targetVol, targetVol * progress);
+        if (progress >= 1) {
           audio.volume = targetVol;
           if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
           fadeIntervalRef.current = null;
