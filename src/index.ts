@@ -180,7 +180,10 @@ if (process.env.NODE_ENV === 'development') {
 
 // enumerateDevices() starts the video capture service, which then holds a ~15 MB
 // process for the app's life. No camera is used, and in-process it measured no bigger.
-app.commandLine.appendSwitch('enable-features', 'RunVideoCaptureServiceInBrowserProcess');
+// Not on macOS: the in-process thread has no CFRunLoop, so enumerateDevices() crashes the app.
+if (process.platform !== 'darwin') {
+  app.commandLine.appendSwitch('enable-features', 'RunVideoCaptureServiceInBrowserProcess');
+}
 
 const isSingleInstance = app.requestSingleInstanceLock();
 if (!isSingleInstance) {
