@@ -115,6 +115,7 @@ import {
   uniqueThemeName,
 } from '../utils/LocStoreUtil';
 import BackupDialog from '../components/BackupDialog';
+import ChangelogDialog from '../components/ChangelogDialog';
 import type { BackupCounts, BackupPart } from '../../config/backupParts';
 
 // Stable, so the closed dialog doesn't see new counts on every render.
@@ -828,6 +829,7 @@ const Settings: React.FC = () => {
   const { isScanningLibrary, scanMode } = state;
   const basicScanning = isScanningLibrary && scanMode === 'basic';
   const fullScanning = isScanningLibrary && scanMode === 'full';
+  const [changelogOpen, setChangelogOpen] = React.useState(false);
   const [backupBusy, setBackupBusy] = React.useState(false);
   const [backupOpen, setBackupOpen] = React.useState(false);
   const [backupDialog, setBackupDialog] = React.useState<{
@@ -2241,6 +2243,14 @@ const Settings: React.FC = () => {
                       <Button
                         size="small"
                         variant="outlined"
+                        color="inherit"
+                        onClick={() => setChangelogOpen(true)}
+                      >
+                        Changelog
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
                         color="info"
                         onClick={() =>
                           invokeEventToMainProcess('open-dir', { variant: 'appdata' }).catch(
@@ -2297,6 +2307,11 @@ const Settings: React.FC = () => {
       </Box>
 
       <FactoryResetDialog open={resetOpen} onClose={() => setResetOpen(false)} />
+      <ChangelogDialog
+        open={changelogOpen}
+        onClose={() => setChangelogOpen(false)}
+        stableOnly={appInfo?.channel === 'stable'}
+      />
       <BackupDialog
         open={backupOpen}
         mode={backupDialog?.mode ?? 'backup'}

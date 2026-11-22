@@ -240,6 +240,19 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # Before os-floor.json, so the app never offers a release that has no notes yet.
+      - name: Set release notes from CHANGELOG.md
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v head="## [$VERSION]" 'index($0, head) == 1 { on = 1; next } on && /^## / { exit } on' CHANGELOG.md > notes.md
+          if grep -q '[^[:space:]]' notes.md; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            echo "::warning::CHANGELOG.md has no '## [$VERSION]' section; the release has no notes."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Attach os-floor.json to the release
         run: |
           node -e "import('./src/config/osFloor.ts').then(m => process.stdout.write(JSON.stringify(m.OS_FLOOR)))" > os-floor.json

@@ -17,6 +17,12 @@ rules.push({
   type: 'asset/resource',
 });
 
+// CHANGELOG.md, bundled as a string for Settings > About > Changelog.
+rules.push({
+  test: /\.md$/,
+  type: 'asset/source',
+});
+
 export const rendererConfig: Configuration = {
   module: {
     rules,

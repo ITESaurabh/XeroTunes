@@ -45,6 +45,67 @@ matrix entry, uncomment the `macos-latest` one below it, and uncomment the
 matching `run:` line on the Publish step. Test the result on a real Intel Mac
 before it goes to a stable tag; the runner cannot do that for you.
 
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md) has a section for every release, betas included,
+newest first. New entries go under `## [Unreleased]` at the top. A section
+isn't edited once its tag ships.
+
+The same text shows up in:
+
+- The GitHub release body. The `os-floor` job copies the tag's section into the
+  release before attaching `os-floor.json`, so the app never offers a release
+  without notes. A tag with no section gets a warning in the run and a release
+  with no notes.
+- Settings > About > Changelog, which bundles the file and shows the latest 5
+  releases. Beta builds show betas and stables. Stable builds skip betas once a
+  stable release exists, and show them until then.
+
+To cut a beta, rename `## [Unreleased]` to the version without the `v`, plus the
+date, commit, then tag. The workflow finds the section by that exact heading:
+
+```
+## [0.61.0-beta.1] - 2026-11-23
+```
+
+Conventions, which the `changelog-writing` skill follows instead of asking:
+
+- Readers are people using the app, not developers. Name what they see and
+  where it is (Settings > Library > Music Sources), never modules or functions.
+- Keep a Changelog 1.1.0 categories: Added, Changed, Deprecated, Removed, Fixed,
+  Security. Leave out empty ones.
+- Every entry is one short line starting with a past-tense verb ("Added",
+  "Fixed"). Say what changed, not how; the app's own dialogs carry the details.
+- Commit subjects are free-form, so entries come from the diff. No numbers that
+  nobody measured.
+- English only, not translated.
+- A beta's section lists only what changed since the previous tag.
+- The in-app Changelog reads only `##` and `###` headings, `- ` items (wrapped
+  lines indented two spaces), paragraphs, and `code`, `**bold**` and `https://`
+  links. Anything else shows as plain text, so no link reference definitions.
+
+### Stable releases
+
+Stable users never ran the betas, so a stable section describes the net change
+since the previous stable and repeats what its betas listed. On `development`,
+before merging to `main`:
+
+1. Replace `## [Unreleased]` with a `## [x.y.z] - date` section, written from
+   the beta sections since the last stable plus the Unreleased entries. The
+   beta sections stay below it.
+2. Reduce rather than concatenate. A bug introduced and fixed within the betas
+   gets no entry, and neither does anything added and then removed. A feature
+   changed across betas gets one entry describing how it ended up. A fix for a
+   bug the last stable had stays. Order by impact, not by beta.
+3. Check each entry against `git diff <last stable tag>..HEAD`. The
+   `changelog-writing` skill does this when given that range and the beta
+   sections.
+4. Merge to `main` and tag there.
+
+The first stable has no earlier stable to measure from, and a list of changes
+since 0.10.0-beta.1 would describe the whole app. Open its section with "First
+stable release" and say what XeroTunes does.
+
 ## Secrets per channel
 
 Channel-specific values live in two GitHub **Environments**, `beta` and
