@@ -120,7 +120,7 @@ async function runCheck(): Promise<void> {
 }
 
 /** The only path that answers with a dialog; timed checks stay silent. */
-async function manualCheck(): Promise<void> {
+export async function manualCheck(): Promise<void> {
   await checkForUpdate();
   const { state, version, action, hint, needs } = status;
   const current = app.getVersion();

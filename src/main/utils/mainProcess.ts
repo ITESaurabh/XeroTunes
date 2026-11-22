@@ -44,6 +44,7 @@ import {
   CastLoadPayload,
 } from '../modules/Cast';
 import { startStreamMeta, stopStreamMeta, StreamMetadata } from '../modules/StreamMeta';
+import { initSignInProtection } from '../modules/SignInProtection';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db: any = dbModule;
 
@@ -73,7 +74,6 @@ import {
   cancelSync,
   installSourceAuth,
   isSyncing,
-  sealStoredTokens,
   stripStoredLogins,
   syncAllSources,
   withSourceLogin,
@@ -3285,7 +3285,7 @@ export default function mainIpcs(mainWin, overlayEntry: string) {
     snapshotFavourites,
     restoreFavourites: restoreFavouritesFromBackup,
   });
-  sealStoredTokens();
+  initSignInProtection();
   stripStoredLogins();
   // Stored addresses carry no login; the renderer's <audio> and <img> get it from these hooks.
   installSourceAuth(mainWin.webContents.session);

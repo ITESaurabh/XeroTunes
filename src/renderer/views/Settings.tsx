@@ -65,6 +65,7 @@ import shuffleIcon from '@iconify/icons-fluent/arrow-shuffle-24-regular';
 import moodIcon from '@iconify/icons-fluent/headphones-sound-wave-24-regular';
 import lyricsIcon from '@iconify/icons-fluent/text-quote-24-regular';
 import historyIcon from '@iconify/icons-fluent/history-24-regular';
+import lockIcon from '@iconify/icons-fluent/lock-closed-24-regular';
 import peekUpSmile from '../../assets/mascot/rei-peek-up-smile.png';
 import GnomeCloseIcon from 'svg-react-loader?name=GnomeCloseIcon!../../assets/icons/gnome-close.svg';
 import GnomeMinimizeIcon from 'svg-react-loader?name=GnomeMinimizeIcon!../../assets/icons/gnome-minimize.svg';
@@ -139,12 +140,16 @@ import XeroLogoMark from '../components/XeroLogoMark';
 import { checkForUpdate, useUpdateStatus } from '../utils/useUpdateStatus';
 import { gnomeCircleBgFor, gnomeIconFilterFor } from '../components/Titlebar';
 import { useConfirm, ConfirmOptions } from '../utils/useConfirm';
-import { APP_DISPLAY_NAME, OS_MAC, SITE_URL } from '../../config/constants';
+import { APP_DISPLAY_NAME, OS_MAC, OS_WINDOWS, SITE_URL } from '../../config/constants';
 import type {
   ScrobblerStatus,
   ScrobbleProvider,
   ProviderStatus,
 } from '../../main/modules/Scrobbler';
+import type {
+  SignInProtectionResult,
+  SignInProtectionStatus,
+} from '../../main/modules/SignInProtection';
 import os from 'os';
 
 interface AppInfo {
@@ -792,7 +797,11 @@ const Settings: React.FC = () => {
     message: string;
   } | null>(null);
   const [awaitingApproval, setAwaitingApproval] = React.useState<ScrobbleProvider | null>(null);
-  const [signInsProtected, setSignInsProtected] = React.useState(true);
+  const [signInProtection, setSignInProtection] = React.useState<SignInProtectionStatus | null>(
+    null
+  );
+  const [signInProtectionBusy, setSignInProtectionBusy] = React.useState(false);
+  const [signInProtectionNote, setSignInProtectionNote] = React.useState<string | null>(null);
   const [pauseOnOutputChange, setPauseOnOutputChangeState] = React.useState<boolean>(
     getPauseOnAudioOutputChange()
   );
@@ -891,6 +900,48 @@ const Settings: React.FC = () => {
   const theme = useTheme();
   const currOs = os.type();
 
+  const signInProtectionHint =
+    signInProtection && !signInProtection.available && !signInProtection.enabled
+      ? 'Unavailable: no system keyring, such as GNOME Keyring or KWallet, was found on this computer.'
+      : currOs === OS_MAC
+        ? 'Server and scrobbling sign-ins are encrypted with a key kept in your macOS Keychain. macOS may ask for your login password to allow it, including after an update.'
+        : currOs === OS_WINDOWS
+          ? "Server and scrobbling sign-ins are encrypted with your Windows account, so another account or a copied disk can't read them."
+          : 'Server and scrobbling sign-ins are encrypted with a key kept in your system keyring.';
+
+  const handleSignInProtection = async (on: boolean): Promise<void> => {
+    if (on && currOs === OS_MAC) {
+      const ok = await confirm({
+        title: 'Encrypt saved sign-ins',
+        message: 'macOS may ask for your login password',
+        detail:
+          'The encryption key is kept in your Keychain. If macOS asks, enter your login password and choose Always Allow. It can ask again after an update.',
+        confirmLabel: 'Continue',
+      });
+      if (!ok) return;
+    }
+    setSignInProtectionBusy(true);
+    setSignInProtectionNote(null);
+    try {
+      const result = (await invokeEventToMainProcess('set-sign-in-protection', {
+        enabled: on,
+      })) as SignInProtectionResult;
+      setSignInProtection({ enabled: result.enabled, available: result.available });
+      const n = result.locked;
+      if (!result.success) {
+        setSignInProtectionNote(result.error ?? 'The setting could not be changed.');
+      } else if (n) {
+        setSignInProtectionNote(
+          `${n === 1 ? '1 sign-in' : `${n} sign-ins`} couldn't be decrypted, so ${n === 1 ? 'it stays' : 'they stay'} encrypted. Sign in again under Music Sources or Scrobbling to replace ${n === 1 ? 'it' : 'them'}.`
+        );
+      }
+    } catch (err) {
+      setSignInProtectionNote(String(err));
+    } finally {
+      setSignInProtectionBusy(false);
+    }
+  };
+
   React.useEffect(() => {
     dispatch({ type: 'SET_PLAYER_BAR_VISIBLE', payload: false });
     return () => {
@@ -917,8 +968,8 @@ const Settings: React.FC = () => {
   }, [invokeEventToMainProcess]);
 
   React.useEffect(() => {
-    invokeEventToMainProcess('are-sign-ins-protected')
-      .then((p: unknown) => setSignInsProtected(p !== false))
+    invokeEventToMainProcess('get-sign-in-protection')
+      .then((p: unknown) => setSignInProtection(p as SignInProtectionStatus))
       .catch(() => undefined);
     // Submissions fail in the background with no event to listen for.
     const refresh = () => {
@@ -2077,11 +2128,34 @@ const Settings: React.FC = () => {
                 }
               />
             ))}
-            {!signInsProtected && (
+          </List>
+          <List
+            subheader={
+              <ListSubheader color="inherit" sx={subheaderSx}>
+                Privacy
+              </ListSubheader>
+            }
+          >
+            <ListItem>
+              <ListItemIcon>
+                <Icon icon={lockIcon} width={'2rem'} />
+              </ListItemIcon>
+              <ListItemText primary="Encrypt saved sign-ins" secondary={signInProtectionHint} />
+              <XTSwitch
+                checked={!!signInProtection?.enabled}
+                disabled={
+                  !signInProtection ||
+                  signInProtectionBusy ||
+                  (!signInProtection.available && !signInProtection.enabled)
+                }
+                onChange={e => void handleSignInProtection(e.target.checked)}
+                sx={{ mr: 0.5 }}
+              />
+            </ListItem>
+            {signInProtectionNote && (
               <ListItem>
                 <Typography variant="caption" color="warning.main">
-                  No system keyring found, so scrobbling sign-ins are saved unencrypted on this
-                  computer.
+                  {signInProtectionNote}
                 </Typography>
               </ListItem>
             )}

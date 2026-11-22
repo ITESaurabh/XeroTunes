@@ -11,7 +11,7 @@ import { MOOD_VERSION } from '../../config/mood';
 import { getProvider } from '../sources/registry';
 import { buildTrackIndex, matchFavourite as matchTrack } from './favouriteMatch';
 import { mergeKnown } from './mergeKnown';
-import { openSecret, secretsProtected } from './secrets';
+import { openSecret, protectionEnabled } from './secrets';
 import type { FavouriteEntry } from './mainProcess';
 
 // An SQLite Archive (the `sqlar` table `sqlite3 -A` reads), so no zip library.
@@ -82,11 +82,11 @@ const total = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
 const missingNote = (n: number) => (n ? ` (${n} not in this library yet)` : '');
 const skippedNote = (n: number, why: string) => (n ? `, ${n} skipped (${why})` : '');
 
-/** Without a keyring a "sealed" token is readable by anyone, so it stays out. */
+/** Unencrypted sign-ins stay out of backups. */
 function scrobblerFile(): Buffer | null {
   if (!fs.existsSync(SCROBBLER_FILE)) return null;
   const data = fs.readFileSync(SCROBBLER_FILE);
-  if (secretsProtected()) return data;
+  if (protectionEnabled()) return data;
   const state = JSON.parse(data.toString('utf8')) as Record<string, { credential?: unknown }>;
   for (const p of Object.values(state)) if (p && typeof p === 'object') p.credential = null;
   return json(state);
@@ -415,7 +415,7 @@ function partsIO(deps: FavouriteDeps): Record<BackupPart, PartIO> {
     servers: {
       count: () => total('SELECT COUNT(*) AS n FROM Source'),
       save: add => {
-        const keep = secretsProtected();
+        const keep = protectionEnabled();
         const rows = db
           .prepare(
             'SELECT Type, Name, BaseUrl, Username, UserId, AccessToken, DeviceId, ConfigJson FROM Source'
@@ -450,7 +450,7 @@ function partsIO(deps: FavouriteDeps): Record<BackupPart, PartIO> {
           const rest = [str(r.UserId), token, str(r.DeviceId), str(r.ConfigJson)];
           insert.run(type, str(r.Name), baseUrl, username, ...rest);
           added++;
-          // Sealed on another computer, or left out by one without a keyring.
+          // Sealed on another computer, or left out because it was saved unencrypted.
           if (token ? openSecret(token) === null : provider.needsAccount || provider.tokenAuth) {
             locked++;
           }
@@ -565,7 +565,7 @@ export function registerBackupIpc(mainWin: BrowserWindow, deps: FavouriteDeps): 
     try {
       const manifest = writeBackup(pick.filePath, selected, io);
       const signInsLeftOut =
-        !secretsProtected() && (manifest.counts.servers || manifest.counts.scrobbling);
+        !protectionEnabled() && (manifest.counts.servers || manifest.counts.scrobbling);
       const { response } = await dialog.showMessageBox(mainWin, {
         type: 'info',
         title: 'Back Up',
@@ -573,7 +573,7 @@ export function registerBackupIpc(mainWin: BrowserWindow, deps: FavouriteDeps): 
         detail:
           pick.filePath +
           (signInsLeftOut
-            ? '\n\nSign-ins were left out: this computer has no system keyring to encrypt them, so you sign in again after a restore.'
+            ? '\n\nSign-ins were left out because they are saved unencrypted, so you sign in again after a restore. Turn on "Encrypt saved sign-ins" in Settings to keep them in backups.'
             : ''),
         buttons: ['OK', 'Show in Folder'],
         noLink: true,

@@ -27,7 +27,7 @@ import {
 } from './registry';
 import { applyLibrarySettings, splitArtists } from '../utils/libraryRules';
 import { capCover } from '../utils/coverArt';
-import { isSealed, openSecret, sealSecret } from '../utils/secrets';
+import { isSealed, openSecret, protectionEnabled, sealSecret } from '../utils/secrets';
 import type {
   ConnectInput,
   MetadataMode,
@@ -801,17 +801,29 @@ export function removeSource(id: number): { success: boolean } {
   return { success: true };
 }
 
-/** Encrypts tokens older versions saved in plain text. Does nothing before `ready`. */
-export function sealStoredTokens(): void {
-  const rows = db
+const storedTokens = () =>
+  db
     .prepare('SELECT Id, AccessToken FROM Source WHERE AccessToken IS NOT NULL')
     .all() as Array<{ Id: number; AccessToken: string }>;
+
+export const hasSealedTokens = (): boolean => storedTokens().some(r => isSealed(r.AccessToken));
+
+/**
+ * Seals or opens tokens to match the setting; returns how many the keyring wouldn't open.
+ * Does nothing before `ready`.
+ */
+export function resealStoredTokens(): number {
+  const protect = protectionEnabled();
   const update = db.prepare('UPDATE Source SET AccessToken = ? WHERE Id = ?');
-  for (const { Id, AccessToken } of rows) {
-    if (isSealed(AccessToken)) continue;
-    const sealed = sealSecret(AccessToken);
-    if (isSealed(sealed)) update.run(sealed, Id);
+  let locked = 0;
+  for (const { Id, AccessToken } of storedTokens()) {
+    if (isSealed(AccessToken) === protect) continue;
+    const next = protect ? sealSecret(AccessToken) : openSecret(AccessToken);
+    if (next === null) locked++;
+    else if (next !== AccessToken) update.run(next, Id);
   }
+  refreshSourceAuth();
+  return locked;
 }
 
 // ── Request auth ─────────────────────────────────────────────────────────────

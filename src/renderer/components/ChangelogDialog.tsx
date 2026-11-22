@@ -4,9 +4,14 @@ import AppDialog from './AppDialog';
 import changelog from '../../../CHANGELOG.md';
 import { latestReleases, parseChangelog, parseInline } from '../utils/changelog';
 import { useIpc } from '../state/ipc';
+import { CHANNEL } from '../../config/channel';
+import { REPO_URL } from '../../config/constants';
 
 const ALL = parseChangelog(changelog);
 const SHOWN_RELEASES = 5;
+// Betas are tagged on development; main only gets the file with a stable release.
+const BRANCH = CHANNEL === 'stable' ? 'main' : 'development';
+const FULL_CHANGELOG_URL = `${REPO_URL}/blob/${BRANCH}/CHANGELOG.md`;
 
 interface ChangelogDialogProps {
   open: boolean;
@@ -48,7 +53,16 @@ const ChangelogDialog: React.FC<ChangelogDialogProps> = ({ open, onClose, stable
       open={open}
       onClose={onClose}
       title="Changelog"
-      actions={<Button onClick={onClose}>Close</Button>}
+      actions={
+        <>
+          <Button
+            onClick={() => sendEventToMainProcess('open-external', { url: FULL_CHANGELOG_URL })}
+          >
+            Full Changelog
+          </Button>
+          <Button onClick={onClose}>Close</Button>
+        </>
+      }
     >
       <Stack spacing={1}>
         {blocks.map((block, i) => {

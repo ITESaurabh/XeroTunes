@@ -17,6 +17,7 @@ import path from 'path';
 import { app, BrowserWindow, Menu, shell } from 'electron';
 import type { MenuItemConstructorOptions } from 'electron';
 import { DISCORD_URL, REPO_URL, SITE_URL } from '../../config/constants';
+import { manualCheck } from '../modules/Updater';
 
 /** Resolved late: a menu item can be clicked while the window is hidden or gone. */
 type WinGetter = () => BrowserWindow | null;
@@ -53,6 +54,7 @@ function template(getWin: WinGetter): MenuItemConstructorOptions[] {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { label: 'Check for Updates…', click: () => void manualCheck() },
         { type: 'separator' },
         // Built by hand: the `appMenu` role has no way to add a Preferences item.
         { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: command(getWin, 'preferences') },
@@ -133,6 +135,7 @@ function template(getWin: WinGetter): MenuItemConstructorOptions[] {
         { label: `${app.name} on GitHub`, click: () => void shell.openExternal(REPO_URL) },
         { label: 'Discord (Support)', click: () => void shell.openExternal(DISCORD_URL) },
         { type: 'separator' },
+        { label: 'Changelog', click: command(getWin, 'changelog') },
         { label: 'Report an Issue…', click: () => void shell.openExternal(`${REPO_URL}/issues`) },
       ],
     },

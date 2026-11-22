@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.66.0-beta.1] - 2026-11-22
+
+### Added
+
+- Added a Full Changelog button to the Changelog.
+- Added Changelog to the Help menu and Check for Updates to the app menu on macOS.
+
+### Changed
+
+- Changed sign-in encryption to an opt-in setting in Settings > Privacy; installs already using it keep it on.
+- Changed backups to include server and scrobbling sign-ins only when Encrypt saved sign-ins is on.
+
+### Fixed
+
+- Fixed the app crash on macOS.
+- Fixed opening Settings asking for the macOS login password.
+
 ## [0.65.0-beta.1] - 2026-11-22
 
 ### Added

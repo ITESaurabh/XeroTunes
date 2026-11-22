@@ -9,7 +9,7 @@ import {
   LIBREFM_API_SECRET,
 } from '../../config/constants';
 import { lastfmSignature } from '../utils/scrobbleSig';
-import { isSealed, openSecret, sealSecret } from '../utils/secrets';
+import { isSealed, openSecret, protectionEnabled, sealSecret } from '../utils/secrets';
 import {
   primaryArtist,
   audioscrobblerParams,
@@ -144,20 +144,35 @@ function load(): ScrobblerState {
     /* missing or corrupt: start clean */
   }
   const next = {} as ScrobblerState;
-  let resealed = false;
   for (const p of SCROBBLE_PROVIDERS) {
     next[p] = { ...emptyProvider(), ...(parsed[p] ?? {}) };
     if (!Array.isArray(next[p].queue)) next[p].queue = [];
-    const { credential } = next[p];
-    if (credential && !isSealed(credential)) {
-      const sealed = sealSecret(credential);
-      resealed ||= isSealed(sealed);
-      next[p].credential = sealed;
-    }
   }
   state = next;
-  if (resealed) save();
   return state;
+}
+
+export const hasSealedScrobblerCredential = (): boolean =>
+  SCROBBLE_PROVIDERS.some(p => isSealed(load()[p].credential));
+
+export function resealScrobblerCredentials(): number {
+  const s = load();
+  const protect = protectionEnabled();
+  let locked = 0;
+  let changed = false;
+  for (const p of SCROBBLE_PROVIDERS) {
+    const { credential } = s[p];
+    if (!credential || isSealed(credential) === protect) continue;
+    const next = protect ? sealSecret(credential) : openSecret(credential);
+    if (next === null) {
+      locked++;
+    } else if (next !== credential) {
+      s[p].credential = next;
+      changed = true;
+    }
+  }
+  if (changed) save();
+  return locked;
 }
 
 /** 'retry' when the keyring won't decrypt, so the queue waits for it to unlock. */

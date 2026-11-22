@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { store } from './utils/store';
 import { getThemeSettings, getOnboardingComplete, getStartInVinylMode } from './utils/LocStoreUtil';
 import { moodScan } from './utils/moodScan';
@@ -16,6 +16,8 @@ import { QUERY_KEYS } from './constants/queryKeys';
 import { useKeyboardShortcuts, SHORTCUTS } from './utils/useKeyboardShortcuts';
 import { useMenuCommands } from './utils/useMenuCommands';
 import { APP_DISPLAY_NAME } from '../config/constants';
+import { CHANNEL } from '../config/channel';
+import ChangelogDialog from './components/ChangelogDialog';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -162,7 +164,9 @@ const App = () => {
       : APP_DISPLAY_NAME;
   }, [state.track, state.queueIndex]);
 
-  useMenuCommands();
+  const [changelogOpen, setChangelogOpen] = useState(false);
+  const showChangelog = useCallback(() => setChangelogOpen(true), []);
+  useMenuCommands({ onShowChangelog: showChangelog });
 
   useKeyboardShortcuts(
     [
@@ -186,6 +190,11 @@ const App = () => {
             <Onboarding onFinish={() => setOnboardingComplete(true)} />
           )}
         </ErrorBoundary>
+        <ChangelogDialog
+          open={changelogOpen}
+          onClose={() => setChangelogOpen(false)}
+          stableOnly={CHANNEL === 'stable'}
+        />
       </ThemeProvider>
     </QueryClientProvider>
   );

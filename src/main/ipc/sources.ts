@@ -1,7 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from 'electron';
 import * as sources from '../sources/sync';
 import { getProvider, listProviders } from '../sources/registry';
-import { secretsProtected } from '../utils/secrets';
+import { getSignInProtection, setSignInProtection } from '../modules/SignInProtection';
 
 export function registerSourceIpc(
   mainWin: BrowserWindow,
@@ -11,7 +11,10 @@ export function registerSourceIpc(
 ): void {
   ipcMain.handle('get-sources', () => sources.listSources());
   ipcMain.handle('get-source-providers', () => listProviders());
-  ipcMain.handle('are-sign-ins-protected', () => secretsProtected());
+  ipcMain.handle('get-sign-in-protection', () => getSignInProtection());
+  ipcMain.handle('set-sign-in-protection', (_e, { enabled }) =>
+    setSignInProtection(enabled === true)
+  );
   ipcMain.handle('check-sources', () => sources.checkSources());
   ipcMain.handle('cancel-sync', () => sources.cancelSync());
   // For a renderer that reloaded mid-sync and so missed 'sync-state'.

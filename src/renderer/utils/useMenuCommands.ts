@@ -21,7 +21,11 @@ function steppedScale(current: number, direction: 1 | -1): number {
   return next ?? current;
 }
 
-export function useMenuCommands(): void {
+interface MenuCommandHandlers {
+  onShowChangelog: () => void;
+}
+
+export function useMenuCommands({ onShowChangelog }: MenuCommandHandlers): void {
   const navigate = useNavigate();
   const confirm = useConfirm();
   const { invokeEventToMainProcess } = useIpc();
@@ -72,11 +76,15 @@ export function useMenuCommands(): void {
           setWindowScale(1);
           return;
 
+        case 'changelog':
+          onShowChangelog();
+          return;
+
         default:
           console.warn('Unknown menu command:', command);
       }
     },
-    [confirm, invokeEventToMainProcess, navigate]
+    [confirm, invokeEventToMainProcess, navigate, onShowChangelog]
   );
 
   useEffect(() => {
